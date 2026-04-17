@@ -1160,11 +1160,11 @@ function addGroupedEntry(id) {
     document.getElementById('grouped-entry-notes').value = '';
     const withGroup = document.getElementById('grouped-entry-with-group');
     const withSel = document.getElementById('grouped-entry-with');
-    const isChildExpense = e.type !== 'personal' && children.some(c => c.id === e.type);
-    if (withGroup && withSel && isChildExpense && children.length >= 2) {
+    if (withGroup && withSel && children.length >= 2) {
         const allLabel = children.length === 2 ? 'Ambos' : 'Todos';
-        withSel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('') + `<option value="both">${allLabel}</option>`;
-        withSel.value = e.type;
+        const childOpts = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        withSel.innerHTML = childOpts + `<option value="both">${allLabel}</option><option value="personal">Pessoal</option>`;
+        withSel.value = e.type || 'personal';
         withGroup.style.display = 'block';
     } else if (withGroup) {
         withGroup.style.display = 'none';
@@ -1330,8 +1330,7 @@ function renderExpenseItem(e) {
     };
     const groupedBreakdown = (() => {
         if (!e.isGrouped || !Array.isArray(e.entries) || e.entries.length === 0) return '';
-        const isChildExpense = e.type !== 'personal' && children.some(c => c.id === e.type);
-        if (!isChildExpense || children.length < 2) return '';
+        if (children.length < 2) return '';
         const totals = {};
         e.entries.forEach(en => {
             const t = en.type || e.type;
@@ -1351,7 +1350,7 @@ function renderExpenseItem(e) {
             ${[...e.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((entry, idx) => {
                 const realIdx = e.entries.indexOf(entry);
                 const tLabel = entryTypeLabel(entry.type || e.type);
-                const showTag = tLabel && children.length >= 2 && e.type !== 'personal';
+                const showTag = tLabel && children.length >= 2;
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:0.78rem;border-bottom:1px solid var(--border)">
                     <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}${showTag ? ` · <span style="color:var(--primary);font-weight:600">${tLabel}</span>` : ''}</span>
                     <span style="display:flex;align-items:center;gap:6px">
