@@ -17,6 +17,7 @@ let fixedIncomeStatus = [];  // monthly instances { fixedIncomeId, month, status
 let customCategories = [];
 let customIncCategories = [];
 let children = [];           // { id, name, coParentName, splitPct }
+let activeChildId = null;
 let currentDate = new Date();
 let pendingAttachment = null;
 let pendingIncomeAttachment = null;
@@ -3523,13 +3524,13 @@ function saveChild(event) {
         children.push(child);
         if (!activeChildId) activeChildId = child.id;
     }
-    saveData();
+    try { saveData(); } catch (e) { console.error('saveChild/saveData', e); }
     closeChildModal();
-    renderChildrenList();
-    populateExpenseTypeOptions();
-    populateFixedTypeOptions();
-    populateFilterTypes();
-    updateAll();
+    try { renderChildrenList(); } catch (e) { console.error('saveChild/renderChildrenList', e); }
+    try { populateExpenseTypeOptions(); } catch (e) { console.error('saveChild/populateExpenseTypeOptions', e); }
+    try { populateFixedTypeOptions(); } catch (e) { console.error('saveChild/populateFixedTypeOptions', e); }
+    try { populateFilterTypes(); } catch (e) { console.error('saveChild/populateFilterTypes', e); }
+    try { updateAll(); } catch (e) { console.error('saveChild/updateAll', e); }
     showToast(id ? 'Filho atualizado!' : 'Filho adicionado!');
 }
 

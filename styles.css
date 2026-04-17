@@ -478,6 +478,9 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     justify-content: center;
 }
 .modal.active { display: flex; }
+/* Confirmation modal + child-modal always appear above other modals */
+#modal-confirm { z-index: 400; }
+#modal-child, #fixed-modal, #modal-fixed-income, #modal-cat, #modal-grouped-entry { z-index: 300; }
 .modal-content {
     background: var(--card-bg);
     border-radius: 24px 24px 0 0;
