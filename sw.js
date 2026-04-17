@@ -1,10 +1,10 @@
-const CACHE_NAME = 'despesas-v2';
+const CACHE_NAME = 'despesas-v3';
 const ASSETS = [
-    './',
-    './index.html',
-    './styles.css',
-    './app.js',
-    './manifest.json'
+    '/despesas/',
+    '/despesas/index.html',
+    '/despesas/styles.css',
+    '/despesas/app.js',
+    '/despesas/manifest.json'
 ];
 
 // Install
