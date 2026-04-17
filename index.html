@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#6C5CE7">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Despesas">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <title>Despesas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <h1 id="header-title">Despesas</h1>
+            <div class="header-actions">
+                <button onclick="showSettingsModal()" class="btn-icon" title="Definicoes"><i class="fas fa-gear"></i></button>
+                <button onclick="showExportMenu()" class="btn-icon" title="Exportar"><i class="fas fa-file-export"></i></button>
+                <button onclick="showImportDialog()" class="btn-icon" title="Importar"><i class="fas fa-file-import"></i></button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="tab-nav">
+            <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
+                <i class="fas fa-chart-pie"></i><span>Resumo</span>
+            </button>
+            <button class="tab" data-tab="expenses" onclick="switchTab('expenses')">
+                <i class="fas fa-receipt"></i><span>Despesas</span>
+            </button>
+            <button class="tab" data-tab="income" onclick="switchTab('income')">
+                <i class="fas fa-arrow-trend-up"></i><span>Receitas</span>
+            </button>
+            <button class="tab" data-tab="children" onclick="switchTab('children')">
+                <i class="fas fa-children"></i><span>Filhos</span>
+            </button>
+            <button class="tab" data-tab="reports" onclick="switchTab('reports')">
+                <i class="fas fa-chart-bar"></i><span>Relatorios</span>
+            </button>
+        </nav>
+
+        <!-- Dashboard Tab -->
+        <section id="tab-dashboard" class="tab-content active">
+            <div class="month-selector">
+                <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
+                <span id="current-month-label"></span>
+                <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <!-- Balance KPI -->
+            <div class="card balance-card" id="balance-card">
+                <div class="balance-header">
+                    <h3><i class="fas fa-scale-balanced"></i> Balanco do Mes</h3>
+                </div>
+                <div class="balance-kpis">
+                    <div class="kpi income-kpi">
+                        <i class="fas fa-arrow-down"></i>
+                        <div>
+                            <span class="kpi-label">Entradas</span>
+                            <span class="kpi-value" id="kpi-income">0,00 EUR</span>
+                        </div>
+                    </div>
+                    <div class="kpi expense-kpi">
+                        <i class="fas fa-arrow-up"></i>
+                        <div>
+                            <span class="kpi-label">Saidas</span>
+                            <span class="kpi-value" id="kpi-expenses">0,00 EUR</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="balance-result">
+                    <span>Saldo Real</span>
+                    <span class="balance-value" id="kpi-balance">0,00 EUR</span>
+                </div>
+                <div class="forecast-chips" id="balance-fixed-row" style="display:none">
+                    <div class="forecast-chip forecast-chip-income">
+                        <div class="forecast-chip-icon"><i class="fas fa-arrow-down"></i></div>
+                        <div class="forecast-chip-body">
+                            <div class="forecast-chip-label">Por receber</div>
+                            <div class="forecast-chip-value" id="kpi-income-pending">0,00 EUR</div>
+                        </div>
+                    </div>
+                    <div class="forecast-chip forecast-chip-expense">
+                        <div class="forecast-chip-icon"><i class="fas fa-lock"></i></div>
+                        <div class="forecast-chip-body">
+                            <div class="forecast-chip-label">Cativo</div>
+                            <div class="forecast-chip-value" id="kpi-fixed-pending">0,00 EUR</div>
+                        </div>
+                    </div>
+                    <div class="forecast-chip forecast-chip-balance" id="forecast-chip-balance">
+                        <div class="forecast-chip-icon"><i class="fas fa-scale-balanced"></i></div>
+                        <div class="forecast-chip-body">
+                            <div class="forecast-chip-label" id="kpi-available-label">Saldo projetado</div>
+                            <div class="forecast-chip-value" id="kpi-available">0,00 EUR</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="balance-bar-container">
+                    <div class="balance-bar">
+                        <div class="balance-bar-spent" id="balance-bar-spent"></div>
+                        <div class="balance-bar-fixed" id="balance-bar-fixed"></div>
+                    </div>
+                    <div class="balance-bar-label" id="balance-bar-label">0% gasto</div>
+                </div>
+            </div>
+
+            <div class="summary-cards">
+                <div class="card personal-card">
+                    <div class="card-icon"><i class="fas fa-user"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Pessoal</span>
+                        <span class="card-value" id="total-personal">0,00 EUR</span>
+                    </div>
+                </div>
+                <div class="card laura-card">
+                    <div class="card-icon"><i class="fas fa-children"></i></div>
+                    <div class="card-info">
+                        <span class="card-label" id="children-card-label">Filhos</span>
+                        <span class="card-value" id="total-laura">0,00 EUR</span>
+                    </div>
+                </div>
+                <div class="card split-card">
+                    <div class="card-icon"><i class="fas fa-divide"></i></div>
+                    <div class="card-info">
+                        <span class="card-label" id="split-card-label">Co-prog. devem</span>
+                        <span class="card-value" id="total-split">0,00 EUR</span>
+                    </div>
+                </div>
+                <div class="card attachments-card">
+                    <div class="card-icon"><i class="fas fa-paperclip"></i></div>
+                    <div class="card-info">
+                        <span class="card-label">Anexos</span>
+                        <span class="card-value" id="total-attachments">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- YTD strip on dashboard -->
+            <div class="card" id="ytd-strip" style="display:none"></div>
+
+            <!-- Spending Pace -->
+            <div class="card" id="spending-pace" style="display:none"></div>
+
+            <!-- Budget Alerts -->
+            <div class="card" id="budget-alerts" style="display:none"></div>
+
+            <!-- Category Chart -->
+            <div class="card chart-card">
+                <h3>Gastos por Categoria</h3>
+                <div id="category-chart"></div>
+                <div id="category-legend"></div>
+            </div>
+
+            <!-- Comparison Indicator -->
+            <div class="card comparison-card">
+                <h3>Comparacao com Mes Anterior</h3>
+                <div id="month-comparison"></div>
+            </div>
+
+            <!-- Top expenses -->
+            <div class="card">
+                <h3>Maiores Gastos do Mes</h3>
+                <div id="top-expenses"></div>
+            </div>
+        </section>
+
+        <!-- Expenses Tab -->
+        <section id="tab-expenses" class="tab-content">
+            <div class="month-selector">
+                <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
+                <span id="expenses-month-label"></span>
+                <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <div class="filter-bar">
+                <select id="filter-category" onchange="renderExpenses()">
+                    <option value="">Todas categorias</option>
+                </select>
+                <select id="filter-type" onchange="renderExpenses()">
+                    <option value="">Todos</option>
+                    <option value="personal">Pessoal</option>
+                </select>
+            </div>
+
+            <!-- Quick Add Bar -->
+            <div id="quick-add-bar" style="display:none"></div>
+
+            <!-- Fixed Expenses This Month -->
+            <div id="fixed-month-section" class="fixed-month-section" style="display:none">
+                <div class="fixed-month-header">
+                    <h3><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
+                    <span id="fixed-month-total" class="fixed-month-total"></span>
+                </div>
+                <div id="fixed-month-list"></div>
+                <div style="padding:8px 12px">
+                    <button onclick="openFixedManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-cog"></i> Gerir despesas fixas</button>
+                </div>
+            </div>
+            <!-- When no fixed expenses exist -->
+            <div id="no-fixed-expenses-cta" style="display:none;padding:8px 0">
+                <button onclick="openFixedManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
+            </div>
+
+            <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center">
+                <span>Outras Despesas</span>
+                <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+            </h3>
+            <div id="expenses-list" class="expenses-list"></div>
+        </section>
+
+        <!-- Income Tab -->
+        <section id="tab-income" class="tab-content">
+            <div class="month-selector">
+                <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
+                <span id="income-month-label"></span>
+                <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <div class="card income-summary-card">
+                <h3><i class="fas fa-coins"></i> Receitas do Mes</h3>
+                <div class="split-details">
+                    <div class="split-row">
+                        <span>Total receitas</span>
+                        <span id="income-total" class="bold" style="color:var(--success)">0,00 EUR</span>
+                    </div>
+                    <div class="split-row">
+                        <span>Total despesas</span>
+                        <span id="income-expenses-total" class="bold" style="color:var(--danger)">0,00 EUR</span>
+                    </div>
+                    <div class="split-row highlight">
+                        <span>Saldo</span>
+                        <span id="income-balance" class="bold">0,00 EUR</span>
+                    </div>
+                    <div class="split-row">
+                        <span>Taxa de poupanca</span>
+                        <span id="income-savings-rate" class="bold">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Carry-over from previous month -->
+            <div id="carry-over-section" class="fixed-month-section" style="display:none;background:#E3F2FD;border-color:#BBDEFB">
+                <div class="fixed-month-header">
+                    <h3 style="color:#1565C0"><i class="fas fa-arrow-right-arrow-left"></i> Saldo Transitado</h3>
+                    <span id="carry-over-amount" class="fixed-month-total" style="color:#1565C0"></span>
+                </div>
+                <div style="font-size:0.75rem;color:var(--text-light);padding:0 12px 8px">Saldo positivo do mes anterior</div>
+            </div>
+
+            <!-- Fixed Income This Month -->
+            <div id="fixed-income-section" class="fixed-month-section" style="display:none;background:#E8F5E9;border-color:#C8E6C9">
+                <div class="fixed-month-header">
+                    <h3 style="color:#2E7D32"><i class="fas fa-repeat"></i> Receitas Fixas do Mes</h3>
+                    <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
+                </div>
+                <div id="fixed-income-list"></div>
+                <div style="padding:8px 12px">
+                    <button onclick="openFixedIncomeManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-cog"></i> Gerir receitas fixas</button>
+                </div>
+            </div>
+            <!-- When no fixed incomes exist -->
+            <div id="no-fixed-incomes-cta" style="display:none;padding:8px 0 0 0">
+                <button onclick="openFixedIncomeManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar receitas fixas</button>
+            </div>
+
+            <div class="income-add-bar">
+                <button onclick="showAddIncome()" class="btn btn-primary btn-block">
+                    <i class="fas fa-plus"></i> Adicionar Receita
+                </button>
+            </div>
+
+            <h3 class="section-title">Receitas</h3>
+            <div id="income-list" class="expenses-list"></div>
+        </section>
+
+        <!-- Children Tab -->
+        <section id="tab-children" class="tab-content">
+            <div class="month-selector">
+                <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
+                <span id="children-month-label"></span>
+                <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div id="children-content"></div>
+        </section>
+
+        <!-- Reports Tab -->
+        <section id="tab-reports" class="tab-content">
+            <div class="month-selector">
+                <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
+                <span id="reports-month-label"></span>
+                <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <!-- Income vs Expenses KPI -->
+            <div class="card">
+                <h3><i class="fas fa-scale-balanced"></i> Entradas vs Saidas (6 meses)</h3>
+                <div id="income-vs-expenses-chart"></div>
+            </div>
+
+            <!-- Monthly Report -->
+            <div class="card">
+                <h3><i class="fas fa-chart-line"></i> Evolucao Mensal (6 meses)</h3>
+                <div id="monthly-evolution-chart"></div>
+            </div>
+
+            <!-- Savings Analysis -->
+            <div class="card savings-card">
+                <h3><i class="fas fa-piggy-bank"></i> Analise de Poupanca</h3>
+                <div id="savings-analysis"></div>
+            </div>
+
+            <!-- Category Comparison -->
+            <div class="card">
+                <h3><i class="fas fa-balance-scale"></i> Categorias vs Mes Anterior</h3>
+                <div id="category-comparison"></div>
+            </div>
+
+            <!-- Unnecessary Expenses -->
+            <div class="card warning-card">
+                <h3><i class="fas fa-exclamation-triangle"></i> Gastos a Analisar</h3>
+                <p class="card-description">Despesas que podem ser reduzidas ou eliminadas</p>
+                <div id="unnecessary-expenses"></div>
+            </div>
+
+            <!-- Year-to-date summary -->
+            <div class="card" id="ytd-summary" style="display:none"></div>
+
+            <!-- Weekday heatmap -->
+            <div class="card" id="weekday-heatmap" style="display:none"></div>
+
+            <!-- People spending -->
+            <div class="card" id="people-spending" style="display:none"></div>
+
+            <!-- Smart Insights -->
+            <div class="card" id="smart-insights" style="display:none"></div>
+
+            <!-- Export Full Report -->
+            <div class="report-actions">
+                <button onclick="generateFullReport()" class="btn btn-primary btn-block">
+                    <i class="fas fa-file-alt"></i> Gerar Relatorio Completo
+                </button>
+                <button onclick="exportToCSV()" class="btn btn-secondary btn-block">
+                    <i class="fas fa-file-csv"></i> Exportar CSV
+                </button>
+            </div>
+        </section>
+
+        <!-- FAB - Add Expense -->
+        <button class="fab" onclick="showAddExpense()">
+            <i class="fas fa-plus"></i>
+        </button>
+
+        <!-- Add Expense Modal -->
+        <div id="modal-add" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modal-title">Nova Despesa</h2>
+                    <button onclick="closeModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="expense-form" onsubmit="saveExpense(event)">
+                    <input type="hidden" id="expense-id">
+                    <div class="form-group">
+                        <label>Descricao</label>
+                        <input type="text" id="expense-desc" required placeholder="Ex: Compras Continente" oninput="onDescriptionInput()">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor (EUR)</label>
+                        <input type="number" id="expense-amount" step="0.01" min="0.01" required placeholder="0,00">
+                        <div class="quick-amounts">
+                            <button type="button" onclick="document.getElementById('expense-amount').value='5'" class="quick-amt-btn">5€</button>
+                            <button type="button" onclick="document.getElementById('expense-amount').value='10'" class="quick-amt-btn">10€</button>
+                            <button type="button" onclick="document.getElementById('expense-amount').value='20'" class="quick-amt-btn">20€</button>
+                            <button type="button" onclick="document.getElementById('expense-amount').value='50'" class="quick-amt-btn">50€</button>
+                            <button type="button" onclick="document.getElementById('expense-amount').value='100'" class="quick-amt-btn">100€</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Data</label>
+                        <input type="date" id="expense-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="expense-category" required>
+                            <option value="">Selecionar...</option>
+                            <option value="supermercado">Supermercado</option>
+                            <option value="alimentacao">Alimentacao</option>
+                            <option value="restaurantes">Restaurantes</option>
+                            <option value="transportes">Transportes</option>
+                            <option value="combustivel">Combustivel</option>
+                            <option value="saude">Saude</option>
+                            <option value="farmacia">Farmacia</option>
+                            <option value="educacao">Educacao</option>
+                            <option value="roupa">Roupa</option>
+                            <option value="casa">Casa/Renda</option>
+                            <option value="contas">Contas (agua, luz, gas)</option>
+                            <option value="telecomunicacoes">Telecomunicacoes</option>
+                            <option value="lazer">Lazer/Entretenimento</option>
+                            <option value="beleza">Beleza/Cuidados</option>
+                            <option value="subscricoes">Subscricoes</option>
+                            <option value="presentes">Presentes</option>
+                            <option value="outros">Outros</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo</label>
+                        <div id="expense-type-options" class="radio-group">
+                            <!-- populated by JS -->
+                        </div>
+                    </div>
+                    <div class="form-group" id="multi-children-group" style="display:none">
+                        <label>Quais os filhos (valor dividido em partes iguais)?</label>
+                        <div id="multi-children-checkboxes"></div>
+                    </div>
+                    <div class="form-group" id="split-children-group" style="display:none">
+                        <label><input type="checkbox" id="split-across-children"> Dividir por filhos (pessoal ou por filho)</label>
+                        <div id="split-across-children-list" style="display:none;margin-top:6px;padding:6px;border:1px solid var(--border);border-radius:6px"></div>
+                    </div>
+                    <div class="form-group show-when-married" id="spouse-split-group" style="display:none">
+                        <label><input type="checkbox" id="split-with-spouse"> Dividir com <span id="spouse-name-label">conjuge</span></label>
+                        <div id="spouse-paid-row" style="display:none;margin-top:6px">
+                            <label><input type="checkbox" id="spouse-paid"> <span id="spouse-paid-label">O conjuge ja pagou a parte dele</span></label>
+                        </div>
+                    </div>
+                    <div class="form-group" id="laura-split-group" style="display:none">
+                        <label>Partilhar com <span id="split-coparent-label">o co-progenitor</span>?</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="laura-split" value="yes" checked>
+                                <span class="radio-custom"></span>
+                                Sim
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="laura-split" value="no">
+                                <span class="radio-custom"></span>
+                                Nao
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" id="paid-by-father-group" style="display:none">
+                        <label>
+                            <input type="checkbox" id="paid-by-father">
+                            <span id="paid-by-father-label">Co-progenitor ja pagou a parte dele</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Essencial?</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="essential" value="yes" checked>
+                                <span class="radio-custom"></span>
+                                Sim
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="essential" value="no">
+                                <span class="radio-custom"></span>
+                                Nao
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-camera"></i> Anexar Fatura / Foto</label>
+                        <div class="attachment-area">
+                            <input type="file" id="expense-attachment" accept="image/*,application/pdf" capture="environment" onchange="previewAttachment(event)">
+                            <label for="expense-attachment" class="btn btn-secondary btn-block btn-sm">
+                                <i class="fas fa-camera"></i> Tirar Foto / Escolher Ficheiro
+                            </label>
+                            <div id="attachment-preview" class="attachment-preview"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="toggle-card" for="expense-is-grouped">
+                            <input type="checkbox" id="expense-is-grouped">
+                            <div class="toggle-card-icon"><i class="fas fa-layer-group"></i></div>
+                            <div class="toggle-card-body">
+                                <div class="toggle-card-title">Despesa agrupada</div>
+                                <div class="toggle-card-desc">Junta varias compras numa so entrada (ex: Mercadona, Via Verde, cafes). Podes adicionar entradas ao longo do mes.</div>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Com quem? (opcional)</label>
+                        <input type="text" id="expense-with" placeholder="Nome(s) separados por virgulas">
+                        <div id="expense-with-suggestions" class="people-suggestions"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Notas (opcional)</label>
+                        <textarea id="expense-notes" rows="2" placeholder="Notas adicionais..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Income Modal -->
+        <div id="modal-income" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="income-modal-title">Nova Receita</h2>
+                    <button onclick="closeIncomeModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="income-form" onsubmit="saveIncome(event)">
+                    <input type="hidden" id="income-id">
+                    <div class="form-group">
+                        <label>Descricao</label>
+                        <input type="text" id="income-desc" required placeholder="Ex: Ordenado">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor (EUR)</label>
+                        <input type="number" id="income-amount" step="0.01" min="0.01" required placeholder="0,00">
+                    </div>
+                    <div class="form-group">
+                        <label>Data</label>
+                        <input type="date" id="income-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="income-category" required>
+                            <option value="">Selecionar...</option>
+                            <option value="ordenado">Ordenado</option>
+                            <option value="subsidio">Subsidio (ferias/natal)</option>
+                            <option value="freelance">Freelance / Extra</option>
+                            <option value="reembolso">Reembolso</option>
+                            <option value="ajuda_familiar">Ajuda Familiar</option>
+                            <option value="venda">Venda</option>
+                            <option value="outros_receita">Outros</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-camera"></i> Anexar Comprovativo</label>
+                        <div class="attachment-area">
+                            <input type="file" id="income-attachment" accept="image/*,application/pdf" capture="environment" onchange="previewIncomeAttachment(event)">
+                            <label for="income-attachment" class="btn btn-secondary btn-block btn-sm">
+                                <i class="fas fa-camera"></i> Tirar Foto / Escolher Ficheiro
+                            </label>
+                            <div id="income-attachment-preview" class="attachment-preview"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Notas (opcional)</label>
+                        <textarea id="income-notes" rows="2" placeholder="Notas adicionais..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Attachment Viewer Modal -->
+        <div id="modal-attachment" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Anexo</h2>
+                    <button onclick="closeAttachmentViewer()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <div id="attachment-viewer-content" class="attachment-viewer-content"></div>
+            </div>
+        </div>
+
+        <!-- Export Menu Modal -->
+        <div id="modal-export" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Exportar Dados</h2>
+                    <button onclick="closeExportMenu()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="export-options">
+                    <button onclick="exportToCSV()" class="btn btn-block">
+                        <i class="fas fa-file-csv"></i> Exportar CSV (Excel)
+                    </button>
+                    <button onclick="exportToJSON()" class="btn btn-block">
+                        <i class="fas fa-file-code"></i> Backup Completo (JSON)
+                    </button>
+                    <button onclick="exportChildReport()" class="btn btn-block">
+                        <i class="fas fa-children"></i> Relatorio Filhos
+                    </button>
+                    <button onclick="generateFullReport()" class="btn btn-block">
+                        <i class="fas fa-file-alt"></i> Relatorio Mensal Completo
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import Dialog -->
+        <div id="modal-import" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Importar Dados</h2>
+                    <button onclick="closeImportDialog()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="import-area">
+                    <p>Importar backup JSON ou ficheiro CSV</p>
+                    <input type="file" id="import-file" accept=".json,.csv" onchange="importData(event)">
+                    <label for="import-file" class="btn btn-primary btn-block">
+                        <i class="fas fa-upload"></i> Escolher Ficheiro
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confirm Delete Modal -->
+        <div id="modal-confirm" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Confirmar</h2>
+                </div>
+                <p id="confirm-message"></p>
+                <div class="modal-actions">
+                    <button onclick="closeConfirm()" class="btn btn-secondary">Cancelar</button>
+                    <button id="confirm-btn" class="btn btn-danger">Apagar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="modal-settings" class="modal">
+            <div class="modal-content modal-full">
+                <div class="modal-header">
+                    <h2><i class="fas fa-gear"></i> Definicoes</h2>
+                    <button onclick="closeSettingsModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <!-- Settings Tabs -->
+                <div class="settings-tabs">
+                    <button class="settings-tab active" data-stab="children" onclick="switchSettingsTab('children')">
+                        <i class="fas fa-children"></i> Filhos
+                    </button>
+                    <button class="settings-tab" data-stab="catexp" onclick="switchSettingsTab('catexp')">
+                        <i class="fas fa-tags"></i> Cat. D.
+                    </button>
+                    <button class="settings-tab" data-stab="catinc" onclick="switchSettingsTab('catinc')">
+                        <i class="fas fa-tags"></i> Cat. R.
+                    </button>
+                    <button class="settings-tab" data-stab="templates" onclick="switchSettingsTab('templates')">
+                        <i class="fas fa-bolt"></i> Freq.
+                    </button>
+                    <button class="settings-tab" data-stab="budgets" onclick="switchSettingsTab('budgets')">
+                        <i class="fas fa-bullseye"></i> Limites
+                    </button>
+                    <button class="settings-tab" data-stab="profile" onclick="switchSettingsTab('profile')">
+                        <i class="fas fa-user"></i> Perfil
+                    </button>
+                </div>
+
+                <!-- Children Tab -->
+                <div id="stab-children" class="settings-tab-content active">
+                    <p class="settings-desc">Configure os filhos cujas despesas quer partilhar com o co-progenitor. Deve ter pelo menos um filho.</p>
+                    <button onclick="showAddChild()" class="btn btn-primary btn-block">
+                        <i class="fas fa-plus"></i> Adicionar Filho
+                    </button>
+                    <div id="children-list" class="fixed-list"></div>
+                </div>
+
+                <!-- Expense Categories Tab -->
+                <div id="stab-catexp" class="settings-tab-content">
+                    <p class="settings-desc">As categorias de origem nao podem ser apagadas. Pode adicionar as suas proprias.</p>
+                    <button onclick="showAddCategory('expense')" class="btn btn-primary btn-block">
+                        <i class="fas fa-plus"></i> Nova Categoria
+                    </button>
+                    <div id="catexp-list" class="cat-list"></div>
+                </div>
+
+                <!-- Income Categories Tab -->
+                <div id="stab-catinc" class="settings-tab-content">
+                    <p class="settings-desc">As categorias de origem nao podem ser apagadas. Pode adicionar as suas proprias.</p>
+                    <button onclick="showAddCategory('income')" class="btn btn-primary btn-block">
+                        <i class="fas fa-plus"></i> Nova Categoria
+                    </button>
+                    <div id="catinc-list" class="cat-list"></div>
+                </div>
+
+                <div id="stab-templates" class="settings-tab-content">
+                    <p class="settings-desc">Despesas que adiciona muitas vezes (Via Verde, cafe, etc). Clique para adicionar ao mes com 1 toque.</p>
+                    <button onclick="showAddTemplate()" class="btn btn-primary btn-block">
+                        <i class="fas fa-plus"></i> Nova Despesa Frequente
+                    </button>
+                    <div id="template-form-area"></div>
+                    <div id="template-list" class="fixed-list"></div>
+                </div>
+
+                <div id="stab-budgets" class="settings-tab-content">
+                    <p class="settings-desc">Defina limites mensais por categoria. Receba alertas quando se aproximar do limite.</p>
+                    <div id="budget-list"></div>
+                </div>
+
+                <div id="stab-profile" class="settings-tab-content">
+                    <p class="settings-desc">Personalize a aplicacao com o seu nome, titulo e modo.</p>
+                    <div class="form-group">
+                        <label>O seu nome</label>
+                        <input type="text" id="profile-name" placeholder="Seu primeiro nome" maxlength="30">
+                    </div>
+                    <div class="form-group">
+                        <label>Titulo da aplicacao</label>
+                        <input type="text" id="profile-title" placeholder="Ex: Minhas Despesas" maxlength="30">
+                    </div>
+                    <div class="form-group">
+                        <label>Situacao familiar</label>
+                        <div class="radio-group" style="flex-direction:column;gap:8px">
+                            <label class="radio-label" style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
+                                <input type="radio" name="household-mode" value="separated">
+                                <div>
+                                    <div style="font-weight:600">Divorciado / Separado</div>
+                                    <div style="font-size:0.75rem;color:var(--text-light)">Divide despesas dos filhos com o co-progenitor</div>
+                                </div>
+                            </label>
+                            <label class="radio-label" style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
+                                <input type="radio" name="household-mode" value="married">
+                                <div>
+                                    <div style="font-weight:600">Casado / Uniao de facto</div>
+                                    <div style="font-size:0.75rem;color:var(--text-light)">Pode dividir despesas partilhadas com o conjuge</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" id="spouse-settings" style="display:none">
+                        <label>Nome do conjuge</label>
+                        <input type="text" id="profile-spouse-name" placeholder="Ex: Joao, Maria..." maxlength="30">
+                        <label style="margin-top:8px">% a cargo do conjuge</label>
+                        <input type="number" id="profile-spouse-pct" min="0" max="100" value="50">
+                        <small class="field-hint">Ex: 50 = cada um paga metade das despesas partilhadas</small>
+                    </div>
+                    <button onclick="saveProfileName()" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Grouped Entry Modal -->
+        <div id="modal-grouped-entry" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="grouped-entry-title"><i class="fas fa-plus"></i> Nova Entrada</h2>
+                    <button onclick="closeGroupedEntryModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="grouped-entry-form" onsubmit="saveGroupedEntry(event)">
+                    <div class="form-group">
+                        <label>Valor (EUR)</label>
+                        <input type="number" id="grouped-entry-amount" step="0.01" min="0.01" required placeholder="0,00" autofocus>
+                        <div class="quick-amounts">
+                            <button type="button" onclick="document.getElementById('grouped-entry-amount').value='5'" class="quick-amt-btn">5€</button>
+                            <button type="button" onclick="document.getElementById('grouped-entry-amount').value='10'" class="quick-amt-btn">10€</button>
+                            <button type="button" onclick="document.getElementById('grouped-entry-amount').value='20'" class="quick-amt-btn">20€</button>
+                            <button type="button" onclick="document.getElementById('grouped-entry-amount').value='50'" class="quick-amt-btn">50€</button>
+                            <button type="button" onclick="document.getElementById('grouped-entry-amount').value='100'" class="quick-amt-btn">100€</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Data</label>
+                        <input type="date" id="grouped-entry-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nota (opcional)</label>
+                        <input type="text" id="grouped-entry-notes" placeholder="Ex: Auchan, Mercadona...">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Adicionar Entrada
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Fixed Expenses Manager Modal -->
+        <div id="modal-fixed-manager" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-repeat"></i> Despesas Fixas</h2>
+                    <button onclick="closeFixedManagerModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="settings-desc">Despesas que saem todos os meses automaticamente. Cativadas no saldo ate ao dia de pagamento.</p>
+                <button onclick="showAddFixed()" class="btn btn-primary btn-block">
+                    <i class="fas fa-plus"></i> Adicionar Despesa Fixa
+                </button>
+                <div id="fixed-list" class="fixed-list"></div>
+            </div>
+        </div>
+
+        <!-- Fixed Incomes Manager Modal -->
+        <div id="modal-fixed-income-manager" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-coins"></i> Receitas Fixas</h2>
+                    <button onclick="closeFixedIncomeManagerModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="settings-desc">Receitas mensais (salario, subsidio, etc). Marcadas automaticamente no dia configurado.</p>
+                <button onclick="showAddFixedIncome()" class="btn btn-primary btn-block">
+                    <i class="fas fa-plus"></i> Adicionar Receita Fixa
+                </button>
+                <div id="fixed-income-list-settings" class="fixed-list"></div>
+            </div>
+        </div>
+
+        <!-- Add Fixed Expense Modal -->
+        <div id="fixed-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="fixed-modal-title">Nova Despesa Fixa</h2>
+                    <button onclick="closeFixedModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="fixed-form" onsubmit="saveFixed(event)">
+                    <input type="hidden" id="fixed-id">
+                    <div class="form-group">
+                        <label>Descricao</label>
+                        <input type="text" id="fixed-desc" required placeholder="Ex: Prestacao da casa">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor (EUR) <span id="fixed-amount-hint" style="font-size:0.75rem;color:var(--text-muted)">&mdash; estimativa se variavel</span></label>
+                        <input type="number" id="fixed-amount" step="0.01" min="0.01" required placeholder="0,00">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="fixed-is-variable">
+                            Despesa variavel (valor muda mes a mes, ex: agua, luz)
+                        </label>
+                        <small class="field-hint">O valor aqui e uma estimativa. Pode corrigir o valor real em cada mes.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Dia do mes em que sai</label>
+                        <input type="number" id="fixed-day" min="1" max="31" required placeholder="Ex: 5" value="1">
+                        <small class="field-hint">Fica cativado ate essa data; marca-se como pago automaticamente</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="fixed-category" required>
+                            <option value="">Selecionar...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo</label>
+                        <div id="fixed-type-options" class="radio-group">
+                            <!-- populated by JS -->
+                        </div>
+                    </div>
+                    <div class="form-group" id="fixed-split-group" style="display:none">
+                        <label>Dividir com co-progenitor?</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="fixed-split" value="yes" checked>
+                                <span class="radio-custom"></span> Sim
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="fixed-split" value="no">
+                                <span class="radio-custom"></span> Nao
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Data de inicio</label>
+                        <input type="month" id="fixed-start" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Data de fim (opcional)</label>
+                        <input type="month" id="fixed-end">
+                        <small class="field-hint">Deixar em branco se for indefinida</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Notas (opcional)</label>
+                        <textarea id="fixed-notes" rows="2" placeholder="Ex: Banco BPI, ref. 123..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Fixed Income Modal -->
+        <div id="modal-fixed-income" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="fixed-income-modal-title">Nova Receita Fixa</h2>
+                    <button onclick="closeFixedIncomeModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="fixed-income-form" onsubmit="saveFixedIncome(event)">
+                    <input type="hidden" id="fixed-income-id">
+                    <div class="form-group">
+                        <label>Descricao</label>
+                        <input type="text" id="fixed-income-desc" required placeholder="Ex: Salario, Subsidio...">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor (EUR)</label>
+                        <input type="number" id="fixed-income-amount" step="0.01" min="0.01" required placeholder="0,00">
+                    </div>
+                    <div class="form-group">
+                        <label>Dia do mes em que entra</label>
+                        <input type="number" id="fixed-income-day" min="1" max="31" required placeholder="Ex: 25" value="25">
+                        <small class="field-hint">Marca-se como recebido automaticamente nesse dia</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <select id="fixed-income-category" required>
+                            <option value="">Selecionar...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Data de inicio</label>
+                        <input type="month" id="fixed-income-start" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Data de fim (opcional)</label>
+                        <input type="month" id="fixed-income-end">
+                        <small class="field-hint">Deixar em branco se for indefinida</small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="fixed-income-is-variable"> Receita variavel (valor muda de mes a mes)</label>
+                    </div>
+                    <div class="form-group">
+                        <label>Notas (opcional)</label>
+                        <textarea id="fixed-income-notes" rows="2" placeholder="Ex: Empresa X, dia 25..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add/Edit Child Modal -->
+        <div id="modal-child" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="child-modal-title">Adicionar Filho</h2>
+                    <button onclick="closeChildModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="child-form" onsubmit="saveChild(event)">
+                    <input type="hidden" id="child-id">
+                    <div class="form-group">
+                        <label>Nome do filho</label>
+                        <input type="text" id="child-name-input" required placeholder="Primeiro nome do filho">
+                    </div>
+                    <div class="form-group hide-when-married">
+                        <label class="toggle-card" for="child-has-split">
+                            <input type="checkbox" id="child-has-split" checked onchange="toggleChildSplitFields()">
+                            <div class="toggle-card-icon"><i class="fas fa-divide"></i></div>
+                            <div class="toggle-card-body">
+                                <div class="toggle-card-title">Dividir despesas com co-progenitor</div>
+                                <div class="toggle-card-desc">Desmarque se este filho nao tem despesas partilhadas (so pagas tu).</div>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="form-group hide-when-married" id="child-coparent-group">
+                        <label>Nome do co-progenitor</label>
+                        <input type="text" id="child-coparent-input" placeholder="Ex: Pai, Mae, Carlos...">
+                    </div>
+                    <div class="form-group hide-when-married" id="child-split-pct-group">
+                        <label>% a cargo do co-progenitor</label>
+                        <input type="number" id="child-split-pct" min="0" max="100" value="50">
+                        <small class="field-hint">Ex: 50 = cada um paga metade</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Category Modal -->
+        <div id="modal-category" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="cat-modal-title">Nova Categoria</h2>
+                    <button onclick="closeCategoryModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="category-form" onsubmit="saveCategory(event)">
+                    <input type="hidden" id="cat-id">
+                    <input type="hidden" id="cat-type">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="cat-name" required placeholder="Ex: Pet, Ginasio...">
+                    </div>
+                    <div class="form-group">
+                        <label>Icone</label>
+                        <div class="icon-picker" id="icon-picker"></div>
+                        <input type="hidden" id="cat-icon" value="fa-tag">
+                    </div>
+                    <div class="form-group">
+                        <label>Cor</label>
+                        <div class="color-picker" id="color-picker"></div>
+                        <input type="hidden" id="cat-color" value="#607D8B">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-save"></i> Guardar
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
+    </script>
+</body>
+</html>

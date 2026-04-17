@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#6C5CE7"/>
+  <g transform="translate(96,96)">
+    <circle r="60" fill="none" stroke="white" stroke-width="6"/>
+    <text x="0" y="8" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="48" font-weight="bold">EUR</text>
+    <text x="0" y="38" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="Arial,sans-serif" font-size="16">Despesas</text>
+  </g>
+</svg>
