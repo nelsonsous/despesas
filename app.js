@@ -1150,7 +1150,7 @@ function addGroupedEntry(id) {
     const e = expenses[idx];
     if (!e.isGrouped) {
         e.isGrouped = true;
-        e.entries = [{ date: e.date, amount: e.amount, notes: e.notes || '' }];
+        e.entries = [{ date: e.date, amount: e.amount, notes: e.notes || '', type: e.type }];
         expenses[idx] = e;
     }
     pendingGroupedEntryId = id;
@@ -1158,6 +1158,17 @@ function addGroupedEntry(id) {
     document.getElementById('grouped-entry-amount').value = '';
     document.getElementById('grouped-entry-date').valueAsDate = new Date();
     document.getElementById('grouped-entry-notes').value = '';
+    const withGroup = document.getElementById('grouped-entry-with-group');
+    const withSel = document.getElementById('grouped-entry-with');
+    const isChildExpense = e.type !== 'personal' && children.some(c => c.id === e.type);
+    if (withGroup && withSel && isChildExpense && children.length >= 2) {
+        const allLabel = children.length === 2 ? 'Ambos' : 'Todos';
+        withSel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('') + `<option value="both">${allLabel}</option>`;
+        withSel.value = e.type;
+        withGroup.style.display = 'block';
+    } else if (withGroup) {
+        withGroup.style.display = 'none';
+    }
     document.getElementById('modal-grouped-entry').classList.add('active');
     setTimeout(() => document.getElementById('grouped-entry-amount').focus(), 100);
 }
@@ -1173,8 +1184,12 @@ function saveGroupedEntry(event) {
     const notes = document.getElementById('grouped-entry-notes').value.trim();
     if (isNaN(amount) || amount <= 0 || !date) { showToast('Preencha valor e data'); return; }
     const e = expenses[idx];
+    const withGroup = document.getElementById('grouped-entry-with-group');
+    const entryType = (withGroup && withGroup.style.display !== 'none')
+        ? document.getElementById('grouped-entry-with').value
+        : e.type;
     e.entries = e.entries || [];
-    e.entries.push({ date, amount, notes });
+    e.entries.push({ date, amount, notes, type: entryType });
     e.amount = computeGroupedTotal(e);
     e.date = [...e.entries].sort((a, b) => b.date.localeCompare(a.date))[0].date;
     e.updatedAt = new Date().toISOString();
@@ -1306,6 +1321,27 @@ function renderExpenseItem(e) {
         : formatCurrency(e.amount);
 
     // Grouped expense rendering (has entries array)
+    const entryTypeLabel = (t) => {
+        if (t === 'both') return children.length === 2 ? 'Ambos' : 'Todos';
+        const ch = children.find(c => c.id === t);
+        if (ch) return ch.name;
+        if (t === 'personal') return 'Pessoal';
+        return '';
+    };
+    const groupedBreakdown = (() => {
+        if (!e.isGrouped || !Array.isArray(e.entries) || e.entries.length === 0) return '';
+        const isChildExpense = e.type !== 'personal' && children.some(c => c.id === e.type);
+        if (!isChildExpense || children.length < 2) return '';
+        const totals = {};
+        e.entries.forEach(en => {
+            const t = en.type || e.type;
+            totals[t] = (totals[t] || 0) + (en.amount || 0);
+        });
+        const keys = Object.keys(totals);
+        if (keys.length <= 1) return '';
+        const parts = keys.map(k => `${entryTypeLabel(k)} ${formatCurrency(totals[k])}`).join(' · ');
+        return `<span style="color:var(--text-light);font-size:0.72rem">${parts}</span>`;
+    })();
     const groupedInfo = e.isGrouped && Array.isArray(e.entries)
         ? `<span style="color:var(--primary);font-weight:600"><i class="fas fa-layer-group" style="font-size:0.65rem"></i> ${e.entries.length} ${e.entries.length === 1 ? 'entrada' : 'entradas'}</span>`
         : '';
@@ -1314,8 +1350,10 @@ function renderExpenseItem(e) {
         ? `<div id="grouped-entries-${e.id}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
             ${[...e.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((entry, idx) => {
                 const realIdx = e.entries.indexOf(entry);
+                const tLabel = entryTypeLabel(entry.type || e.type);
+                const showTag = tLabel && children.length >= 2 && e.type !== 'personal';
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:0.78rem;border-bottom:1px solid var(--border)">
-                    <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}</span>
+                    <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}${showTag ? ` · <span style="color:var(--primary);font-weight:600">${tLabel}</span>` : ''}</span>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span style="font-weight:600">${formatCurrency(entry.amount)}</span>
                         <button class="btn-icon" onclick="event.stopPropagation();removeGroupedEntry('${e.id}', ${realIdx})" title="Remover" style="padding:2px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
@@ -1343,6 +1381,7 @@ function renderExpenseItem(e) {
                         <span>${formatDate(e.date)}</span>
                         <span class="expense-tag ${tagClass}">${tagLabel}</span>
                         ${groupedInfo}
+                        ${groupedBreakdown}
                         ${e.split ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${expChild?.splitPct || 50}/${100-(expChild?.splitPct || 50)}</span>` : ''}
                         ${e.splitSpouse && isMarriedMode() ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${getSpousePct()}/${100-getSpousePct()}</span>` : ''}
                         ${(e.withPeople && e.withPeople.length > 0) ? `<span style="color:var(--primary)"><i class="fas fa-user-group" style="font-size:0.65rem"></i> ${e.withPeople.slice(0,2).join(', ')}${e.withPeople.length > 2 ? ` +${e.withPeople.length-2}` : ''}</span>` : ''}
