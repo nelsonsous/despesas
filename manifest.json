@@ -1,8 +1,9 @@
 {
-    "name": "Despesas - Vanessa",
+    "name": "Despesas",
     "short_name": "Despesas",
-    "description": "Controlo de despesas pessoais e da Laura",
-    "start_url": "/",
+    "description": "Controlo de despesas pessoais",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
     "background_color": "#F8F9FE",
     "theme_color": "#6C5CE7",
