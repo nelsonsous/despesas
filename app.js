@@ -2820,10 +2820,31 @@ function exportToCSV() {
 }
 
 function exportToJSON() {
-    const data = JSON.stringify({ expenses, incomes }, null, 2);
+    const data = JSON.stringify({
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        expenses,
+        incomes,
+        fixedExpenses,
+        fixedStatus,
+        fixedIncomes,
+        fixedIncomeStatus,
+        children,
+        customCategories,
+        customIncCategories,
+        expenseTemplates,
+        categoryBudgets,
+        settings: {
+            userName: getUserName(),
+            appTitle: getAppTitle(),
+            householdMode: getHouseholdMode(),
+            spouseName: localStorage.getItem(SPOUSE_NAME_KEY) || '',
+            spousePct: getSpousePct()
+        }
+    }, null, 2);
     downloadFile(data, `despesas_backup_${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
     closeExportMenu();
-    showToast('Backup exportado!');
+    showToast('Backup completo exportado!');
 }
 
 function exportChildReportById(childId) {
@@ -2968,16 +2989,40 @@ function importData(event) {
             if (file.name.endsWith('.json')) {
                 const data = JSON.parse(e.target.result);
                 if (Array.isArray(data)) {
-                    // Old format (just expenses array)
+                    // Very old format (just expenses array)
                     expenses = data;
                 } else if (data.expenses) {
-                    // New format with incomes
-                    expenses = data.expenses;
+                    // Backup with data
+                    expenses = data.expenses || [];
                     incomes = data.incomes || [];
+                    // v2 format: full backup
+                    if (data.fixedExpenses) fixedExpenses = data.fixedExpenses;
+                    if (data.fixedStatus) fixedStatus = data.fixedStatus;
+                    if (data.fixedIncomes) fixedIncomes = data.fixedIncomes;
+                    if (data.fixedIncomeStatus) fixedIncomeStatus = data.fixedIncomeStatus;
+                    if (data.children) children = data.children;
+                    if (data.customCategories) customCategories = data.customCategories;
+                    if (data.customIncCategories) customIncCategories = data.customIncCategories;
+                    if (data.expenseTemplates) expenseTemplates = data.expenseTemplates;
+                    if (data.categoryBudgets) categoryBudgets = data.categoryBudgets;
+                    if (data.settings) {
+                        const s = data.settings;
+                        if (s.userName) localStorage.setItem(USER_NAME_KEY, s.userName);
+                        if (s.appTitle) localStorage.setItem(APP_TITLE_KEY, s.appTitle);
+                        if (s.householdMode) localStorage.setItem(HOUSEHOLD_MODE_KEY, s.householdMode);
+                        if (s.spouseName) localStorage.setItem(SPOUSE_NAME_KEY, s.spouseName);
+                        if (s.spousePct != null) localStorage.setItem(SPOUSE_PCT_KEY, String(s.spousePct));
+                    }
                 }
                 saveData();
+                applyAppTitle();
+                applyHouseholdMode();
+                populateExpenseTypeOptions();
+                populateFixedTypeOptions();
+                populateFilterTypes();
+                populateCategorySelects();
                 updateAll();
-                showToast('Dados importados!');
+                showToast('Backup importado!');
             } else if (file.name.endsWith('.csv')) {
                 importCSV(e.target.result);
             }
