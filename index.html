@@ -13,6 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
     <div id="app">
@@ -190,6 +191,21 @@
 
             <!-- Quick Add Bar -->
             <div id="quick-add-bar" style="display:none"></div>
+
+            <!-- Pending AI Expenses -->
+            <div id="pending-expenses-section" style="display:none;background:#EDE7F6;border:1.5px solid #B39DDB;border-radius:14px;padding:14px;margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <h3 style="font-size:0.9rem;font-weight:700;color:var(--primary);margin:0">
+                        <i class="fas fa-robot"></i> Despesas detetadas pela IA
+                        <span id="pending-count-badge" style="background:var(--primary);color:white;border-radius:10px;padding:1px 7px;font-size:0.72rem;margin-left:4px"></span>
+                    </h3>
+                    <div style="display:flex;gap:6px">
+                        <button onclick="approveAllPending()" class="btn btn-sm" style="background:var(--success);color:white;font-size:0.75rem;padding:4px 10px"><i class="fas fa-check-double"></i> Aprovar tudo</button>
+                        <button onclick="dismissAllPending()" class="btn btn-sm" style="background:var(--bg);color:var(--text-light);font-size:0.75rem;padding:4px 10px"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <div id="pending-expenses-list"></div>
+            </div>
 
             <!-- Fixed Expenses This Month -->
             <div id="fixed-month-section" class="fixed-month-section" style="display:none">
@@ -652,6 +668,9 @@
                     <button class="settings-tab" data-stab="profile" onclick="switchSettingsTab('profile')">
                         <i class="fas fa-user"></i> Perfil
                     </button>
+                    <button class="settings-tab" data-stab="ai" onclick="switchSettingsTab('ai')">
+                        <i class="fas fa-robot"></i> IA
+                    </button>
                 </div>
 
                 <!-- Children Tab -->
@@ -734,6 +753,64 @@
                     <button onclick="saveProfileName()" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
+                </div>
+
+                <div id="stab-ai" class="settings-tab-content">
+                    <p class="settings-desc">Sincroniza despesas automaticamente a partir dos emails do Gmail usando Gemini AI.</p>
+
+                    <div class="form-group">
+                        <label>Chave API Gemini <a href="https://aistudio.google.com/app/apikey" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter gratis)</a></label>
+                        <input type="password" id="ai-gemini-key" placeholder="AIza..." autocomplete="off">
+                        <small class="field-hint">Gratuita em Google AI Studio. Nao sai do seu dispositivo.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Google Client ID <a href="https://console.cloud.google.com/" target="_blank" style="font-size:0.75rem;color:var(--primary)">(Google Cloud Console)</a></label>
+                        <input type="text" id="ai-google-client-id" placeholder="xxxxx.apps.googleusercontent.com" autocomplete="off">
+                        <small class="field-hint">Crie um projeto no Google Cloud, ative a Gmail API e crie credenciais OAuth2 (Aplicacao Web). Adicione https://nelsonsous.github.io como origem autorizada.</small>
+                    </div>
+
+                    <button onclick="saveAiSettings()" class="btn btn-primary btn-block" style="margin-bottom:12px">
+                        <i class="fas fa-save"></i> Guardar configuracao
+                    </button>
+
+                    <div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:12px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                            <span style="font-size:0.85rem;font-weight:600">Gmail</span>
+                            <span id="gmail-status" style="font-size:0.8rem;color:var(--text-light)"><i class="fas fa-times-circle"></i> Nao ligado</span>
+                        </div>
+                        <button onclick="signInGoogle()" class="btn btn-secondary btn-block">
+                            <i class="fab fa-google"></i> Ligar conta Google
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display:flex;justify-content:space-between;align-items:center">
+                            <span>Sincronizacao automatica diaria</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="ai-auto-sync" onchange="toggleAutoSync()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </label>
+                        <small class="field-hint">Ao abrir a app sincroniza automaticamente desde a ultima sincronizacao.</small>
+                    </div>
+
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                        <div class="form-group" style="flex:1;margin:0">
+                            <label style="font-size:0.78rem">De</label>
+                            <input type="date" id="ai-sync-from">
+                        </div>
+                        <div class="form-group" style="flex:1;margin:0">
+                            <label style="font-size:0.78rem">Ate</label>
+                            <input type="date" id="ai-sync-to">
+                        </div>
+                    </div>
+
+                    <button id="ai-sync-btn" onclick="triggerManualSync()" class="btn btn-primary btn-block">
+                        <i class="fas fa-sync"></i> Sincronizar agora
+                    </button>
+                    <div id="ai-sync-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px"></div>
+                    <div id="last-sync-date" style="font-size:0.75rem;color:var(--text-light);text-align:center;margin-top:4px"></div>
                 </div>
             </div>
         </div>

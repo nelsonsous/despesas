@@ -103,9 +103,294 @@ const INCOME_CATEGORIES = {
     outros_receita: { label: 'Outros', icon: 'fa-ellipsis' }
 };
 
+// ===== AI SYNC MODULE (Gemini + Gmail) =====
+let pendingExpenses = [];
+const PENDING_KEY = 'vanessa_pending_ai';
+const AI_CFG_KEY = 'vanessa_ai_cfg';
+
+let aiCfg = { geminiKey: '', googleClientId: '', autoSync: false, lastSyncDate: null };
+let _googleTokenClient = null;
+let _googleAccessToken = null;
+
+function loadAiData() {
+    const s = localStorage.getItem(AI_CFG_KEY);
+    if (s) aiCfg = { ...aiCfg, ...JSON.parse(s) };
+    const p = localStorage.getItem(PENDING_KEY);
+    pendingExpenses = p ? JSON.parse(p) : [];
+}
+
+function saveAiSettings() {
+    const key = document.getElementById('ai-gemini-key')?.value.trim();
+    const cid = document.getElementById('ai-google-client-id')?.value.trim();
+    if (key) aiCfg.geminiKey = key;
+    if (cid) aiCfg.googleClientId = cid;
+    localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+    _googleTokenClient = null; // reset so it re-initializes with new client ID
+    showToast('Configuracao IA guardada!');
+    renderAiSettingsUI();
+}
+
+function toggleAutoSync() {
+    aiCfg.autoSync = document.getElementById('ai-auto-sync')?.checked || false;
+    localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+}
+
+function renderAiSettingsUI() {
+    const keyEl = document.getElementById('ai-gemini-key');
+    const cidEl = document.getElementById('ai-google-client-id');
+    const autoEl = document.getElementById('ai-auto-sync');
+    const fromEl = document.getElementById('ai-sync-from');
+    const toEl = document.getElementById('ai-sync-to');
+    if (keyEl && aiCfg.geminiKey) keyEl.value = aiCfg.geminiKey;
+    if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
+    if (autoEl) autoEl.checked = aiCfg.autoSync;
+    const today = new Date().toISOString().slice(0, 10);
+    if (fromEl && !fromEl.value) fromEl.value = today;
+    if (toEl && !toEl.value) toEl.value = today;
+    // Gmail status
+    const gmailEl = document.getElementById('gmail-status');
+    if (gmailEl) gmailEl.innerHTML = _googleAccessToken
+        ? '<span style="color:var(--success)"><i class="fas fa-check-circle"></i> Gmail ligado</span>'
+        : '<span style="color:var(--text-light)"><i class="fas fa-times-circle"></i> Nao ligado</span>';
+    // Last sync
+    const lsEl = document.getElementById('last-sync-date');
+    if (lsEl) lsEl.textContent = aiCfg.lastSyncDate ? 'Ultima sincronizacao: ' + aiCfg.lastSyncDate : 'Nunca sincronizado';
+}
+
+function initGoogleTokenClient() {
+    if (!aiCfg.googleClientId || !window.google?.accounts?.oauth2) return;
+    _googleTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: aiCfg.googleClientId,
+        scope: 'https://www.googleapis.com/auth/gmail.readonly',
+        callback: (resp) => {
+            if (resp.error) { showToast('Erro Google Auth: ' + resp.error); return; }
+            _googleAccessToken = resp.access_token;
+            showToast('Gmail ligado!');
+            renderAiSettingsUI();
+            // check if there was a pending sync waiting for auth
+            if (window._pendingSyncAfterAuth) { window._pendingSyncAfterAuth = false; triggerManualSync(); }
+        }
+    });
+}
+
+function signInGoogle() {
+    if (!aiCfg.googleClientId) { showToast('Configura o Google Client ID primeiro'); return; }
+    if (!window.google?.accounts?.oauth2) { showToast('A carregar biblioteca Google...'); return; }
+    if (!_googleTokenClient) initGoogleTokenClient();
+    _googleTokenClient?.requestAccessToken();
+}
+
+async function fetchGmailForPeriod(from, to) {
+    const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '/');
+    const toDate = new Date(to); toDate.setDate(toDate.getDate() + 1);
+    const toStr = toDate.toISOString().slice(0, 10).replace(/-/g, '/');
+    const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR compra OR transacao OR transferencia OR movimento OR recibo OR banco)`;
+    const listRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=30`,
+        { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
+    );
+    if (!listRes.ok) throw new Error('Erro Gmail API: ' + listRes.status);
+    const listData = await listRes.json();
+    if (!listData.messages?.length) return [];
+    const msgs = await Promise.all(listData.messages.slice(0, 15).map(async m => {
+        const r = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
+            { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
+        );
+        return r.json();
+    }));
+    return msgs;
+}
+
+function decodeEmailBody(payload) {
+    if (payload.body?.data) {
+        try { return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; }
+    }
+    if (payload.parts) {
+        for (const p of payload.parts) {
+            const t = decodeEmailBody(p);
+            if (t) return t;
+        }
+    }
+    return '';
+}
+
+function emailToText(msg) {
+    const headers = msg.payload?.headers || [];
+    const get = n => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
+    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 800);
+    return `Assunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
+}
+
+async function callGemini(emailTexts) {
+    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
+    const prompt = `Analisa estes emails bancarios/pagamentos em portugues e extrai APENAS despesas/pagamentos reais a debito (nao incluir transferencias entre contas proprias, depositos, ou receitas).
+
+Devolve UNICAMENTE um JSON array (sem mais texto) com este formato:
+[{"description":"nome curto da despesa","amount":12.50,"date":"2026-04-22","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|seguros|educacao|outros","merchant":"loja/empresa","confidence":"high|medium|low"}]
+
+Se nao houver despesas, devolve [].
+
+EMAILS:
+${emailTexts.join('\n---\n')}`;
+
+    const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiCfg.geminiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 2048 } })
+        }
+    );
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Erro Gemini');
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const m = text.match(/\[[\s\S]*?\]/);
+    if (!m) return [];
+    try { return JSON.parse(m[0]); } catch { return []; }
+}
+
+async function runSync(fromDate, toDate) {
+    const btn = document.getElementById('ai-sync-btn');
+    const status = document.getElementById('ai-sync-status');
+    const setStatus = t => { if (status) status.textContent = t; };
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A sincronizar...'; }
+        if (!_googleAccessToken) {
+            setStatus('A autenticar no Google...');
+            window._pendingSyncAfterAuth = true;
+            signInGoogle();
+            return;
+        }
+        setStatus('A procurar emails de pagamento...');
+        const msgs = await fetchGmailForPeriod(fromDate, toDate);
+        if (!msgs.length) { setStatus('Nenhum email encontrado no periodo.'); showToast('Sem emails encontrados'); return; }
+        setStatus(`A analisar ${msgs.length} emails com Gemini AI...`);
+        const texts = msgs.map(emailToText);
+        const extracted = await callGemini(texts);
+        if (!extracted.length) { setStatus('Nenhuma despesa encontrada nos emails.'); showToast('Sem despesas detetadas'); return; }
+        // Deduplicate against existing pending
+        const newItems = extracted
+            .filter(e => e.amount > 0 && e.date)
+            .map(e => ({ id: generateId(), ...e, syncedAt: new Date().toISOString() }))
+            .filter(e => !pendingExpenses.some(p => p.description === e.description && p.amount === e.amount && p.date === e.date));
+        pendingExpenses = [...pendingExpenses, ...newItems];
+        localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+        aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+        localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+        setStatus(`${newItems.length} despesa(s) nova(s) aguardam aprovacao.`);
+        showToast(newItems.length ? `${newItems.length} despesas para aprovar!` : 'Sem despesas novas');
+        renderPendingExpenses();
+        renderAiSettingsUI();
+    } catch (e) {
+        setStatus('Erro: ' + e.message);
+        showToast('Erro: ' + e.message);
+        if (e.message.includes('401') || e.message.includes('403')) { _googleAccessToken = null; renderAiSettingsUI(); }
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync"></i> Sincronizar agora'; }
+    }
+}
+
+function triggerManualSync() {
+    const from = new Date(document.getElementById('ai-sync-from')?.value || new Date());
+    const to = new Date(document.getElementById('ai-sync-to')?.value || new Date());
+    runSync(from, to);
+}
+
+function checkAutoSync() {
+    if (!aiCfg.autoSync || !aiCfg.geminiKey) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (aiCfg.lastSyncDate === today) return;
+    const from = aiCfg.lastSyncDate ? new Date(aiCfg.lastSyncDate) : new Date(Date.now() - 86400000);
+    const to = new Date();
+    setTimeout(() => runSync(from, to), 3000);
+}
+
+function renderPendingExpenses() {
+    const section = document.getElementById('pending-expenses-section');
+    const list = document.getElementById('pending-expenses-list');
+    const badge = document.getElementById('pending-count-badge');
+    if (badge) badge.textContent = pendingExpenses.length || '';
+    if (!section || !list) return;
+    if (!pendingExpenses.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    const cats = getEffectiveCategories();
+    const confColor = c => c === 'high' ? 'var(--success)' : c === 'medium' ? '#FF8F00' : 'var(--danger)';
+    list.innerHTML = pendingExpenses.map(e => {
+        const cat = cats[e.category] || cats.outros;
+        return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+            <div style="width:32px;height:32px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0"><i class="fas ${cat.icon}"></i></div>
+            <div style="flex:1;min-width:0">
+                <div style="font-size:0.83rem;font-weight:600">${e.description}${e.merchant && e.merchant !== e.description ? ` <span style="font-weight:400;color:var(--text-light);font-size:0.75rem">(${e.merchant})</span>` : ''}</div>
+                <div style="font-size:0.72rem;color:var(--text-light)">${e.date} &middot; ${cat.label} &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} confianca</span></div>
+            </div>
+            <div style="font-size:0.88rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
+            <button onclick="approvePending('${e.id}')" style="background:var(--success);color:white;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;flex-shrink:0"><i class="fas fa-check"></i></button>
+            <button onclick="dismissPending('${e.id}')" style="background:#F5F5F5;color:#999;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;flex-shrink:0"><i class="fas fa-times"></i></button>
+        </div>`;
+    }).join('');
+}
+
+function approvePending(id) {
+    const e = pendingExpenses.find(x => x.id === id);
+    if (!e) return;
+    expenses.push({
+        id: generateId(),
+        description: e.description,
+        amount: parseFloat(e.amount),
+        date: e.date,
+        category: e.category || 'outros',
+        type: 'personal',
+        split: false,
+        notes: e.merchant ? 'Via: ' + e.merchant : '',
+        createdAt: new Date().toISOString()
+    });
+    pendingExpenses = pendingExpenses.filter(x => x.id !== id);
+    saveData();
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+    updateAll();
+    showToast('Despesa aprovada!');
+}
+
+function dismissPending(id) {
+    pendingExpenses = pendingExpenses.filter(x => x.id !== id);
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+}
+
+function approveAllPending() {
+    [...pendingExpenses].forEach(e => {
+        expenses.push({
+            id: generateId(),
+            description: e.description,
+            amount: parseFloat(e.amount),
+            date: e.date,
+            category: e.category || 'outros',
+            type: 'personal',
+            split: false,
+            notes: e.merchant ? 'Via: ' + e.merchant : '',
+            createdAt: new Date().toISOString()
+        });
+    });
+    pendingExpenses = [];
+    saveData();
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+    updateAll();
+    showToast('Todas aprovadas!');
+}
+
+function dismissAllPending() {
+    pendingExpenses = [];
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
+    loadAiData();
     applyAppTitle();
     applyHouseholdMode();
     setDefaultDate();
@@ -118,6 +403,10 @@ document.addEventListener('DOMContentLoaded', () => {
     populateFilterCategories();
     buildIconPicker();
     buildColorPicker();
+    initGoogleTokenClient();
+    renderAiSettingsUI();
+    renderPendingExpenses();
+    checkAutoSync();
 });
 
 function populateCategorySelects() {
@@ -3348,6 +3637,7 @@ function switchSettingsTab(tab) {
     document.querySelectorAll('.settings-tab-content').forEach(t => t.classList.remove('active'));
     document.querySelector(`[data-stab="${tab}"]`).classList.add('active');
     document.getElementById(`stab-${tab}`).classList.add('active');
+    if (tab === 'ai') renderAiSettingsUI();
 }
 
 // ===== FIXED EXPENSES MANAGEMENT =====
