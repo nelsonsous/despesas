@@ -1047,24 +1047,25 @@ function renderQuickAdd() {
     `;
 }
 
-function toggleVariableExpenses() {
-    const wrapper = document.getElementById('expenses-list-wrapper');
-    const chevron = document.getElementById('other-expenses-chevron');
-    if (!wrapper) return;
-    const isOpen = wrapper.style.display !== 'none';
-    wrapper.style.display = isOpen ? 'none' : 'block';
-    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
-    localStorage.setItem('varExpOpen', isOpen ? '0' : '1');
+function toggleFixedSection() {
+    const body = document.getElementById('fixed-month-body');
+    const chevron = document.getElementById('fixed-section-chevron');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (chevron) chevron.style.transform = isOpen ? 'rotate(180deg)' : '';
+    localStorage.setItem('fixedSectionOpen', isOpen ? '0' : '1');
 }
 
 function initVariableExpensesState() {
-    const wrapper = document.getElementById('expenses-list-wrapper');
-    const chevron = document.getElementById('other-expenses-chevron');
-    if (!wrapper) return;
-    // Default: closed (0). Only open if explicitly saved as open.
-    const isOpen = localStorage.getItem('varExpOpen') === '1';
-    wrapper.style.display = isOpen ? 'block' : 'none';
-    if (chevron) chevron.style.transform = isOpen ? 'rotate(180deg)' : '';
+    // Fixed section: default closed
+    const body = document.getElementById('fixed-month-body');
+    const chevron = document.getElementById('fixed-section-chevron');
+    if (body) {
+        const isOpen = localStorage.getItem('fixedSectionOpen') === '1';
+        body.style.display = isOpen ? 'block' : 'none';
+        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+    }
 }
 
 function renderExpenses() {
@@ -1084,6 +1085,14 @@ function renderExpenses() {
 
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';
+        // Restore open/closed state of fixed section body
+        const fixedBody = document.getElementById('fixed-month-body');
+        const fixedChevron = document.getElementById('fixed-section-chevron');
+        if (fixedBody && fixedBody.style.display === '') {
+            const isOpen = localStorage.getItem('fixedSectionOpen') === '1';
+            fixedBody.style.display = isOpen ? 'block' : 'none';
+            if (fixedChevron) fixedChevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+        }
         const cats = getEffectiveCategories();
 
         // Separate skipped from active
@@ -1187,16 +1196,6 @@ function renderExpenses() {
     const otherTotal = filtered.reduce((s, e) => s + e.amount, 0);
     const otherTotalEl = document.getElementById('other-expenses-total');
     if (otherTotalEl) otherTotalEl.textContent = filtered.length > 0 ? `(${filtered.length}) ${formatCurrency(otherTotal)}` : '';
-
-    // If a filter is active, auto-open the section so results are visible
-    if ((filterCat || filterType) && filtered.length > 0) {
-        const wrapper = document.getElementById('expenses-list-wrapper');
-        const chevron = document.getElementById('other-expenses-chevron');
-        if (wrapper && wrapper.style.display === 'none') {
-            wrapper.style.display = 'block';
-            if (chevron) chevron.style.transform = 'rotate(180deg)';
-        }
-    }
 
     const container = document.getElementById('expenses-list');
     if (filtered.length === 0) {
@@ -1496,7 +1495,19 @@ function renderIncomeTab() {
     const monthInc = getEffectiveMonthIncomes(currentDate);
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
-    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    // Include ALL active fixed expenses (paid + pending, excluding ignored) for a realistic total
+    const activeFixed = getActiveFixedForMonth(currentDate);
+    const fixedExpTotal = activeFixed
+        .filter(f => !isFixedSkipped(f.id, currentDate))
+        .reduce((s, f) => {
+            const amount = getEffectiveFixedAmount(f, currentDate);
+            const st = getFixedStatusForMonth(f.id, currentDate);
+            const child = children.find(c => c.id === f.type);
+            const coParentPaid = st?.paidByFather || false;
+            return s + (f.split && coParentPaid && child ? amount * (1 - child.splitPct / 100) : amount);
+        }, 0);
+    const varExpTotal = monthExp.filter(e => !e.isFixedExpense).reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = varExpTotal + fixedExpTotal;
     const balance = totalIncome - totalExpenses;
     const savingsRate = totalIncome > 0 ? ((balance / totalIncome) * 100).toFixed(1) : 0;
 
