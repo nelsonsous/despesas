@@ -639,9 +639,10 @@ function updateDashboard() {
 
     // Pending fixed expenses
     const activeFixed = getActiveFixedForMonth(currentDate);
-    const fixedPending = isPastMonth ? 0 : activeFixed.filter(f =>
-        getEffectiveFixedStatus(f, currentDate).status !== 'pago'
-    ).reduce((s, f) => s + getEffectiveFixedAmount(f, currentDate), 0);
+    const fixedPending = isPastMonth ? 0 : activeFixed.filter(f => {
+        const st = getEffectiveFixedStatus(f, currentDate).status;
+        return st !== 'pago' && st !== 'ignorado';
+    }).reduce((s, f) => s + getEffectiveFixedAmount(f, currentDate), 0);
 
     // Future-dated regular expenses (current/future month only)
     const futureRegularExp = isPastMonth ? 0 :
