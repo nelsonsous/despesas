@@ -1085,14 +1085,12 @@ function renderExpenses() {
 
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';
-        // Restore open/closed state of fixed section body
+        // Always apply open/closed state from localStorage on every render
         const fixedBody = document.getElementById('fixed-month-body');
         const fixedChevron = document.getElementById('fixed-section-chevron');
-        if (fixedBody && fixedBody.style.display === '') {
-            const isOpen = localStorage.getItem('fixedSectionOpen') === '1';
-            fixedBody.style.display = isOpen ? 'block' : 'none';
-            if (fixedChevron) fixedChevron.style.transform = isOpen ? '' : 'rotate(180deg)';
-        }
+        const fixedIsOpen = localStorage.getItem('fixedSectionOpen') === '1';
+        if (fixedBody) fixedBody.style.display = fixedIsOpen ? 'block' : 'none';
+        if (fixedChevron) fixedChevron.style.transform = fixedIsOpen ? '' : 'rotate(180deg)';
         const cats = getEffectiveCategories();
 
         // Separate skipped from active

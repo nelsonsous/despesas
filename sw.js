@@ -1,4 +1,4 @@
-const CACHE_NAME = 'despesas-v7';
+const CACHE_NAME = 'despesas-v8';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
@@ -15,14 +15,15 @@ self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
 
-// Activate
+// Activate — clear old caches and reload all clients so they get the new version immediately
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then(keys =>
             Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-        )
+        ).then(() => self.clients.claim())
+          .then(() => self.clients.matchAll({ type: 'window' }))
+          .then(clients => clients.forEach(c => c.navigate(c.url)))
     );
-    self.clients.claim();
 });
 
 // Fetch - Network first, fallback to cache
