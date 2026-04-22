@@ -192,13 +192,16 @@ async function fetchGmailForPeriod(from, to) {
     if (!listRes.ok) throw new Error('Erro Gmail API: ' + listRes.status);
     const listData = await listRes.json();
     if (!listData.messages?.length) return [];
-    const msgs = await Promise.all(listData.messages.slice(0, 15).map(async m => {
+    // Limit to 8 emails to stay within free tier token limits
+    const limited = listData.messages.slice(0, 8);
+    const msgs = [];
+    for (const m of limited) {
         const r = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
             { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
         );
-        return r.json();
-    }));
+        msgs.push(await r.json());
+    }
     return msgs;
 }
 
@@ -218,36 +221,67 @@ function decodeEmailBody(payload) {
 function emailToText(msg) {
     const headers = msg.payload?.headers || [];
     const get = n => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
-    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 800);
+    // Keep body short to save tokens
+    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 400);
     return `Assunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
+}
+
+async function callGeminiWithRetry(prompt, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiCfg.geminiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 1024 } })
+            }
+        );
+        const data = await res.json();
+        if (data.error) {
+            const msg = data.error.message || '';
+            // Extract retry delay from error message if available
+            const retryMatch = msg.match(/retry in ([\d.]+)s/i);
+            const delay = retryMatch ? parseFloat(retryMatch[1]) * 1000 + 500 : (i + 1) * 8000;
+            if (i < retries - 1 && (msg.includes('quota') || msg.includes('429') || res.status === 429)) {
+                const statusEl = document.getElementById('ai-sync-status');
+                if (statusEl) statusEl.textContent = `Limite atingido, a aguardar ${Math.round(delay/1000)}s...`;
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+            }
+            throw new Error(msg || 'Erro Gemini');
+        }
+        return data;
+    }
+    throw new Error('Limite de pedidos atingido. Tenta novamente em 1 minuto.');
 }
 
 async function callGemini(emailTexts) {
     if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
-    const prompt = `Analisa estes emails bancarios/pagamentos em portugues e extrai APENAS despesas/pagamentos reais a debito (nao incluir transferencias entre contas proprias, depositos, ou receitas).
+    // Process in batches of 4 to stay within token limits
+    const batchSize = 4;
+    const results = [];
+    for (let i = 0; i < emailTexts.length; i += batchSize) {
+        const batch = emailTexts.slice(i, i + batchSize);
+        const prompt = `Analisa estes emails bancarios/pagamentos em portugues e extrai APENAS despesas/pagamentos reais a debito (sem transferencias entre contas proprias, depositos ou receitas).
 
-Devolve UNICAMENTE um JSON array (sem mais texto) com este formato:
-[{"description":"nome curto da despesa","amount":12.50,"date":"2026-04-22","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|seguros|educacao|outros","merchant":"loja/empresa","confidence":"high|medium|low"}]
+Devolve UNICAMENTE JSON array:
+[{"description":"nome curto","amount":12.50,"date":"2026-04-22","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|seguros|educacao|outros","merchant":"loja","confidence":"high|medium|low"}]
 
-Se nao houver despesas, devolve [].
+Se nao houver despesas devolve [].
 
 EMAILS:
-${emailTexts.join('\n---\n')}`;
+${batch.join('\n---\n')}`;
 
-    const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiCfg.geminiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 2048 } })
+        const data = await callGeminiWithRetry(prompt);
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+        const m = text.match(/\[[\s\S]*?\]/);
+        if (m) {
+            try { results.push(...JSON.parse(m[0])); } catch {}
         }
-    );
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'Erro Gemini');
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    const m = text.match(/\[[\s\S]*?\]/);
-    if (!m) return [];
-    try { return JSON.parse(m[0]); } catch { return []; }
+        // Small pause between batches
+        if (i + batchSize < emailTexts.length) await new Promise(r => setTimeout(r, 2000));
+    }
+    return results;
 }
 
 async function runSync(fromDate, toDate) {
