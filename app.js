@@ -575,47 +575,16 @@ function renderSalaryCycle() {
         cycleEnd = new Date(today.getFullYear(), today.getMonth(), salaryDay - 1);
     }
 
-    const daysTotal = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
     const daysLeft = Math.max(0, Math.round((cycleEnd - today) / 86400000));
 
     // Period label
     const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     const periodLabel = `${salaryDay} ${months[cycleStart.getMonth()]} \u2192 ${salaryDay - 1} ${months[cycleEnd.getMonth()]}`;
 
-    // Expenses since salary day (current month only, from salaryDay onwards)
-    let spentSinceSalary = 0;
-    if (todayDay >= salaryDay) {
-        const cycleStartStr = cycleStart.toISOString().slice(0, 10);
-        const todayStr = today.toISOString().slice(0, 10);
-        const monthExp = getMonthExpenses(today).map(adjustExpenseForCoParent);
-        spentSinceSalary = monthExp
-            .filter(e => e.date >= cycleStartStr && e.date <= todayStr)
-            .reduce((s, e) => s + e.amount, 0);
-        // Add paid fixed expenses after salary day
-        const paidFixed = getPaidFixedAsExpenses(today);
-        spentSinceSalary += paidFixed
-            .filter(e => {
-                const f = fixedExpenses.find(x => x.id === e.fixedId);
-                return f && f.dayOfMonth >= salaryDay;
-            })
-            .reduce((s, e) => s + e.amount, 0);
-    }
-
-    // Fixed expenses scheduled in this salary cycle (remaining/upcoming)
-    const cycleFixed = getActiveFixedForMonth(today)
-        .filter(f => !isFixedSkipped(f.id, today) && getEffectiveFixedStatus(f, today).status !== 'pago')
-        .reduce((s, f) => s + getEffectiveFixedAmount(f, today), 0);
-
-    // Get salary income (fixed income + variable income received this cycle)
-    let salaryIncome = 0;
-    if (todayDay >= salaryDay) {
-        const cycleStartStr = cycleStart.toISOString().slice(0, 10);
-        const paidInc = getPaidFixedIncomesAsIncome(today);
-        salaryIncome = paidInc.reduce((s, e) => s + e.amount, 0);
-        salaryIncome += getMonthIncomes(today)
-            .filter(e => e.date >= cycleStartStr)
-            .reduce((s, e) => s + e.amount, 0);
-    }
+    const b = getSalaryCycleBreakdown(cycleStart, cycleEnd, today);
+    const spentSinceSalary = b.expPaid;
+    const cycleFixed = b.expPending;
+    const salaryIncome = b.incReceived;
 
     const totalBudget = salaryIncome || (spentSinceSalary + cycleFixed + 500);
     const available = totalBudget - spentSinceSalary - cycleFixed;
@@ -2380,22 +2349,35 @@ function getSalaryCycleAt(ref) {
     return { start, end };
 }
 
-// Aggregates actually-registered income/expense within a salary cycle range,
-// covering both variable transactions and paid fixed across the (possibly two)
-// calendar months the cycle spans.
-function getSalaryCycleSummary(cycleStart, cycleEnd) {
+// Detailed breakdown of a salary cycle. refDate (defaults to cycleEnd) separates
+// what actually happened ("received"/"paid") from what's still expected ("pending"):
+// transactions/fixed with date ≤ refDate count as realized; fixed scheduled for
+// days after refDate but still within the cycle count as pending. Covers variable
+// transactions plus paid fixed across the (up to two) calendar months the cycle touches.
+function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
     const startStr = toLocalDateStr(cycleStart);
     const endStr = toLocalDateStr(cycleEnd);
-    const inRange = (dStr) => dStr >= startStr && dStr <= endStr;
+    const rawRefStr = refDate ? toLocalDateStr(refDate) : endStr;
+    const refStr = rawRefStr > endStr ? endStr : (rawRefStr < startStr ? startStr : rawRefStr);
 
-    let totalInc = 0, totalExp = 0;
+    const inCycle = (d) => d >= startStr && d <= endStr;
+    const isRealized = (d) => d <= refStr;
 
-    incomes.forEach(i => { if (i.date && inRange(i.date)) totalInc += i.amount; });
+    let incReceivedVariable = 0, incReceivedFixed = 0, incPending = 0;
+    let expPaidVariable = 0, expPaidFixed = 0, expPending = 0;
+    const expByCategory = {};
+
+    incomes.forEach(i => {
+        if (!i.date || !inCycle(i.date) || !isRealized(i.date)) return;
+        incReceivedVariable += i.amount;
+    });
     expenses.forEach(e => {
-        if (e.date && inRange(e.date)) totalExp += adjustExpenseForCoParent(e).amount;
+        if (!e.date || !inCycle(e.date) || !isRealized(e.date)) return;
+        const adj = adjustExpenseForCoParent(e);
+        expPaidVariable += adj.amount;
+        expByCategory[e.category] = (expByCategory[e.category] || 0) + adj.amount;
     });
 
-    // Walk each month the cycle touches and pick up paid fixed whose scheduled day falls in range.
     const monthKeys = new Set();
     const walker = new Date(cycleStart.getFullYear(), cycleStart.getMonth(), 1);
     const endMonth = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth(), 1);
@@ -2406,11 +2388,46 @@ function getSalaryCycleSummary(cycleStart, cycleEnd) {
     for (const key of monthKeys) {
         const [y, m] = key.split('-').map(Number);
         const monthDate = new Date(y, m, 1);
-        getPaidFixedAsExpenses(monthDate).forEach(e => { if (inRange(e.date)) totalExp += e.amount; });
-        getPaidFixedIncomesAsIncome(monthDate).forEach(i => { if (inRange(i.date)) totalInc += i.amount; });
+
+        getPaidFixedAsExpenses(monthDate).forEach(e => {
+            if (!inCycle(e.date) || !isRealized(e.date)) return;
+            expPaidFixed += e.amount;
+            expByCategory[e.category] = (expByCategory[e.category] || 0) + e.amount;
+        });
+        getPaidFixedIncomesAsIncome(monthDate).forEach(i => {
+            if (!inCycle(i.date) || !isRealized(i.date)) return;
+            incReceivedFixed += i.amount;
+        });
+
+        const maxDay = new Date(y, m + 1, 0).getDate();
+        const dStrFor = (day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(Math.min(day, maxDay)).padStart(2, '0')}`;
+
+        getActiveFixedForMonth(monthDate).forEach(f => {
+            const st = getEffectiveFixedStatus(f, monthDate).status;
+            if (st === 'pago' || st === 'ignorado') return;
+            const dStr = dStrFor(f.dayOfMonth);
+            if (!inCycle(dStr) || isRealized(dStr)) return;
+            expPending += getEffectiveFixedAmount(f, monthDate);
+        });
+        getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
+            if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
+            const dStr = dStrFor(fi.dayOfMonth);
+            if (!inCycle(dStr) || isRealized(dStr)) return;
+            incPending += getEffectiveFixedIncomeAmount(fi, monthDate);
+        });
     }
 
-    return { totalInc, totalExp, balance: totalInc - totalExp };
+    const incReceived = incReceivedVariable + incReceivedFixed;
+    const expPaid = expPaidVariable + expPaidFixed;
+    return {
+        incReceived, incReceivedVariable, incReceivedFixed, incPending,
+        expPaid, expPaidVariable, expPaidFixed, expPending,
+        totalInc: incReceived + incPending,
+        totalExp: expPaid + expPending,
+        balance: (incReceived + incPending) - (expPaid + expPending),
+        realizedBalance: incReceived - expPaid,
+        expByCategory
+    };
 }
 
 function renderSalaryCycleReport() {
@@ -2418,7 +2435,6 @@ function renderSalaryCycleReport() {
     if (!container) return;
     if (!salaryDay) { container.style.display = 'none'; return; }
 
-    // Walk back from today, collecting up to 6 cycles.
     const today = new Date();
     const cycles = [];
     let cursor = new Date(today);
@@ -2431,40 +2447,95 @@ function renderSalaryCycleReport() {
     }
 
     const summaries = cycles
-        .map(c => ({ ...c, ...getSalaryCycleSummary(c.start, c.end) }))
+        .map(c => {
+            const refDate = c.isCurrent ? today : c.end;
+            const b = getSalaryCycleBreakdown(c.start, c.end, refDate);
+            return { ...c, ...b };
+        })
         .filter(s => s.totalInc > 0 || s.totalExp > 0);
 
     if (summaries.length === 0) { container.style.display = 'none'; return; }
 
     const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     const fmtLabel = (d) => `${d.getDate()} ${monthsShort[d.getMonth()]}`;
+    const cats = getEffectiveCategories();
 
-    // Best/worst among completed cycles (skip the partial current one)
     const completed = summaries.filter(s => !s.isCurrent);
     const best = completed.length ? completed.slice().sort((a, b) => b.balance - a.balance)[0] : null;
     const worst = completed.length ? completed.slice().sort((a, b) => a.balance - b.balance)[0] : null;
+    const avgBalance = completed.length ? completed.reduce((s, x) => s + x.balance, 0) / completed.length : 0;
+    const avgExp = completed.length ? completed.reduce((s, x) => s + x.expPaid, 0) / completed.length : 0;
 
     container.style.display = 'block';
     container.innerHTML = `
         <h3><i class="fas fa-calendar-week"></i> Ciclos de salário</h3>
         <p class="card-description">Análise entre salários — dia ${salaryDay} de cada mês</p>
-        <div style="margin-top:10px">
-            ${summaries.map(s => {
+        ${completed.length >= 2 ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;margin-bottom:10px">
+            <div style="padding:8px;background:var(--surface);border-radius:8px;text-align:center">
+                <div style="font-size:0.65rem;color:var(--text-light)">Saldo médio</div>
+                <div style="font-size:0.95rem;font-weight:700;color:${avgBalance >= 0 ? 'var(--success)' : 'var(--danger)'}">${avgBalance >= 0 ? '+' : ''}${formatCurrency(avgBalance)}</div>
+                <div style="font-size:0.65rem;color:var(--text-light)">${completed.length} ciclos</div>
+            </div>
+            <div style="padding:8px;background:var(--surface);border-radius:8px;text-align:center">
+                <div style="font-size:0.65rem;color:var(--text-light)">Despesa média</div>
+                <div style="font-size:0.95rem;font-weight:700;color:var(--danger)">${formatCurrency(avgExp)}</div>
+                <div style="font-size:0.65rem;color:var(--text-light)">por ciclo</div>
+            </div>
+        </div>` : ''}
+        <div>
+            ${summaries.map((s, idx) => {
                 const balColor = s.balance >= 0 ? 'var(--success)' : 'var(--danger)';
                 const balSign = s.balance >= 0 ? '+' : '';
                 const currentBadge = s.isCurrent
                     ? ' <span style="font-size:0.65rem;font-weight:500;color:var(--primary);background:#EDE7F6;padding:1px 6px;border-radius:4px;margin-left:4px">atual</span>'
                     : '';
+                // Days elapsed / total for current cycle
+                const daysTotal = Math.round((s.end - s.start) / 86400000) + 1;
+                const daysElapsed = s.isCurrent
+                    ? Math.max(1, Math.min(daysTotal, Math.round((today - s.start) / 86400000) + 1))
+                    : daysTotal;
+                const avgPerDay = daysElapsed > 0 ? s.expPaid / daysElapsed : 0;
+                // Variation vs previous cycle (next in list is older)
+                const prev = summaries[idx + 1];
+                let varHtml = '';
+                if (prev && !s.isCurrent) {
+                    const delta = s.balance - prev.balance;
+                    const arrow = delta >= 0 ? '↗' : '↘';
+                    const color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const sign = delta >= 0 ? '+' : '';
+                    varHtml = `<span style="color:${color}">${arrow} ${sign}${formatCurrency(delta)} vs ciclo anterior</span>`;
+                }
+                // Top category
+                const topCat = Object.entries(s.expByCategory).sort((a, b) => b[1] - a[1])[0];
+                const topCatLabel = topCat ? `<i class="fas ${cats[topCat[0]]?.icon || 'fa-tag'}" style="color:var(--primary)"></i> ${cats[topCat[0]]?.label || topCat[0]} ${formatCurrency(topCat[1])}` : '';
+                // Pending chips (only if > 0)
+                const pendingInc = s.incPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.incPending)} previstas</span>` : '';
+                const pendingExp = s.expPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.expPending)} cativas</span>` : '';
+
                 return `
                 <div style="padding:10px;margin-bottom:6px;background:var(--surface);border-radius:8px">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                         <span style="font-size:0.85rem;font-weight:700">${fmtLabel(s.start)} → ${fmtLabel(s.end)}${currentBadge}</span>
-                        <span style="color:${balColor};font-weight:700;font-size:0.9rem">${balSign}${formatCurrency(s.balance)}</span>
+                        <span style="color:${balColor};font-weight:700;font-size:0.95rem">${balSign}${formatCurrency(s.balance)}</span>
                     </div>
-                    <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-light)">
-                        <span><i class="fas fa-arrow-up" style="color:var(--success)"></i> ${formatCurrency(s.totalInc)}</span>
-                        <span><i class="fas fa-arrow-down" style="color:var(--danger)"></i> ${formatCurrency(s.totalExp)}</span>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.72rem">
+                        <div>
+                            <div style="color:var(--text-light)"><i class="fas fa-arrow-up" style="color:var(--success)"></i> Receitas</div>
+                            <div style="font-weight:600">${formatCurrency(s.incReceived)}${pendingInc}</div>
+                            <div style="color:var(--text-light);font-size:0.68rem">fixas ${formatCurrency(s.incReceivedFixed)} · var ${formatCurrency(s.incReceivedVariable)}</div>
+                        </div>
+                        <div>
+                            <div style="color:var(--text-light)"><i class="fas fa-arrow-down" style="color:var(--danger)"></i> Despesas</div>
+                            <div style="font-weight:600">${formatCurrency(s.expPaid)}${pendingExp}</div>
+                            <div style="color:var(--text-light);font-size:0.68rem">fixas ${formatCurrency(s.expPaidFixed)} · var ${formatCurrency(s.expPaidVariable)}</div>
+                        </div>
                     </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:0.68rem;color:var(--text-light)">
+                        <span>${topCatLabel}</span>
+                        <span>${s.isCurrent ? `Dia ${daysElapsed}/${daysTotal} · ${formatCurrency(avgPerDay)}/dia` : `${formatCurrency(avgPerDay)}/dia`}</span>
+                    </div>
+                    ${varHtml ? `<div style="margin-top:4px;font-size:0.7rem">${varHtml}</div>` : ''}
                 </div>`;
             }).join('')}
         </div>
