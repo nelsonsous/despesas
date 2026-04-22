@@ -949,14 +949,19 @@
                         </label>
                         <small class="field-hint">O valor aqui e uma estimativa. Pode corrigir o valor real em cada mes.</small>
                     </div>
-                    <div class="form-group" id="fixed-after-salary-group" style="display:none">
-                        <label><input type="checkbox" id="fixed-after-salary"> Só incluir no saldo após o dia do salário</label>
-                        <small class="field-hint">A despesa não aparece como "cativo" antes do salário chegar.</small>
-                    </div>
                     <div class="form-group">
                         <label>Dia do mes em que sai</label>
                         <input type="number" id="fixed-day" min="1" max="31" required placeholder="Ex: 5" value="1">
                         <small class="field-hint">Fica cativado ate essa data; marca-se como pago automaticamente</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Quando considerar no saldo</label>
+                        <select id="fixed-include-from">
+                            <option value="month-start">Desde o início do mês</option>
+                            <option value="due-day">A partir do dia da despesa</option>
+                            <option value="salary" id="fixed-include-from-salary-opt">A partir do dia do salário</option>
+                        </select>
+                        <small class="field-hint">Controla quando a despesa começa a aparecer como "por pagar" no saldo projetado. Útil para análises entre salários.</small>
                     </div>
                     <div class="form-group">
                         <label>Categoria</label>

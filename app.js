@@ -787,6 +787,30 @@ function isFixedSkipped(fixedId, date) {
     return st?.status === 'ignorado';
 }
 
+// Returns when a fixed expense should start counting in the projected balance.
+// Values: 'month-start' (default), 'due-day', 'salary'. Falls back to the legacy `afterSalary` flag.
+function getFixedIncludeFrom(f) {
+    if (f.includeFrom) return f.includeFrom;
+    if (f.afterSalary) return 'salary';
+    return 'month-start';
+}
+
+// Returns true if a fixed expense should be counted as pending for the given view date.
+// For past/future months, always true (nothing to gate). For the current month, gates
+// by the "include from" mode: month-start = always; due-day = after dayOfMonth;
+// salary = after salaryDay.
+function isFixedActiveForPending(f, viewDate) {
+    const mode = getFixedIncludeFrom(f);
+    if (mode === 'month-start') return true;
+    const today = new Date();
+    const isCurrentMonth = viewDate.getFullYear() === today.getFullYear() && viewDate.getMonth() === today.getMonth();
+    if (!isCurrentMonth) return true;
+    const todayDay = today.getDate();
+    if (mode === 'due-day') return todayDay >= (f.dayOfMonth || 1);
+    if (mode === 'salary') return !!salaryDay && todayDay >= salaryDay;
+    return true;
+}
+
 function toggleSkipFixed(fixedId, date) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
@@ -1179,12 +1203,10 @@ function updateDashboard() {
 
     // Pending fixed expenses
     const activeFixed = getActiveFixedForMonth(currentDate);
-    const todayDay2 = today.getDate();
     const fixedPending = isPastMonth ? 0 : activeFixed.filter(f => {
         const st = getEffectiveFixedStatus(f, currentDate).status;
         if (st === 'pago' || st === 'ignorado') return false;
-        // If afterSalary is set and salary day hasn't passed yet, don't include
-        if (f.afterSalary && salaryDay && todayDay2 < salaryDay) return false;
+        if (!isFixedActiveForPending(f, currentDate)) return false;
         return true;
     }).reduce((s, f) => s + getEffectiveFixedAmount(f, currentDate), 0);
 
@@ -3984,12 +4006,15 @@ function renderFixedList() {
         const child = children.find(c => c.id === f.type);
         const varBadge = f.isVariable ? '<span style="font-size:0.65rem;color:var(--primary);background:#EDE7F6;padding:1px 5px;border-radius:4px;margin-left:4px">variavel</span>' : '';
         const splitBadge = (f.split && child) ? `<span style="font-size:0.65rem;color:var(--success);background:#E8F5E9;padding:1px 5px;border-radius:4px;margin-left:4px">÷${f.split ? child.splitPct+'%' : ''}</span>` : '';
+        const mode = getFixedIncludeFrom(f);
+        const modeLabel = mode === 'due-day' ? 'desde dia da despesa' : mode === 'salary' ? 'desde dia do salário' : '';
+        const modeBadge = modeLabel ? `<span style="font-size:0.65rem;color:#555;background:#ECEFF1;padding:1px 5px;border-radius:4px;margin-left:4px">${modeLabel}</span>` : '';
         const typeLabel = child ? child.name : 'Pessoal';
         return `
             <div class="fixed-item">
                 <div class="fixed-icon"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info">
-                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}</div>
+                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}${modeBadge}</div>
                     <div class="fixed-meta">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
                 </div>
                 <div class="fixed-amount">${formatCurrency(f.amount)}</div>
@@ -4012,11 +4037,19 @@ function showAddFixed() {
     const now = new Date();
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
-    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
-    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
-    const afterSalaryEl = document.getElementById('fixed-after-salary');
-    if (afterSalaryEl) afterSalaryEl.checked = false;
+    applyFixedIncludeFromUI('month-start');
     document.getElementById('fixed-modal').classList.add('active');
+}
+
+// Shows/hides the "salary" option based on whether a salary day is configured,
+// and sets the current value on the select.
+function applyFixedIncludeFromUI(value) {
+    const sel = document.getElementById('fixed-include-from');
+    if (!sel) return;
+    const salaryOpt = document.getElementById('fixed-include-from-salary-opt');
+    if (salaryOpt) salaryOpt.hidden = !salaryDay;
+    const desired = value || 'month-start';
+    sel.value = (!salaryDay && desired === 'salary') ? 'month-start' : desired;
 }
 
 function editFixed(id) {
@@ -4044,10 +4077,7 @@ function editFixed(id) {
     if (isChild && f.split !== undefined) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
-    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
-    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
-    const afterSalaryEl = document.getElementById('fixed-after-salary');
-    if (afterSalaryEl) afterSalaryEl.checked = f.afterSalary || false;
+    applyFixedIncludeFromUI(getFixedIncludeFrom(f));
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -4065,7 +4095,7 @@ function saveFixed(event) {
         type: ftype,
         split: isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false,
         isVariable: document.getElementById('fixed-is-variable').checked,
-        afterSalary: document.getElementById('fixed-after-salary')?.checked || false,
+        includeFrom: document.getElementById('fixed-include-from')?.value || 'month-start',
         startDate: document.getElementById('fixed-start').value,
         endDate: document.getElementById('fixed-end').value || null,
         notes: document.getElementById('fixed-notes').value.trim(),
