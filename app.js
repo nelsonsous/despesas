@@ -652,9 +652,12 @@ function updateDashboard() {
 
     // Pending fixed incomes (not yet received) + future regular incomes
     const activeFixedInc = getActiveFixedIncomesForMonth(currentDate);
-    const fixedIncPending = isPastMonth ? 0 : activeFixedInc.filter(fi =>
-        getEffectiveFixedIncomeStatus(fi, currentDate).status !== 'recebido'
-    ).reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
+    const todayDay = today.getDate();
+    const fixedIncPending = isPastMonth ? 0 : activeFixedInc.filter(fi => {
+        // If "only count on day", don't project before the day arrives
+        if (fi.onlyOnDay && todayDay < fi.dayOfMonth) return false;
+        return getEffectiveFixedIncomeStatus(fi, currentDate).status !== 'recebido';
+    }).reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
 
     const futureRegularInc = isPastMonth ? 0 :
         getMonthIncomes(currentDate).filter(i => i.date > todayStr).reduce((s, i) => s + i.amount, 0);
@@ -1506,17 +1509,19 @@ function renderIncomeTab() {
             const amount = getEffectiveFixedIncomeAmount(fi, currentDate);
             const varBadge = fi.isVariable ? `<span style="font-size:0.65rem;color:#2E7D32;font-weight:600;background:#E8F5E9;padding:1px 5px;border-radius:4px">~</span>` : '';
             const varEdit = fi.isVariable ? `<button onclick="event.stopPropagation();editFixedIncomeAmount('${fi.id}', currentDate)" class="btn-icon" style="color:#2E7D32;padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
+            const todayDayInc = new Date().getDate();
+            const waitingForDay = fi.onlyOnDay && !isReceived && todayDayInc < fi.dayOfMonth;
             return `
-                <div class="fixed-month-item">
+                <div class="fixed-month-item" style="${waitingForDay ? 'opacity:0.6' : ''}">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:#E8F5E9;color:#2E7D32;flex-shrink:0">
                         <i class="fas ${cat.icon || 'fa-coins'}"></i>
                     </div>
                     <div style="flex:1;min-width:0">
                         <div style="font-size:0.85rem;font-weight:600">${fi.description} ${varBadge}</div>
-                        <div style="font-size:0.72rem;color:var(--text-light)">Dia ${fi.dayOfMonth}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}</div>
+                        <div style="font-size:0.72rem;color:var(--text-light)">Dia ${fi.dayOfMonth}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda dia' : ''}</div>
                     </div>
                     ${varEdit}
-                    <div class="fixed-month-amount" style="color:var(--success)">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
+                    <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
                     <button onclick="markFixedIncomePaid('${fi.id}', currentDate, ${!isReceived})"
                         class="fixed-status-badge ${isReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
                         ${isReceived ? '<i class="fas fa-check"></i> Recebido' : '<i class="fas fa-clock"></i> Pendente'}
@@ -3491,6 +3496,7 @@ function editFixedIncome(id) {
     document.getElementById('fixed-income-end').value = fi.endDate || '';
     document.getElementById('fixed-income-notes').value = fi.notes || '';
     document.getElementById('fixed-income-is-variable').checked = fi.isVariable || false;
+    document.getElementById('fixed-income-only-on-day').checked = fi.onlyOnDay || false;
     populateCategorySelects();
     document.getElementById('fixed-income-category').value = fi.category || 'ordenado';
     document.getElementById('modal-fixed-income').classList.add('active');
@@ -3509,6 +3515,7 @@ function saveFixedIncome(event) {
         endDate: document.getElementById('fixed-income-end').value || null,
         notes: document.getElementById('fixed-income-notes').value.trim(),
         isVariable: document.getElementById('fixed-income-is-variable').checked,
+        onlyOnDay: document.getElementById('fixed-income-only-on-day').checked,
         updatedAt: new Date().toISOString()
     };
     if (id) {
