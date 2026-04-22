@@ -8,6 +8,7 @@ const CUSTOM_INC_CAT_KEY = 'vanessa_cat_receitas';
 const CHILDREN_KEY = 'vanessa_filhos';
 const FIXED_INCOME_KEY = 'vanessa_fixas_receitas';
 const FIXED_INCOME_STATUS_KEY = 'vanessa_fixas_receitas_status';
+let salaryDay = null;
 let expenses = [];
 let incomes = [];
 let fixedExpenses = [];      // recurring templates { id, description, amount, dayOfMonth, category, type, startDate, endDate, notes, split, isVariable }
@@ -478,6 +479,84 @@ function renderCategoryDonut() {
     `;
 }
 
+// ===== SALARY CYCLE =====
+function renderSalaryCycle() {
+    const card = document.getElementById('salary-cycle-card');
+    if (!card || !salaryDay) { if (card) card.style.display = 'none'; return; }
+
+    const today = new Date();
+    const todayDay = today.getDate();
+
+    // Determine current salary cycle start and end
+    let cycleStart, cycleEnd;
+    if (todayDay >= salaryDay) {
+        cycleStart = new Date(today.getFullYear(), today.getMonth(), salaryDay);
+        cycleEnd = new Date(today.getFullYear(), today.getMonth() + 1, salaryDay - 1);
+    } else {
+        cycleStart = new Date(today.getFullYear(), today.getMonth() - 1, salaryDay);
+        cycleEnd = new Date(today.getFullYear(), today.getMonth(), salaryDay - 1);
+    }
+
+    const daysTotal = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
+    const daysLeft = Math.max(0, Math.round((cycleEnd - today) / 86400000));
+
+    // Period label
+    const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const periodLabel = `${salaryDay} ${months[cycleStart.getMonth()]} \u2192 ${salaryDay - 1} ${months[cycleEnd.getMonth()]}`;
+
+    // Expenses since salary day (current month only, from salaryDay onwards)
+    let spentSinceSalary = 0;
+    if (todayDay >= salaryDay) {
+        const cycleStartStr = cycleStart.toISOString().slice(0, 10);
+        const todayStr = today.toISOString().slice(0, 10);
+        const monthExp = getMonthExpenses(today).map(adjustExpenseForCoParent);
+        spentSinceSalary = monthExp
+            .filter(e => e.date >= cycleStartStr && e.date <= todayStr)
+            .reduce((s, e) => s + e.amount, 0);
+        // Add paid fixed expenses after salary day
+        const paidFixed = getPaidFixedAsExpenses(today);
+        spentSinceSalary += paidFixed
+            .filter(e => {
+                const f = fixedExpenses.find(x => x.id === e.fixedId);
+                return f && f.dayOfMonth >= salaryDay;
+            })
+            .reduce((s, e) => s + e.amount, 0);
+    }
+
+    // Fixed expenses scheduled in this salary cycle (remaining/upcoming)
+    const cycleFixed = getActiveFixedForMonth(today)
+        .filter(f => !isFixedSkipped(f.id, today) && getEffectiveFixedStatus(f, today).status !== 'pago')
+        .reduce((s, f) => s + getEffectiveFixedAmount(f, today), 0);
+
+    // Get salary income (fixed income + variable income received this cycle)
+    let salaryIncome = 0;
+    if (todayDay >= salaryDay) {
+        const cycleStartStr = cycleStart.toISOString().slice(0, 10);
+        const paidInc = getPaidFixedIncomesAsIncome(today);
+        salaryIncome = paidInc.reduce((s, e) => s + e.amount, 0);
+        salaryIncome += getMonthIncomes(today)
+            .filter(e => e.date >= cycleStartStr)
+            .reduce((s, e) => s + e.amount, 0);
+    }
+
+    const totalBudget = salaryIncome || (spentSinceSalary + cycleFixed + 500);
+    const available = totalBudget - spentSinceSalary - cycleFixed;
+    const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed) / totalBudget) * 100) : 0;
+
+    card.style.display = 'block';
+    document.getElementById('salary-cycle-period').textContent = periodLabel;
+    document.getElementById('salary-cycle-days').textContent = daysLeft + ' dias restantes';
+    document.getElementById('salary-spent').textContent = formatCurrency(spentSinceSalary);
+    document.getElementById('salary-fixed').textContent = formatCurrency(cycleFixed);
+    document.getElementById('salary-available').textContent = formatCurrency(available);
+    document.getElementById('salary-available').style.color = available >= 0 ? 'var(--success)' : 'var(--danger)';
+    const fill = document.getElementById('salary-progress-fill');
+    if (fill) {
+        fill.style.width = usedPct + '%';
+        fill.style.background = usedPct > 90 ? 'var(--danger)' : usedPct > 70 ? 'var(--warning)' : 'var(--success)';
+    }
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
@@ -552,6 +631,8 @@ function loadData() {
     expenseTemplates = tplData ? JSON.parse(tplData) : [];
     const budData = localStorage.getItem(BUDGETS_KEY);
     categoryBudgets = budData ? JSON.parse(budData) : {};
+    const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
+    salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
 }
 
 function saveData() {
@@ -1020,9 +1101,13 @@ function updateDashboard() {
 
     // Pending fixed expenses
     const activeFixed = getActiveFixedForMonth(currentDate);
+    const todayDay2 = today.getDate();
     const fixedPending = isPastMonth ? 0 : activeFixed.filter(f => {
         const st = getEffectiveFixedStatus(f, currentDate).status;
-        return st !== 'pago' && st !== 'ignorado';
+        if (st === 'pago' || st === 'ignorado') return false;
+        // If afterSalary is set and salary day hasn't passed yet, don't include
+        if (f.afterSalary && salaryDay && todayDay2 < salaryDay) return false;
+        return true;
     }).reduce((s, f) => s + getEffectiveFixedAmount(f, currentDate), 0);
 
     // Future-dated regular expenses (current/future month only)
@@ -1122,6 +1207,7 @@ function updateDashboard() {
     renderMonthComparison(monthExp);
     renderTopExpenses(monthExp);
     renderCategoryDonut();
+    renderSalaryCycle();
 }
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
@@ -3715,6 +3801,14 @@ function saveProfileName() {
     const spousePct = parseInt(document.getElementById('profile-spouse-pct')?.value);
     if (spouseName) localStorage.setItem(SPOUSE_NAME_KEY, spouseName);
     if (!isNaN(spousePct)) localStorage.setItem(SPOUSE_PCT_KEY, String(spousePct));
+    // Salary day
+    const sdInput = document.getElementById('profile-salary-day');
+    if (sdInput) {
+        const sd = parseInt(sdInput.value);
+        salaryDay = (sd >= 1 && sd <= 31) ? sd : null;
+        if (salaryDay) localStorage.setItem('vanessa_salary_day', salaryDay);
+        else localStorage.removeItem('vanessa_salary_day');
+    }
     applyAppTitle();
     applyHouseholdMode();
     updateAll();
@@ -3733,6 +3827,16 @@ function switchSettingsTab(tab) {
     document.querySelector(`[data-stab="${tab}"]`).classList.add('active');
     document.getElementById(`stab-${tab}`).classList.add('active');
     if (tab === 'ai') renderAiSettingsUI();
+    if (tab === 'profile') {
+        const nameEl = document.getElementById('profile-name');
+        if (nameEl) nameEl.value = getUserName();
+        const titleEl = document.getElementById('profile-title');
+        if (titleEl) titleEl.value = getAppTitle();
+        const modeEl = document.querySelector(`input[name="household-mode"][value="${getHouseholdMode()}"]`);
+        if (modeEl) modeEl.checked = true;
+        const sdEl = document.getElementById('profile-salary-day');
+        if (sdEl && salaryDay) sdEl.value = salaryDay;
+    }
 }
 
 // ===== FIXED EXPENSES MANAGEMENT =====
@@ -3777,6 +3881,10 @@ function showAddFixed() {
     const now = new Date();
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
+    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
+    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
+    const afterSalaryEl = document.getElementById('fixed-after-salary');
+    if (afterSalaryEl) afterSalaryEl.checked = false;
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -3805,6 +3913,10 @@ function editFixed(id) {
     if (isChild && f.split !== undefined) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
+    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
+    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
+    const afterSalaryEl = document.getElementById('fixed-after-salary');
+    if (afterSalaryEl) afterSalaryEl.checked = f.afterSalary || false;
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -3822,6 +3934,7 @@ function saveFixed(event) {
         type: ftype,
         split: isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false,
         isVariable: document.getElementById('fixed-is-variable').checked,
+        afterSalary: document.getElementById('fixed-after-salary')?.checked || false,
         startDate: document.getElementById('fixed-start').value,
         endDate: document.getElementById('fixed-end').value || null,
         notes: document.getElementById('fixed-notes').value.trim(),

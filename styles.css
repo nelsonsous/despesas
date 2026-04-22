@@ -69,27 +69,45 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    padding: 10px 4px;
+    gap: 3px;
+    padding: 10px 4px 8px;
     border: none;
     background: none;
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-family: var(--font);
     cursor: pointer;
     transition: all 0.2s;
     border-bottom: 3px solid transparent;
+    position: relative;
 }
-.tab i { font-size: 1.1rem; }
+.tab i { font-size: 1.15rem; transition: transform 0.2s; }
 .tab.active {
     color: var(--primary);
     border-bottom-color: var(--primary);
-    font-weight: 600;
+    font-weight: 700;
+}
+.tab.active i { transform: scale(1.1); }
+.tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 20%; right: 20%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary-light), var(--primary));
+    border-radius: 3px 3px 0 0;
 }
 
 /* ===== Tab Content ===== */
-.tab-content { display: none; padding: 16px; }
+.tab-content {
+    display: none;
+    padding: 16px;
+    animation: fadeSlideIn 0.25s ease;
+}
 .tab-content.active { display: block; }
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
 /* ===== Month Selector ===== */
 .month-selector {
@@ -107,10 +125,11 @@ body {
 /* ===== Cards ===== */
 .card {
     background: var(--card-bg);
-    border-radius: var(--radius);
-    padding: 18px;
+    border-radius: 20px;
+    padding: 18px 20px;
     margin-bottom: 14px;
-    box-shadow: var(--shadow);
+    box-shadow: 0 2px 16px rgba(108,92,231,0.07), 0 1px 4px rgba(0,0,0,0.04);
+    border: 1px solid rgba(108,92,231,0.06);
 }
 .card h3 {
     font-size: 0.95rem;
@@ -128,13 +147,19 @@ body {
 }
 
 /* Summary Cards */
-.summary-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.summary-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+}
 .summary-cards .card {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 0;
     padding: 14px;
+    border-radius: 16px;
 }
 .card-icon {
     width: 42px;
@@ -152,9 +177,9 @@ body {
 .split-card .card-icon { background: #FCE4EC; color: #E91E63; }
 .card-info { display: flex; flex-direction: column; min-width: 0; }
 .card-label { font-size: 0.7rem; color: var(--text-light); font-weight: 500; }
-.card-value { font-size: 1.1rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-value { font-size: 1rem; font-weight: 800; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .total-card { grid-column: 1 / -1; }
-.total-card .card-value { font-size: 1.4rem; color: var(--primary); }
+.total-card .card-value { font-size: 1.25rem; color: var(--primary); }
 
 /* ===== Buttons ===== */
 .btn {
@@ -483,11 +508,11 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 #modal-child, #fixed-modal, #modal-fixed-income, #modal-cat, #modal-grouped-entry { z-index: 300; }
 .modal-content {
     background: var(--card-bg);
-    border-radius: 24px 24px 0 0;
-    padding: 24px;
+    border-radius: 28px 28px 0 0;
+    padding: 24px 20px;
     width: 100%;
     max-width: 480px;
-    max-height: 90vh;
+    max-height: 92vh;
     overflow-y: auto;
     animation: slideUp 0.3s ease;
 }
@@ -495,11 +520,20 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .modal-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
 }
-.modal-header h2 { font-size: 1.2rem; font-weight: 700; }
+.modal-header h2 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
 
 /* ===== Form ===== */
@@ -514,22 +548,26 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .form-group input[type="text"],
 .form-group input[type="number"],
 .form-group input[type="date"],
+.form-group input[type="month"],
 .form-group select,
 .form-group textarea {
     width: 100%;
     padding: 12px 14px;
-    border: 2px solid var(--border);
-    border-radius: var(--radius-sm);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
     font-family: var(--font);
-    font-size: 0.95rem;
-    transition: border-color 0.2s;
-    background: var(--bg);
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--card-bg);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    -webkit-appearance: none;
 }
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-    outline: none;
     border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(108,92,231,0.12);
 }
 .radio-group { display: flex; gap: 16px; }
 .radio-label {
@@ -546,18 +584,21 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .expenses-list { margin-top: 8px; }
 .expense-item {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
-    padding: 12px 14px;
+    padding: 13px 14px;
     background: var(--card-bg);
-    border-radius: var(--radius-sm);
+    border-radius: 14px;
     margin-bottom: 8px;
-    box-shadow: var(--shadow);
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05);
     cursor: pointer;
-    transition: transform 0.15s;
+    transition: all 0.15s;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
 }
-.expense-item .expense-icon { margin-top: 2px; }
-.expense-item:active { transform: scale(0.98); }
+.expense-item .expense-icon { margin-top: 0; }
+.expense-item:active { transform: scale(0.985); opacity: 0.9; }
 .expense-icon {
     width: 40px;
     height: 40px;
@@ -802,10 +843,15 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 
 /* ===== Section Title ===== */
 .section-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text);
-    margin: 16px 0 8px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: var(--text-light);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 18px 0 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 /* ===== Export/Import ===== */
@@ -903,17 +949,6 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .balance-value.positive { color: var(--success); }
 .balance-value.negative { color: var(--danger); }
 .balance-bar-container { margin-top: 8px; }
-.balance-bar {
-    height: 10px;
-    background: #E8F5E9;
-    border-radius: 5px;
-    overflow: hidden;
-}
-.balance-bar-spent {
-    height: 100%;
-    border-radius: 5px;
-    transition: width 0.5s ease;
-}
 .balance-bar-label { font-size: 0.75rem; color: var(--text-light); margin-top: 4px; text-align: right; }
 
 /* ===== Income ===== */
@@ -1035,31 +1070,38 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .modal-full { border-radius: 24px 24px 0 0; }
 .settings-tabs {
     display: flex;
-    gap: 6px;
-    margin-bottom: 16px;
-    background: var(--bg);
-    border-radius: var(--radius-sm);
+    gap: 4px;
     padding: 4px;
+    background: var(--bg);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
 }
+.settings-tabs::-webkit-scrollbar { display: none; }
 .settings-tab {
-    flex: 1;
-    padding: 8px 4px;
+    flex-shrink: 0;
+    padding: 7px 12px;
     border: none;
-    background: none;
-    font-family: var(--font);
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--text-muted);
     border-radius: 8px;
+    font-size: 0.72rem;
+    font-family: var(--font);
+    font-weight: 600;
     cursor: pointer;
+    background: transparent;
+    color: var(--text-light);
     transition: all 0.2s;
     display: flex;
-    flex-direction: column;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
 }
-.settings-tab i { font-size: 1rem; }
-.settings-tab.active { background: var(--card-bg); color: var(--primary); box-shadow: var(--shadow); }
+.settings-tab i { font-size: 0.85rem; }
+.settings-tab.active {
+    background: var(--card-bg);
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
 .settings-tab-content { display: none; }
 .settings-tab-content.active { display: block; }
 .settings-desc { font-size: 0.82rem; color: var(--text-light); margin-bottom: 12px; line-height: 1.4; }
@@ -1115,13 +1157,16 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px;
-    background: var(--card-bg);
-    border-radius: 8px;
-    margin-bottom: 6px;
+    padding: 11px 12px;
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(108,92,231,0.1);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    transition: all 0.15s;
 }
 .fixed-month-item:last-child { margin-bottom: 0; }
-.fixed-skipped-item { opacity: 0.55; background: var(--bg); }
+.fixed-skipped-item { opacity: 0.5; background: #fafafa; }
 .fixed-status-badge {
     font-size: 0.68rem;
     font-weight: 700;
@@ -1129,8 +1174,8 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     border-radius: 6px;
     white-space: nowrap;
 }
-.status-pendente { background: #FFF3E0; color: #E65100; }
-.status-pago { background: #E8F5E9; color: #2E7D32; }
+.status-pendente { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+.status-pago { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
 .fixed-month-amount { font-size: 0.9rem; font-weight: 700; color: var(--text); }
 
 /* ===== Balance Fixed Row ===== */
@@ -1153,19 +1198,23 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .balance-available { padding: 4px 0 0; border-top: none; }
 .balance-bar {
     height: 10px;
-    background: #E8F5E9;
-    border-radius: 5px;
+    background: var(--border);
+    border-radius: 10px;
     overflow: hidden;
+    margin: 12px 0 8px;
+    position: relative;
     display: flex;
 }
-.balance-bar-fixed {
+#balance-bar-fixed {
     height: 100%;
-    background: linear-gradient(90deg, #FFE082, #FFA000);
-    transition: width 0.5s ease;
+    background: rgba(253,203,110,0.7) !important;
+    position: absolute;
+    top: 0;
+    transition: width 0.5s ease, left 0.5s ease;
 }
-.balance-bar-spent {
+#balance-bar-spent {
     height: 100%;
-    border-radius: 0;
+    border-radius: 10px;
     transition: width 0.5s ease;
 }
 
@@ -1357,53 +1406,106 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .donut-legend-label { flex: 1; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .donut-legend-pct { font-weight: 700; color: var(--text); }
 
-/* ===== Improved Fixed Month Item ===== */
-.fixed-month-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    background: var(--card-bg);
-    border-radius: 12px;
-    margin-bottom: 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    border: 1px solid var(--border);
-    transition: box-shadow 0.2s;
-}
-
-/* ===== Improved Expense Item ===== */
-.expense-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    background: var(--card-bg);
-    border-radius: 14px;
-    margin-bottom: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.expense-item:active { transform: scale(0.98); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-
-/* ===== Improved Balance Bar ===== */
-.balance-bar {
-    height: 8px;
-    background: var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    margin: 10px 0 6px;
-    position: relative;
-    display: flex;
-}
 
 /* ===== Improved Fixed Month Section ===== */
 .fixed-month-section {
-    background: linear-gradient(135deg, #f8f4ff 0%, #f0ebff 100%);
-    border: 1.5px solid #d4c5ff;
-    border-radius: 18px;
+    background: linear-gradient(135deg, #f5f0ff 0%, #ede7f6 100%);
+    border: 1.5px solid rgba(108,92,231,0.2);
+    border-radius: 20px;
     padding: 16px;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
 }
-.fixed-month-header h3 { color: var(--primary); }
+.fixed-month-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.fixed-month-header h3 {
+    color: var(--primary);
+    font-size: 0.88rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+.fixed-month-total {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--primary);
+}
+
+/* ===== Salary Cycle Card ===== */
+.salary-cycle-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    border-radius: 20px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    color: white;
+    box-shadow: 0 8px 32px rgba(15, 52, 96, 0.4);
+}
+.salary-cycle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+.salary-cycle-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 4px;
+}
+.salary-cycle-period {
+    font-size: 1rem;
+    font-weight: 700;
+    color: white;
+}
+.salary-cycle-days {
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.15);
+    padding: 4px 10px;
+    border-radius: 20px;
+    color: rgba(255,255,255,0.9);
+    font-weight: 600;
+    white-space: nowrap;
+}
+.salary-cycle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.salary-cycle-row-label {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.7);
+}
+.salary-cycle-row-value {
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+.salary-cycle-row-value.danger { color: #ff9f9f; }
+.salary-cycle-row-value.warning { color: #ffd966; }
+.salary-cycle-row-value.success { color: #69f0ae; }
+.salary-cycle-progress-bar {
+    height: 6px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+.salary-cycle-progress-bar > div {
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.6s ease;
+}
+
+/* ===== Income Section Premium ===== */
+#fixed-income-section {
+    background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%) !important;
+    border-color: rgba(46,125,50,0.2) !important;
+    border-radius: 20px !important;
+}

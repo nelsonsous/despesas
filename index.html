@@ -73,6 +73,34 @@
                 </div>
             </div>
 
+            <!-- Salary Cycle Card -->
+            <div id="salary-cycle-card" class="salary-cycle-card" style="display:none">
+                <div class="salary-cycle-header">
+                    <div>
+                        <div class="salary-cycle-label">Ciclo Salarial</div>
+                        <div class="salary-cycle-period" id="salary-cycle-period">22 Abr → 21 Mai</div>
+                    </div>
+                    <div class="salary-cycle-days" id="salary-cycle-days">8 dias</div>
+                </div>
+                <div class="salary-cycle-bars">
+                    <div class="salary-cycle-row">
+                        <span class="salary-cycle-row-label">Gasto desde salário</span>
+                        <span class="salary-cycle-row-value danger" id="salary-spent">0 €</span>
+                    </div>
+                    <div class="salary-cycle-row">
+                        <span class="salary-cycle-row-label">Fixas do ciclo</span>
+                        <span class="salary-cycle-row-value warning" id="salary-fixed">0 €</span>
+                    </div>
+                    <div class="salary-cycle-progress-bar">
+                        <div id="salary-progress-fill" style="width:0%"></div>
+                    </div>
+                    <div class="salary-cycle-row" style="margin-top:6px">
+                        <span class="salary-cycle-row-label" style="font-weight:700">Disponível</span>
+                        <span class="salary-cycle-row-value success" id="salary-available">0 €</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Balance KPI (legacy wrapper kept for forecast chips + bar) -->
             <div class="card balance-card" id="balance-card" style="margin-top:-4px">
                 <div style="display:none" id="_kpi-balance-hidden"></div>
@@ -193,7 +221,7 @@
             <div id="quick-add-bar" style="display:none"></div>
 
             <!-- Pending AI Expenses -->
-            <div id="pending-expenses-section" style="display:none;background:#EDE7F6;border:1.5px solid #B39DDB;border-radius:14px;padding:14px;margin-bottom:12px">
+            <div id="pending-expenses-section" style="display:none;background:linear-gradient(135deg,#f3efff,#ede7f6);border:1.5px solid rgba(108,92,231,0.25);border-radius:20px;padding:16px;margin-bottom:14px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                     <h3 style="font-size:0.9rem;font-weight:700;color:var(--primary);margin:0">
                         <i class="fas fa-robot"></i> Despesas detetadas pela IA
@@ -750,6 +778,11 @@
                         <input type="number" id="profile-spouse-pct" min="0" max="100" value="50">
                         <small class="field-hint">Ex: 50 = cada um paga metade das despesas partilhadas</small>
                     </div>
+                    <div class="form-group" id="salary-day-setting">
+                        <label>Dia de recebimento do salário</label>
+                        <input type="number" id="profile-salary-day" min="1" max="31" placeholder="Ex: 22">
+                        <small class="field-hint">Define o início do ciclo orçamental entre salários. Deixar vazio para usar meses normais.</small>
+                    </div>
                     <button onclick="saveProfileName()" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
@@ -906,6 +939,10 @@
                             Despesa variavel (valor muda mes a mes, ex: agua, luz)
                         </label>
                         <small class="field-hint">O valor aqui e uma estimativa. Pode corrigir o valor real em cada mes.</small>
+                    </div>
+                    <div class="form-group" id="fixed-after-salary-group" style="display:none">
+                        <label><input type="checkbox" id="fixed-after-salary"> Só incluir no saldo após o dia do salário</label>
+                        <small class="field-hint">A despesa não aparece como "cativo" antes do salário chegar.</small>
                     </div>
                     <div class="form-group">
                         <label>Dia do mes em que sai</label>
