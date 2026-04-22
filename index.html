@@ -54,31 +54,28 @@
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
-            <!-- Balance KPI -->
-            <div class="card balance-card" id="balance-card">
-                <div class="balance-header">
-                    <h3><i class="fas fa-scale-balanced"></i> Balanco do Mes</h3>
-                </div>
-                <div class="balance-kpis">
-                    <div class="kpi income-kpi">
-                        <i class="fas fa-arrow-down"></i>
-                        <div>
-                            <span class="kpi-label">Entradas</span>
-                            <span class="kpi-value" id="kpi-income">0,00 EUR</span>
+            <!-- Balance Hero Card -->
+            <div class="balance-hero">
+                <div class="balance-hero-bg"></div>
+                <div class="balance-hero-content">
+                    <div class="balance-hero-label">Saldo do Mes</div>
+                    <div class="balance-hero-amount" id="kpi-balance">0 €</div>
+                    <div class="balance-hero-pills">
+                        <div class="balance-pill income-pill">
+                            <i class="fas fa-arrow-trend-up"></i>
+                            <span id="kpi-income">0 €</span>
                         </div>
-                    </div>
-                    <div class="kpi expense-kpi">
-                        <i class="fas fa-arrow-up"></i>
-                        <div>
-                            <span class="kpi-label">Saidas</span>
-                            <span class="kpi-value" id="kpi-expenses">0,00 EUR</span>
+                        <div class="balance-pill expense-pill">
+                            <i class="fas fa-arrow-trend-down"></i>
+                            <span id="kpi-expenses">0 €</span>
                         </div>
                     </div>
                 </div>
-                <div class="balance-result">
-                    <span>Saldo Real</span>
-                    <span class="balance-value" id="kpi-balance">0,00 EUR</span>
-                </div>
+            </div>
+
+            <!-- Balance KPI (legacy wrapper kept for forecast chips + bar) -->
+            <div class="card balance-card" id="balance-card" style="margin-top:-4px">
+                <div style="display:none" id="_kpi-balance-hidden"></div>
                 <div class="forecast-chips" id="balance-fixed-row" style="display:none">
                     <div class="forecast-chip forecast-chip-income">
                         <div class="forecast-chip-icon"><i class="fas fa-arrow-down"></i></div>
@@ -110,6 +107,9 @@
                     <div class="balance-bar-label" id="balance-bar-label">0% gasto</div>
                 </div>
             </div>
+
+            <!-- Category Donut Chart -->
+            <div class="card donut-section" id="category-donut-container"></div>
 
             <div class="summary-cards">
                 <div class="card personal-card">

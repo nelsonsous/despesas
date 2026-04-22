@@ -387,6 +387,63 @@ function dismissAllPending() {
     renderPendingExpenses();
 }
 
+// ===== CATEGORY DONUT CHART =====
+function renderCategoryDonut() {
+    const container = document.getElementById('category-donut-container');
+    if (!container) return;
+    const allExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense);
+    const fixedExp = getActiveFixedForMonth(currentDate)
+        .filter(f => !isFixedSkipped(f.id, currentDate))
+        .map(f => ({ category: f.category, amount: getEffectiveFixedAmount(f, currentDate) }));
+    const all = [...allExp.map(e => ({ category: e.category, amount: e.amount })), ...fixedExp];
+    if (!all.length) { container.innerHTML = ''; return; }
+
+    const cats = getEffectiveCategories();
+    const totals = {};
+    all.forEach(e => { totals[e.category] = (totals[e.category] || 0) + e.amount; });
+    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const grandTotal = sorted.reduce((s, [, v]) => s + v, 0);
+
+    const COLORS = ['#6C5CE7','#fd79a8','#fdcb6e','#00cec9','#e17055','#74b9ff','#a29bfe','#55efc4'];
+
+    // SVG donut using stroke-dasharray / stroke-dashoffset
+    const R = 45, circumference = 2 * Math.PI * R;
+    let cumPct = 0;
+    const segs = sorted.map(([cat, val], i) => {
+        const pct = val / grandTotal;
+        const dash = pct * circumference;
+        const dashOffset = circumference * (1 - cumPct);
+        cumPct += pct;
+        return `<circle cx="55" cy="55" r="${R}" fill="none" stroke="${COLORS[i % COLORS.length]}" stroke-width="18" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${dashOffset.toFixed(2)}"/>`;
+    });
+
+    const legend = sorted.map(([cat, val], i) => {
+        const label = cats[cat]?.label || cat;
+        const pct = ((val / grandTotal) * 100).toFixed(0);
+        return `<div class="donut-legend-item">
+            <div class="donut-legend-dot" style="background:${COLORS[i % COLORS.length]}"></div>
+            <span class="donut-legend-label">${label}</span>
+            <span class="donut-legend-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="donut-wrapper">
+            <div class="donut-chart-container">
+                <svg class="donut-svg" viewBox="0 0 110 110" style="transform:rotate(-90deg)">
+                    <circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--border)" stroke-width="18"/>
+                    ${segs.join('')}
+                </svg>
+                <div class="donut-center-label">
+                    <div class="donut-center-value">${formatCurrency(grandTotal)}</div>
+                    <div class="donut-center-sub">despesas</div>
+                </div>
+            </div>
+            <div class="donut-legend">${legend}</div>
+        </div>
+    `;
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
@@ -965,7 +1022,10 @@ function updateDashboard() {
     document.getElementById('kpi-expenses').textContent = formatCurrency(totalExpenses);
     const balanceEl = document.getElementById('kpi-balance');
     balanceEl.textContent = formatCurrency(balance);
-    balanceEl.className = 'balance-value ' + (balance >= 0 ? 'positive' : 'negative');
+    balanceEl.className = 'balance-hero-amount' + (balance < 0 ? ' negative' : '');
+    // Also update hero amount class
+    const heroAmountEl = document.querySelector('.balance-hero-amount');
+    if (heroAmountEl) heroAmountEl.classList.toggle('negative', balance < 0);
 
     // Forecast chips: por receber, por pagar, saldo projetado
     const fixedRow = document.getElementById('balance-fixed-row');
@@ -1027,6 +1087,7 @@ function updateDashboard() {
     renderCategoryChart(monthExp);
     renderMonthComparison(monthExp);
     renderTopExpenses(monthExp);
+    renderCategoryDonut();
 }
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
@@ -3734,16 +3795,30 @@ function saveFixed(event) {
     };
     if (id) {
         const idx = fixedExpenses.findIndex(f => f.id === id);
-        if (idx >= 0) { fixed.createdAt = fixedExpenses[idx].createdAt; fixedExpenses[idx] = fixed; }
+        const currentMonthKey = getFixedMonthKey(new Date());
+        const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevMonthKey = getFixedMonthKey(prevDate);
+        const existing = idx >= 0 ? fixedExpenses[idx] : null;
+        if (existing && existing.startDate < currentMonthKey) {
+            // Has past data: end the old record and create a new version from current month
+            fixedExpenses[idx].endDate = prevMonthKey;
+            const newFixed = { ...fixed, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
+            fixedExpenses.push(newFixed);
+            showToast('Nova versao criada a partir deste mes');
+        } else {
+            // No past history: edit in place
+            if (idx >= 0) { fixed.createdAt = fixedExpenses[idx].createdAt; fixedExpenses[idx] = fixed; }
+            showToast('Despesa fixa atualizada!');
+        }
     } else {
         fixed.createdAt = new Date().toISOString();
         fixedExpenses.push(fixed);
+        showToast('Despesa fixa criada!');
     }
     saveData();
     closeFixedModal();
     renderFixedList();
     updateAll();
-    showToast(id ? 'Despesa fixa atualizada!' : 'Despesa fixa criada!');
 }
 
 function setupFixedTypeToggle() {
@@ -3759,16 +3834,37 @@ function setupFixedTypeToggle() {
 
 function confirmDeleteFixed(id) {
     const f = fixedExpenses.find(x => x.id === id);
-    document.getElementById('confirm-message').textContent = `Apagar despesa fixa "${f?.description}"? Nao afeta despesas ja registadas.`;
-    document.getElementById('confirm-btn').onclick = () => {
-        fixedExpenses = fixedExpenses.filter(x => x.id !== id);
-        fixedStatus = fixedStatus.filter(s => s.fixedId !== id);
-        saveData();
-        closeConfirm();
-        renderFixedList();
-        updateAll();
-        showToast('Despesa fixa removida');
-    };
+    if (!f) return;
+    const currentMonthKey = getFixedMonthKey(new Date());
+    const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevMonthKey = getFixedMonthKey(prevDate);
+    const hasPastData = f.startDate < currentMonthKey;
+    const confirmBtn = document.getElementById('confirm-btn');
+    if (hasPastData) {
+        document.getElementById('confirm-message').textContent = `"${f.description}" tem dados em meses anteriores. Sera desativada a partir deste mes (historico fica guardado).`;
+        confirmBtn.textContent = 'Desativar';
+        confirmBtn.onclick = () => {
+            const idx = fixedExpenses.findIndex(x => x.id === id);
+            if (idx >= 0) fixedExpenses[idx].endDate = prevMonthKey;
+            saveData();
+            closeConfirm();
+            renderFixedList();
+            updateAll();
+            showToast('Despesa fixa desativada');
+        };
+    } else {
+        document.getElementById('confirm-message').textContent = `Apagar despesa fixa "${f.description}"? Nao afeta despesas ja registadas.`;
+        confirmBtn.textContent = 'Apagar';
+        confirmBtn.onclick = () => {
+            fixedExpenses = fixedExpenses.filter(x => x.id !== id);
+            fixedStatus = fixedStatus.filter(s => s.fixedId !== id);
+            saveData();
+            closeConfirm();
+            renderFixedList();
+            updateAll();
+            showToast('Despesa fixa removida');
+        };
+    }
     document.getElementById('modal-confirm').classList.add('active');
 }
 
@@ -3850,30 +3946,65 @@ function saveFixedIncome(event) {
     };
     if (id) {
         const idx = fixedIncomes.findIndex(x => x.id === id);
-        if (idx >= 0) { fi.createdAt = fixedIncomes[idx].createdAt; fixedIncomes[idx] = fi; }
+        const currentMonthKey = getFixedMonthKey(new Date());
+        const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
+        const prevMonthKey = getFixedMonthKey(prevDate);
+        const existing = idx >= 0 ? fixedIncomes[idx] : null;
+        if (existing && existing.startDate < currentMonthKey) {
+            // Has past data: end the old record and create a new version from current month
+            fixedIncomes[idx].endDate = prevMonthKey;
+            const newFi = { ...fi, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
+            fixedIncomes.push(newFi);
+            showToast('Nova versao criada a partir deste mes');
+        } else {
+            // No past history: edit in place
+            if (idx >= 0) { fi.createdAt = fixedIncomes[idx].createdAt; fixedIncomes[idx] = fi; }
+            showToast('Receita fixa atualizada!');
+        }
     } else {
         fi.createdAt = new Date().toISOString();
         fixedIncomes.push(fi);
+        showToast('Receita fixa criada!');
     }
     saveData();
     closeFixedIncomeModal();
     renderFixedIncomeList();
     updateAll();
-    showToast(id ? 'Receita fixa atualizada!' : 'Receita fixa criada!');
 }
 
 function confirmDeleteFixedIncome(id) {
     const fi = fixedIncomes.find(x => x.id === id);
-    document.getElementById('confirm-message').textContent = `Apagar receita fixa "${fi?.description}"?`;
-    document.getElementById('confirm-btn').onclick = () => {
-        fixedIncomes = fixedIncomes.filter(x => x.id !== id);
-        fixedIncomeStatus = fixedIncomeStatus.filter(s => s.fixedIncomeId !== id);
-        saveData();
-        closeConfirm();
-        renderFixedIncomeList();
-        updateAll();
-        showToast('Receita fixa removida');
-    };
+    if (!fi) return;
+    const currentMonthKey = getFixedMonthKey(new Date());
+    const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
+    const prevMonthKey = getFixedMonthKey(prevDate);
+    const hasPastData = fi.startDate < currentMonthKey;
+    const confirmBtn = document.getElementById('confirm-btn');
+    if (hasPastData) {
+        document.getElementById('confirm-message').textContent = `"${fi.description}" tem dados em meses anteriores. Sera desativada a partir deste mes (historico fica guardado).`;
+        confirmBtn.textContent = 'Desativar';
+        confirmBtn.onclick = () => {
+            const idx = fixedIncomes.findIndex(x => x.id === id);
+            if (idx >= 0) fixedIncomes[idx].endDate = prevMonthKey;
+            saveData();
+            closeConfirm();
+            renderFixedIncomeList();
+            updateAll();
+            showToast('Receita fixa desativada');
+        };
+    } else {
+        document.getElementById('confirm-message').textContent = `Apagar receita fixa "${fi.description}"?`;
+        confirmBtn.textContent = 'Apagar';
+        confirmBtn.onclick = () => {
+            fixedIncomes = fixedIncomes.filter(x => x.id !== id);
+            fixedIncomeStatus = fixedIncomeStatus.filter(s => s.fixedIncomeId !== id);
+            saveData();
+            closeConfirm();
+            renderFixedIncomeList();
+            updateAll();
+            showToast('Receita fixa removida');
+        };
+    }
     document.getElementById('modal-confirm').classList.add('active');
 }
 

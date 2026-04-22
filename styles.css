@@ -1250,3 +1250,160 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     #app { max-width: 100%; padding: 0; }
     .card { box-shadow: none; border: 1px solid #ddd; page-break-inside: avoid; }
 }
+
+/* ===== Balance Hero ===== */
+.balance-hero {
+    position: relative;
+    border-radius: 24px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    padding: 28px 24px 24px;
+    background: linear-gradient(135deg, #6C5CE7 0%, #a29bfe 60%, #fd79a8 100%);
+    box-shadow: 0 12px 40px rgba(108, 92, 231, 0.35);
+}
+.balance-hero::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+}
+.balance-hero::after {
+    content: '';
+    position: absolute;
+    bottom: -30px; left: -20px;
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+}
+.balance-hero-content { position: relative; z-index: 1; }
+.balance-hero-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.75);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+.balance-hero-amount {
+    font-size: 2.6rem;
+    font-weight: 900;
+    color: white;
+    line-height: 1;
+    margin-bottom: 20px;
+    letter-spacing: -1px;
+}
+.balance-hero-amount.negative { color: #ff9f9f; }
+.balance-hero-pills {
+    display: flex;
+    gap: 10px;
+}
+.balance-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: white;
+    flex: 1;
+    justify-content: center;
+}
+.balance-pill i { font-size: 0.75rem; }
+.income-pill { background: rgba(0,184,148,0.35); }
+.expense-pill { background: rgba(255,107,107,0.35); }
+
+/* ===== Category Donut Chart ===== */
+.donut-section {
+    margin-bottom: 16px;
+}
+.donut-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.donut-chart-container {
+    position: relative;
+    width: 110px;
+    height: 110px;
+    flex-shrink: 0;
+}
+.donut-svg { width: 110px; height: 110px; }
+.donut-center-label {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+}
+.donut-center-value { font-size: 0.78rem; font-weight: 800; color: var(--text); }
+.donut-center-sub { font-size: 0.6rem; color: var(--text-light); }
+.donut-legend { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.donut-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+}
+.donut-legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.donut-legend-label { flex: 1; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.donut-legend-pct { font-weight: 700; color: var(--text); }
+
+/* ===== Improved Fixed Month Item ===== */
+.fixed-month-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    border: 1px solid var(--border);
+    transition: box-shadow 0.2s;
+}
+
+/* ===== Improved Expense Item ===== */
+.expense-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--card-bg);
+    border-radius: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.expense-item:active { transform: scale(0.98); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+
+/* ===== Improved Balance Bar ===== */
+.balance-bar {
+    height: 8px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 10px 0 6px;
+    position: relative;
+    display: flex;
+}
+
+/* ===== Improved Fixed Month Section ===== */
+.fixed-month-section {
+    background: linear-gradient(135deg, #f8f4ff 0%, #f0ebff 100%);
+    border: 1.5px solid #d4c5ff;
+    border-radius: 18px;
+    padding: 16px;
+    margin-bottom: 14px;
+}
+.fixed-month-header h3 { color: var(--primary); }
