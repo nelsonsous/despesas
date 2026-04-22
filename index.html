@@ -1140,7 +1140,18 @@
     <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
+            navigator.serviceWorker.register('sw.js').then(reg => {
+                // Force re-check on every load; bypasses HTTP cache of sw.js, which iOS
+                // caches aggressively and can otherwise keep the PWA pinned to an old version.
+                reg.update();
+                setInterval(() => reg.update(), 60 * 60 * 1000);
+            });
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                refreshing = true;
+                window.location.reload();
+            });
         }
     </script>
 </body>
