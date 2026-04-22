@@ -242,6 +242,24 @@ function getEffectiveFixedStatus(f, date) {
     return { status: 'pendente', auto: false };
 }
 
+function isFixedSkipped(fixedId, date) {
+    const st = getFixedStatusForMonth(fixedId, date);
+    return st?.status === 'ignorado';
+}
+
+function toggleSkipFixed(fixedId, date) {
+    const monthKey = getFixedMonthKey(date);
+    const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
+    const skipped = isFixedSkipped(fixedId, date);
+    if (idx >= 0) {
+        fixedStatus[idx].status = skipped ? 'pendente' : 'ignorado';
+    } else {
+        fixedStatus.push({ fixedId, month: monthKey, status: 'ignorado' });
+    }
+    saveData();
+    updateAll();
+}
+
 // Returns effective amount for a fixed expense in a month (override if variable)
 function getEffectiveFixedAmount(f, date) {
     const st = getFixedStatusForMonth(f.id, date);
@@ -251,7 +269,10 @@ function getEffectiveFixedAmount(f, date) {
 function getFixedPendingTotal(date) {
     const active = getActiveFixedForMonth(date);
     return active
-        .filter(f => getEffectiveFixedStatus(f, date).status !== 'pago')
+        .filter(f => {
+            const st = getEffectiveFixedStatus(f, date).status;
+            return st !== 'pago' && st !== 'ignorado';
+        })
         .reduce((s, f) => s + getEffectiveFixedAmount(f, date), 0);
 }
 
@@ -1039,7 +1060,12 @@ function renderExpenses() {
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';
         const cats = getEffectiveCategories();
-        const fixedTotal = activeFixed.reduce((s, f) => {
+
+        // Separate skipped from active
+        const activeNotSkipped = activeFixed.filter(f => !isFixedSkipped(f.id, currentDate));
+        const activeSkipped = activeFixed.filter(f => isFixedSkipped(f.id, currentDate));
+
+        const fixedTotal = activeNotSkipped.reduce((s, f) => {
             const amount = getEffectiveFixedAmount(f, currentDate);
             const st = getFixedStatusForMonth(f.id, currentDate);
             const coParentPaid = st?.paidByFather || false;
@@ -1051,7 +1077,7 @@ function renderExpenses() {
         }, 0);
         document.getElementById('fixed-month-total').textContent = formatCurrency(fixedTotal);
 
-        fixedList.innerHTML = activeFixed.map(f => {
+        function renderFixedItem(f, skipped) {
             const effSt = getEffectiveFixedStatus(f, currentDate);
             const isPaid = effSt.status === 'pago';
             const isAuto = effSt.auto && isPaid;
@@ -1060,9 +1086,28 @@ function renderExpenses() {
             const child = children.find(c => c.id === f.type);
             const st = getFixedStatusForMonth(f.id, currentDate);
             const coParentPaid = st?.paidByFather || false;
+            const splitPct = child?.splitPct || 50;
+
+            if (skipped) {
+                return `
+                    <div class="fixed-month-item fixed-skipped-item">
+                        <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:#F5F5F5;color:#BDBDBD;flex-shrink:0">
+                            <i class="fas ${cat.icon}"></i>
+                        </div>
+                        <div style="flex:1;min-width:0">
+                            <div style="font-size:0.85rem;font-weight:600;text-decoration:line-through;color:var(--text-light)">${f.description}</div>
+                            <div style="font-size:0.72rem;color:var(--text-light)">Ignorado este mês</div>
+                        </div>
+                        <div class="fixed-month-amount" style="color:var(--text-light);text-decoration:line-through">${formatCurrency(amount)}</div>
+                        <button onclick="toggleSkipFixed('${f.id}', currentDate)"
+                            class="fixed-status-badge" style="border:none;cursor:pointer;background:#F5F5F5;color:#757575">
+                            <i class="fas fa-rotate-left"></i> Reativar
+                        </button>
+                    </div>
+                `;
+            }
 
             let splitBadge = '';
-            const splitPct = child?.splitPct || 50;
             if (child && f.split) {
                 splitBadge = `<button onclick="event.stopPropagation();markFixedCoParentPaid('${f.id}', currentDate, ${!coParentPaid})"
                     class="fixed-status-badge ${coParentPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem;margin-left:4px">
@@ -1091,10 +1136,18 @@ function renderExpenses() {
                         class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
                         ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
                     </button>
+                    <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px;margin-left:2px" title="Ignorar este mês">
+                        <i class="fas fa-ban"></i>
+                    </button>
                     ${splitBadge}
                 </div>
             `;
-        }).join('');
+        }
+
+        fixedList.innerHTML = [
+            ...activeNotSkipped.map(f => renderFixedItem(f, false)),
+            ...activeSkipped.map(f => renderFixedItem(f, true))
+        ].join('');
         titleEl.style.display = 'block';
     } else {
         fixedSection.style.display = 'none';

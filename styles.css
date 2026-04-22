@@ -1121,6 +1121,7 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     margin-bottom: 6px;
 }
 .fixed-month-item:last-child { margin-bottom: 0; }
+.fixed-skipped-item { opacity: 0.55; background: var(--bg); }
 .fixed-status-badge {
     font-size: 0.68rem;
     font-weight: 700;
