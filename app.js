@@ -2374,6 +2374,7 @@ function renderChildrenTab() {
 function renderReports() {
     renderIncomeVsExpenses();
     renderMonthlyEvolution();
+    renderSalaryCycleReport();
     renderSavingsAnalysis();
     renderCategoryComparison();
     renderUnnecessaryExpenses();
@@ -2381,6 +2382,134 @@ function renderReports() {
     renderPeopleSpending();
     renderWeekdayHeatmap();
     renderSmartInsights();
+}
+
+// Local-timezone date formatter (YYYY-MM-DD). toISOString() uses UTC and can
+// shift the date by one day for users east/west of UTC.
+function toLocalDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Salary cycle containing the given reference date. A cycle runs from salaryDay
+// of month M to salaryDay-1 of month M+1.
+function getSalaryCycleAt(ref) {
+    if (!salaryDay) return null;
+    const d = new Date(ref);
+    let start, end;
+    if (d.getDate() >= salaryDay) {
+        start = new Date(d.getFullYear(), d.getMonth(), salaryDay);
+        end = new Date(d.getFullYear(), d.getMonth() + 1, salaryDay - 1);
+    } else {
+        start = new Date(d.getFullYear(), d.getMonth() - 1, salaryDay);
+        end = new Date(d.getFullYear(), d.getMonth(), salaryDay - 1);
+    }
+    return { start, end };
+}
+
+// Aggregates actually-registered income/expense within a salary cycle range,
+// covering both variable transactions and paid fixed across the (possibly two)
+// calendar months the cycle spans.
+function getSalaryCycleSummary(cycleStart, cycleEnd) {
+    const startStr = toLocalDateStr(cycleStart);
+    const endStr = toLocalDateStr(cycleEnd);
+    const inRange = (dStr) => dStr >= startStr && dStr <= endStr;
+
+    let totalInc = 0, totalExp = 0;
+
+    incomes.forEach(i => { if (i.date && inRange(i.date)) totalInc += i.amount; });
+    expenses.forEach(e => {
+        if (e.date && inRange(e.date)) totalExp += adjustExpenseForCoParent(e).amount;
+    });
+
+    // Walk each month the cycle touches and pick up paid fixed whose scheduled day falls in range.
+    const monthKeys = new Set();
+    const walker = new Date(cycleStart.getFullYear(), cycleStart.getMonth(), 1);
+    const endMonth = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth(), 1);
+    while (walker <= endMonth) {
+        monthKeys.add(`${walker.getFullYear()}-${walker.getMonth()}`);
+        walker.setMonth(walker.getMonth() + 1);
+    }
+    for (const key of monthKeys) {
+        const [y, m] = key.split('-').map(Number);
+        const monthDate = new Date(y, m, 1);
+        getPaidFixedAsExpenses(monthDate).forEach(e => { if (inRange(e.date)) totalExp += e.amount; });
+        getPaidFixedIncomesAsIncome(monthDate).forEach(i => { if (inRange(i.date)) totalInc += i.amount; });
+    }
+
+    return { totalInc, totalExp, balance: totalInc - totalExp };
+}
+
+function renderSalaryCycleReport() {
+    const container = document.getElementById('salary-cycle-report');
+    if (!container) return;
+    if (!salaryDay) { container.style.display = 'none'; return; }
+
+    // Walk back from today, collecting up to 6 cycles.
+    const today = new Date();
+    const cycles = [];
+    let cursor = new Date(today);
+    for (let i = 0; i < 6; i++) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        cycles.push({ ...c, isCurrent: i === 0 });
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+
+    const summaries = cycles
+        .map(c => ({ ...c, ...getSalaryCycleSummary(c.start, c.end) }))
+        .filter(s => s.totalInc > 0 || s.totalExp > 0);
+
+    if (summaries.length === 0) { container.style.display = 'none'; return; }
+
+    const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fmtLabel = (d) => `${d.getDate()} ${monthsShort[d.getMonth()]}`;
+
+    // Best/worst among completed cycles (skip the partial current one)
+    const completed = summaries.filter(s => !s.isCurrent);
+    const best = completed.length ? completed.slice().sort((a, b) => b.balance - a.balance)[0] : null;
+    const worst = completed.length ? completed.slice().sort((a, b) => a.balance - b.balance)[0] : null;
+
+    container.style.display = 'block';
+    container.innerHTML = `
+        <h3><i class="fas fa-calendar-week"></i> Ciclos de salário</h3>
+        <p class="card-description">Análise entre salários — dia ${salaryDay} de cada mês</p>
+        <div style="margin-top:10px">
+            ${summaries.map(s => {
+                const balColor = s.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+                const balSign = s.balance >= 0 ? '+' : '';
+                const currentBadge = s.isCurrent
+                    ? ' <span style="font-size:0.65rem;font-weight:500;color:var(--primary);background:#EDE7F6;padding:1px 6px;border-radius:4px;margin-left:4px">atual</span>'
+                    : '';
+                return `
+                <div style="padding:10px;margin-bottom:6px;background:var(--surface);border-radius:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-size:0.85rem;font-weight:700">${fmtLabel(s.start)} → ${fmtLabel(s.end)}${currentBadge}</span>
+                        <span style="color:${balColor};font-weight:700;font-size:0.9rem">${balSign}${formatCurrency(s.balance)}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-light)">
+                        <span><i class="fas fa-arrow-up" style="color:var(--success)"></i> ${formatCurrency(s.totalInc)}</span>
+                        <span><i class="fas fa-arrow-down" style="color:var(--danger)"></i> ${formatCurrency(s.totalExp)}</span>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+        ${best && worst && best !== worst ? `
+        <div style="display:flex;gap:8px;margin-top:8px">
+            <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px;text-align:center">
+                <i class="fas fa-trophy" style="color:#2E7D32"></i>
+                <div style="font-size:0.7rem;color:#2E7D32">Melhor ciclo</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#2E7D32">${fmtLabel(best.start)} → ${fmtLabel(best.end)}</div>
+                <div style="font-size:0.75rem;color:#2E7D32">+${formatCurrency(best.balance)}</div>
+            </div>
+            <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px;text-align:center">
+                <i class="fas fa-triangle-exclamation" style="color:#C62828"></i>
+                <div style="font-size:0.7rem;color:#C62828">Pior ciclo</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#C62828">${fmtLabel(worst.start)} → ${fmtLabel(worst.end)}</div>
+                <div style="font-size:0.75rem;color:#C62828">${worst.balance >= 0 ? '+' : ''}${formatCurrency(worst.balance)}</div>
+            </div>
+        </div>` : ''}
+    `;
 }
 
 function renderYTDStrip() {
