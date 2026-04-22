@@ -431,7 +431,10 @@ function renderCategoryDonut() {
         .filter(f => !isFixedSkipped(f.id, currentDate))
         .map(f => ({ category: f.category, amount: getEffectiveFixedAmount(f, currentDate) }));
     const all = [...allExp.map(e => ({ category: e.category, amount: e.amount })), ...fixedExp];
-    if (!all.length) { container.innerHTML = ''; return; }
+    if (!all.length) {
+        container.innerHTML = `<div class="donut-empty"><i class="fas fa-chart-pie"></i><p>Sem despesas este mês</p></div>`;
+        return;
+    }
 
     const cats = getEffectiveCategories();
     const totals = {};
@@ -463,6 +466,7 @@ function renderCategoryDonut() {
     }).join('');
 
     container.innerHTML = `
+        <div class="donut-title"><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Despesas por Categoria</div>
         <div class="donut-wrapper">
             <div class="donut-chart-container">
                 <svg class="donut-svg" viewBox="0 0 110 110" style="transform:rotate(-90deg)">
@@ -471,7 +475,7 @@ function renderCategoryDonut() {
                 </svg>
                 <div class="donut-center-label">
                     <div class="donut-center-value">${formatCurrency(grandTotal)}</div>
-                    <div class="donut-center-sub">despesas</div>
+                    <div class="donut-center-sub">total</div>
                 </div>
             </div>
             <div class="donut-legend">${legend}</div>
@@ -1146,6 +1150,20 @@ function updateDashboard() {
     const heroAmountEl = document.querySelector('.balance-hero-amount');
     if (heroAmountEl) heroAmountEl.classList.toggle('negative', balance < 0);
 
+    // Balance hero label: show days left for current month
+    const heroLabelEl = document.querySelector('.balance-hero-label');
+    if (heroLabelEl) {
+        const isCurrentMonth2 = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
+        if (isCurrentMonth2) {
+            const daysInMonth2 = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+            const daysLeft2 = daysInMonth2 - today.getDate();
+            const healthIcon = balance >= 0 ? '✦' : '⚠';
+            heroLabelEl.innerHTML = `Saldo do Mês <span style="background:rgba(255,255,255,0.2);border-radius:10px;padding:2px 8px;font-size:0.7rem;margin-left:6px">${healthIcon} ${daysLeft2}d restantes</span>`;
+        } else {
+            heroLabelEl.textContent = 'Saldo do Mês';
+        }
+    }
+
     // Forecast chips: por receber, por pagar, saldo projetado
     const fixedRow = document.getElementById('balance-fixed-row');
     if (pendingExpenses > 0 || pendingIncomes > 0) {
@@ -1227,28 +1245,44 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
     const dailyAvg = totalExpenses / dayOfMonth;
     const projected = dailyAvg * daysInMonth;
     const dailyBudget = daysRemaining > 0 && totalIncome > 0 ? Math.max(0, (totalIncome - totalExpenses) / daysRemaining) : 0;
+    const monthPct = Math.round((dayOfMonth / daysInMonth) * 100);
 
     const projColor = projected > totalIncome ? 'var(--danger)' : projected > totalIncome * 0.8 ? 'var(--warning)' : 'var(--success)';
+    const projBg = projected > totalIncome ? '#FFEBEE' : projected > totalIncome * 0.8 ? '#FFF8E1' : '#E8F5E9';
+    const budgetColor = dailyBudget < 10 ? 'var(--danger)' : dailyBudget < 30 ? 'var(--warning)' : 'var(--success)';
+    const budgetBg = dailyBudget < 10 ? '#FFEBEE' : dailyBudget < 30 ? '#FFF8E1' : '#E8F5E9';
 
     container.style.display = 'block';
     container.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--surface);border-radius:8px">
-                <div style="font-size:0.65rem;color:var(--text-light)">Media/dia</div>
-                <div style="font-size:0.95rem;font-weight:700">${formatCurrency(dailyAvg)}</div>
+        <div class="pace-header">
+            <span class="pace-title"><i class="fas fa-gauge-high"></i> Ritmo de Gastos</span>
+            <span class="pace-badge">Dia ${dayOfMonth}/${daysInMonth}</span>
+        </div>
+        <div class="pace-stats">
+            <div class="pace-stat">
+                <div class="pace-stat-icon" style="background:#EDE7F6"><i class="fas fa-calendar-day" style="color:var(--primary)"></i></div>
+                <div class="pace-stat-body">
+                    <div class="pace-stat-label">Média/dia</div>
+                    <div class="pace-stat-value">${formatCurrency(dailyAvg)}</div>
+                </div>
             </div>
-            <div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--surface);border-radius:8px">
-                <div style="font-size:0.65rem;color:var(--text-light)">Projecao mes</div>
-                <div style="font-size:0.95rem;font-weight:700;color:${projColor}">${formatCurrency(projected)}</div>
+            <div class="pace-stat">
+                <div class="pace-stat-icon" style="background:${projBg}"><i class="fas fa-chart-line" style="color:${projColor}"></i></div>
+                <div class="pace-stat-body">
+                    <div class="pace-stat-label">Projeção</div>
+                    <div class="pace-stat-value" style="color:${projColor}">${formatCurrency(projected)}</div>
+                </div>
             </div>
-            <div style="flex:1;min-width:100px;text-align:center;padding:8px;background:var(--surface);border-radius:8px">
-                <div style="font-size:0.65rem;color:var(--text-light)">Pode gastar/dia</div>
-                <div style="font-size:0.95rem;font-weight:700;color:${dailyBudget < 10 ? 'var(--danger)' : 'var(--success)'}">${formatCurrency(dailyBudget)}</div>
+            <div class="pace-stat">
+                <div class="pace-stat-icon" style="background:${budgetBg}"><i class="fas fa-piggy-bank" style="color:${budgetColor}"></i></div>
+                <div class="pace-stat-body">
+                    <div class="pace-stat-label">Pode gastar/dia</div>
+                    <div class="pace-stat-value" style="color:${budgetColor}">${formatCurrency(dailyBudget)}</div>
+                </div>
             </div>
         </div>
-        <div style="font-size:0.7rem;color:var(--text-light);text-align:center;margin-top:4px">
-            Dia ${dayOfMonth} de ${daysInMonth} &middot; ${daysRemaining} dias restantes
-        </div>
+        <div class="pace-progress-bar"><div class="pace-progress-fill" style="width:${monthPct}%"></div></div>
+        <div class="pace-progress-label">${monthPct}% do mês passou · ${daysRemaining} dias restantes</div>
     `;
 }
 
@@ -1350,23 +1384,35 @@ function renderMonthComparison(monthExp) {
     const diff = currTotal - prevTotal;
     const pct = prevTotal > 0 ? ((diff / prevTotal) * 100).toFixed(1) : 0;
     const cls = diff > 0 ? 'change-up' : diff < 0 ? 'change-down' : 'change-same';
-    const arrow = diff > 0 ? '&#9650;' : diff < 0 ? '&#9660;' : '&#9644;';
+    const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '▬';
+    const currLabel = currentDate.toLocaleDateString('pt-PT', { month: 'short' });
     const prevLabel = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1).toLocaleDateString('pt-PT', { month: 'short' });
+    const maxVal = Math.max(currTotal, prevTotal, 1);
+    const currPct = (currTotal / maxVal * 100).toFixed(1);
+    const prevPct = (prevTotal / maxVal * 100).toFixed(1);
+    const currBarColor = diff > 0 ? 'var(--danger)' : 'var(--success)';
 
     container.innerHTML = `
-        <div class="comparison-item">
-            <div>
-                <div style="font-weight:600">Este mes</div>
-                <div style="font-size:0.8rem;color:var(--text-light)">${formatCurrency(currTotal)}</div>
-            </div>
-            <span class="comparison-change ${cls}">${arrow} ${Math.abs(pct)}%</span>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+            <span class="comparison-change ${cls}" style="font-size:0.78rem">${arrow} ${Math.abs(pct)}% vs mês anterior</span>
         </div>
-        <div class="comparison-item">
-            <div>
-                <div style="font-weight:600">Mes anterior (${prevLabel})</div>
-                <div style="font-size:0.8rem;color:var(--text-light)">${formatCurrency(prevTotal)}</div>
+        <div class="comparison-block">
+            <div class="comparison-block-header">
+                <span class="comparison-block-label"><i class="fas fa-circle" style="font-size:0.5rem;color:${currBarColor}"></i> ${currLabel} (este mês)</span>
+                <span class="comparison-block-value">${formatCurrency(currTotal)}</span>
             </div>
-            <span style="font-size:0.85rem;color:var(--text-light)">${diff > 0 ? '+' : ''}${formatCurrency(diff)}</span>
+            <div class="comparison-block-bar">
+                <div class="comparison-block-fill" style="width:${currPct}%;background:${currBarColor}"></div>
+            </div>
+        </div>
+        <div class="comparison-block" style="margin-top:8px">
+            <div class="comparison-block-header">
+                <span class="comparison-block-label"><i class="fas fa-circle" style="font-size:0.5rem;color:var(--text-muted)"></i> ${prevLabel} (anterior)</span>
+                <span class="comparison-block-value" style="color:var(--text-light)">${formatCurrency(prevTotal)}</span>
+            </div>
+            <div class="comparison-block-bar">
+                <div class="comparison-block-fill" style="width:${prevPct}%;background:var(--border)"></div>
+            </div>
         </div>
     `;
 }
@@ -1379,16 +1425,26 @@ function renderTopExpenses(monthExp) {
         return;
     }
     const sorted = [...monthExp].sort((a, b) => b.amount - a.amount).slice(0, 5);
-    container.innerHTML = sorted.map((e, i) => `
+    const maxAmount = sorted[0].amount;
+    const rankColors = ['#6C5CE7','#a29bfe','#b8adff','#cec9ff','#e0deff'];
+    container.innerHTML = sorted.map((e, i) => {
+        const barPct = ((e.amount / maxAmount) * 100).toFixed(0);
+        const catColor = getEffectiveCategories()[e.category]?.color || '#6C5CE7';
+        return `
         <div class="top-expense-item">
-            <div class="top-expense-rank">${i + 1}</div>
+            <div class="top-expense-rank" style="background:${rankColors[i] || '#e0deff'}">${i + 1}</div>
             <div class="top-expense-info">
-                <div class="top-expense-desc">${e.description}${e.attachment ? ' <i class="fas fa-paperclip expense-attachment-icon"></i>' : ''}</div>
-                <div class="top-expense-cat">${getEffectiveCategories()[e.category]?.label || e.category} &middot; ${formatDate(e.date)}</div>
+                <div class="top-expense-desc">${e.description}${e.attachment ? ' <i class="fas fa-paperclip" style="font-size:0.65rem;color:var(--text-muted)"></i>' : ''}</div>
+                <div class="top-expense-meta">
+                    <span class="top-expense-cat"><i class="fas fa-circle" style="font-size:0.4rem;color:${catColor}"></i> ${getEffectiveCategories()[e.category]?.label || e.category}</span>
+                    <span style="color:var(--border)">·</span>
+                    <span class="top-expense-cat">${formatDate(e.date)}</span>
+                </div>
             </div>
+            <div class="top-expense-bar-wrap"><div class="top-expense-bar" style="width:${barPct}%;background:${catColor}"></div></div>
             <div class="top-expense-amount">${formatCurrency(e.amount)}</div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 // ===== EXPENSES LIST =====
@@ -1920,8 +1976,9 @@ function renderExpenseItem(e) {
         </div>`
         : '';
 
+    const catColor = cat.color || '#6C5CE7';
     return `
-        <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}">
+        <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}" style="border-left:3px solid ${catColor}">
             <div class="expense-icon cat-${e.category}">
                 <i class="fas ${cat.icon}"></i>
             </div>

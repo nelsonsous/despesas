@@ -63,11 +63,17 @@
                     <div class="balance-hero-pills">
                         <div class="balance-pill income-pill">
                             <i class="fas fa-arrow-trend-up"></i>
-                            <span id="kpi-income">0 €</span>
+                            <div>
+                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Receitas</div>
+                                <div id="kpi-income">0 €</div>
+                            </div>
                         </div>
                         <div class="balance-pill expense-pill">
                             <i class="fas fa-arrow-trend-down"></i>
-                            <span id="kpi-expenses">0 €</span>
+                            <div>
+                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Despesas</div>
+                                <div id="kpi-expenses">0 €</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -179,8 +185,8 @@
             <!-- Budget Alerts -->
             <div class="card" id="budget-alerts" style="display:none"></div>
 
-            <!-- Category Chart -->
-            <div class="card chart-card">
+            <!-- Category Chart (hidden – replaced by donut) -->
+            <div class="card chart-card" style="display:none">
                 <h3>Gastos por Categoria</h3>
                 <div id="category-chart"></div>
                 <div id="category-legend"></div>
@@ -188,13 +194,13 @@
 
             <!-- Comparison Indicator -->
             <div class="card comparison-card">
-                <h3>Comparacao com Mes Anterior</h3>
+                <h3><i class="fas fa-code-compare" style="color:var(--primary)"></i> Comparação com Mês Anterior</h3>
                 <div id="month-comparison"></div>
             </div>
 
             <!-- Top expenses -->
             <div class="card">
-                <h3>Maiores Gastos do Mes</h3>
+                <h3><i class="fas fa-trophy" style="color:#FDCB6E"></i> Maiores Gastos do Mês</h3>
                 <div id="top-expenses"></div>
             </div>
         </section>
