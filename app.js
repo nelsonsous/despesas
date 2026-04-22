@@ -181,28 +181,54 @@ function signInGoogle() {
     _googleTokenClient?.requestAccessToken();
 }
 
+// Payment-related keywords for subject line pre-filtering
+const PAYMENT_KEYWORDS = ['debit','debito','pagamento','fatura','factura','compra','transac','transferen','movimento','recibo','banco','mbway','multibanco','visa','mastercard','sepa','direct debit','payment','purchase','withdrawal','atm','pos ','ref ','iban','swift','cobranca'];
+
+function isProbablyPaymentEmail(subject, from) {
+    const text = (subject + ' ' + from).toLowerCase();
+    return PAYMENT_KEYWORDS.some(k => text.includes(k));
+}
+
 async function fetchGmailForPeriod(from, to) {
     const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '/');
     const toDate = new Date(to); toDate.setDate(toDate.getDate() + 1);
     const toStr = toDate.toISOString().slice(0, 10).replace(/-/g, '/');
-    const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR compra OR transacao OR transferencia OR movimento OR recibo OR banco)`;
+    // More targeted query: known payment signals in subject
+    const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR compra OR transacao OR mbway OR multibanco OR "movimentos" OR recibo)`;
+    // Step 1: fetch metadata only (no body) — free and fast
     const listRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=30`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=50`,
         { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
     );
     if (!listRes.ok) throw new Error('Erro Gmail API: ' + listRes.status);
     const listData = await listRes.json();
     if (!listData.messages?.length) return [];
-    // Limit to 8 emails to stay within free tier token limits
-    const limited = listData.messages.slice(0, 8);
-    const msgs = [];
-    for (const m of limited) {
-        const r = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
+
+    // Load already-seen email IDs to avoid re-analysis
+    const seenIds = new Set(aiCfg.analyzedEmailIds || []);
+
+    // Step 2: fetch metadata headers only for up to 20 emails
+    const candidates = listData.messages.slice(0, 20);
+    const metaResults = await Promise.all(candidates.map(m =>
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
             { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
-        );
-        msgs.push(await r.json());
-    }
+        ).then(r => r.json())
+    ));
+
+    // Step 3: filter to relevant, unseen emails (max 6)
+    const getHeader = (msg, name) => (msg.payload?.headers || []).find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+    const relevant = metaResults
+        .filter(m => !seenIds.has(m.id) && isProbablyPaymentEmail(getHeader(m, 'Subject'), getHeader(m, 'From')))
+        .slice(0, 6);
+
+    if (!relevant.length) return [];
+
+    // Step 4: fetch full content only for relevant emails
+    const msgs = await Promise.all(relevant.map(m =>
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`,
+            { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
+        ).then(r => r.json())
+    ));
     return msgs;
 }
 
@@ -222,67 +248,83 @@ function decodeEmailBody(payload) {
 function emailToText(msg) {
     const headers = msg.payload?.headers || [];
     const get = n => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
-    // Keep body short to save tokens
-    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 400);
-    return `Assunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
+    // Very short body — only need key numbers/dates, not full prose
+    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    return `ID:${msg.id}\nAssunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
 }
 
-async function callGeminiWithRetry(prompt, retries = 3) {
-    for (let i = 0; i < retries; i++) {
+async function callGeminiOnce(prompt) {
+    // Try primary model first, fall back to lite variant
+    const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+    let lastErr = null;
+    for (const model of models) {
         const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiCfg.geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiCfg.geminiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 1024 } })
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
+                })
             }
         );
         const data = await res.json();
-        if (data.error) {
-            const msg = data.error.message || '';
-            // Extract retry delay from error message if available
-            const retryMatch = msg.match(/retry in ([\d.]+)s/i);
-            const delay = retryMatch ? parseFloat(retryMatch[1]) * 1000 + 500 : (i + 1) * 8000;
-            if (i < retries - 1 && (msg.includes('quota') || msg.includes('429') || res.status === 429)) {
-                const statusEl = document.getElementById('ai-sync-status');
-                if (statusEl) statusEl.textContent = `Limite atingido, a aguardar ${Math.round(delay/1000)}s...`;
-                await new Promise(r => setTimeout(r, delay));
-                continue;
-            }
-            throw new Error(msg || 'Erro Gemini');
+        if (!data.error) return data;
+        const msg = data.error.message || '';
+        lastErr = msg;
+        // If rate-limited on this model, try next; if quota exhausted stop early
+        if (msg.toLowerCase().includes('quota') && !msg.toLowerCase().includes('per minute')) {
+            throw new Error('Quota diária esgotada. A chave Gemini tem um limite gratuito por dia. Tenta novamente amanhã.');
         }
-        return data;
+        // Per-minute rate limit: wait and retry same model
+        if (res.status === 429 || msg.includes('429')) {
+            const retryMatch = msg.match(/retry in ([\d.]+)s/i);
+            const wait = retryMatch ? parseFloat(retryMatch[1]) * 1000 + 1000 : 65000;
+            const statusEl = document.getElementById('ai-sync-status');
+            if (statusEl) statusEl.textContent = `Limite por minuto atingido. A aguardar ${Math.round(wait/1000)}s...`;
+            await new Promise(r => setTimeout(r, wait));
+            // Retry same model after wait
+            const res2 = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiCfg.geminiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
+                    })
+                }
+            );
+            const data2 = await res2.json();
+            if (!data2.error) return data2;
+            lastErr = data2.error.message || '';
+        }
+        // Model not available — try next model
     }
-    throw new Error('Limite de pedidos atingido. Tenta novamente em 1 minuto.');
+    throw new Error(lastErr || 'Erro Gemini');
 }
 
 async function callGemini(emailTexts) {
     if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
-    // Process in batches of 4 to stay within token limits
-    const batchSize = 4;
-    const results = [];
-    for (let i = 0; i < emailTexts.length; i += batchSize) {
-        const batch = emailTexts.slice(i, i + batchSize);
-        const prompt = `Analisa estes emails bancarios/pagamentos em portugues e extrai APENAS despesas/pagamentos reais a debito (sem transferencias entre contas proprias, depositos ou receitas).
+    if (!emailTexts.length) return [];
 
-Devolve UNICAMENTE JSON array:
-[{"description":"nome curto","amount":12.50,"date":"2026-04-22","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|seguros|educacao|outros","merchant":"loja","confidence":"high|medium|low"}]
+    // ONE single API call for all emails — drastically reduces quota usage
+    const prompt = `Analisa estes emails e extrai APENAS pagamentos/despesas reais a debito (ignora transferencias entre contas proprias, depositos, publicidade, newsletters).
 
-Se nao houver despesas devolve [].
+Responde UNICAMENTE com JSON array (sem texto extra):
+[{"id":"ID_DO_EMAIL","description":"descricao curta","amount":12.50,"date":"YYYY-MM-DD","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros"}]
+
+Se um email nao tiver despesa, omite-o do array. Se nao houver nenhuma, responde [].
 
 EMAILS:
-${batch.join('\n---\n')}`;
+${emailTexts.join('\n===\n')}`;
 
-        const data = await callGeminiWithRetry(prompt);
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-        const m = text.match(/\[[\s\S]*?\]/);
-        if (m) {
-            try { results.push(...JSON.parse(m[0])); } catch {}
-        }
-        // Small pause between batches
-        if (i + batchSize < emailTexts.length) await new Promise(r => setTimeout(r, 2000));
-    }
-    return results;
+    const data = await callGeminiOnce(prompt);
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const m = text.match(/\[[\s\S]*?\]/);
+    if (!m) return [];
+    try { return JSON.parse(m[0]); } catch { return []; }
 }
 
 async function runSync(fromDate, toDate) {
@@ -297,29 +339,49 @@ async function runSync(fromDate, toDate) {
             signInGoogle();
             return;
         }
-        setStatus('A procurar emails de pagamento...');
+        setStatus('A procurar emails relevantes...');
         const msgs = await fetchGmailForPeriod(fromDate, toDate);
-        if (!msgs.length) { setStatus('Nenhum email encontrado no periodo.'); showToast('Sem emails encontrados'); return; }
-        setStatus(`A analisar ${msgs.length} emails com Gemini AI...`);
+        if (!msgs.length) {
+            setStatus('Nenhum email de pagamento novo encontrado.');
+            showToast('Sem emails novos');
+            // Still update lastSyncDate so auto-sync doesn't retry today
+            aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+            localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+            return;
+        }
+        setStatus(`A analisar ${msgs.length} email(s) — 1 pedido Gemini...`);
         const texts = msgs.map(emailToText);
         const extracted = await callGemini(texts);
-        if (!extracted.length) { setStatus('Nenhuma despesa encontrada nos emails.'); showToast('Sem despesas detetadas'); return; }
+
+        // Mark these email IDs as seen (so we never re-analyse them)
+        const seenIds = new Set(aiCfg.analyzedEmailIds || []);
+        msgs.forEach(m => seenIds.add(m.id));
+        // Keep at most 500 IDs to avoid bloating localStorage
+        aiCfg.analyzedEmailIds = [...seenIds].slice(-500);
+
+        if (!extracted.length) {
+            setStatus('Nenhuma despesa encontrada nos emails analisados.');
+            showToast('Sem despesas detetadas');
+            aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+            localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+            return;
+        }
         // Deduplicate against existing pending
         const newItems = extracted
             .filter(e => e.amount > 0 && e.date)
-            .map(e => ({ id: generateId(), ...e, syncedAt: new Date().toISOString() }))
+            .map(({ id: _gemId, ...e }) => ({ id: generateId(), ...e, syncedAt: new Date().toISOString() }))
             .filter(e => !pendingExpenses.some(p => p.description === e.description && p.amount === e.amount && p.date === e.date));
         pendingExpenses = [...pendingExpenses, ...newItems];
         localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
         aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
         localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
-        setStatus(`${newItems.length} despesa(s) nova(s) aguardam aprovacao.`);
+        setStatus(`✓ ${newItems.length} despesa(s) nova(s) aguardam aprovação.`);
         showToast(newItems.length ? `${newItems.length} despesas para aprovar!` : 'Sem despesas novas');
         renderPendingExpenses();
         renderAiSettingsUI();
     } catch (e) {
-        setStatus('Erro: ' + e.message);
-        showToast('Erro: ' + e.message);
+        setStatus('⚠ ' + e.message);
+        showToast('Erro: ' + e.message.slice(0, 60));
         if (e.message.includes('401') || e.message.includes('403')) { _googleAccessToken = null; renderAiSettingsUI(); }
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync"></i> Sincronizar agora'; }
@@ -327,9 +389,21 @@ async function runSync(fromDate, toDate) {
 }
 
 function triggerManualSync() {
-    const from = new Date(document.getElementById('ai-sync-from')?.value || new Date());
-    const to = new Date(document.getElementById('ai-sync-to')?.value || new Date());
+    const fromVal = document.getElementById('ai-sync-from')?.value;
+    const toVal = document.getElementById('ai-sync-to')?.value;
+    const from = fromVal ? new Date(fromVal + 'T00:00:00') : new Date();
+    const to = toVal ? new Date(toVal + 'T23:59:59') : new Date();
     runSync(from, to);
+}
+
+function clearAnalyzedEmailCache() {
+    aiCfg.analyzedEmailIds = [];
+    aiCfg.lastSyncDate = null;
+    localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
+    const statusEl = document.getElementById('ai-sync-status');
+    if (statusEl) statusEl.textContent = 'Cache limpo. Próxima sincronização reanalisará todos os emails.';
+    renderAiSettingsUI();
+    showToast('Cache de emails limpo');
 }
 
 function checkAutoSync() {

@@ -848,8 +848,11 @@
                     <button id="ai-sync-btn" onclick="triggerManualSync()" class="btn btn-primary btn-block">
                         <i class="fas fa-sync"></i> Sincronizar agora
                     </button>
-                    <div id="ai-sync-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px"></div>
+                    <div id="ai-sync-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px;line-height:1.4"></div>
                     <div id="last-sync-date" style="font-size:0.75rem;color:var(--text-light);text-align:center;margin-top:4px"></div>
+                    <button onclick="clearAnalyzedEmailCache()" style="width:100%;margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:10px;background:none;font-size:0.75rem;color:var(--text-muted);cursor:pointer;font-family:var(--font)">
+                        <i class="fas fa-rotate"></i> Forçar reanálise (limpar cache de emails vistos)
+                    </button>
                 </div>
             </div>
         </div>
