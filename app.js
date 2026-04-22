@@ -113,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     populateExpenseTypeOptions();
     populateFixedTypeOptions();
     populateFilterTypes();
+    initVariableExpensesState();
     updateAll();
     populateFilterCategories();
     buildIconPicker();
@@ -1046,6 +1047,26 @@ function renderQuickAdd() {
     `;
 }
 
+function toggleVariableExpenses() {
+    const wrapper = document.getElementById('expenses-list-wrapper');
+    const chevron = document.getElementById('other-expenses-chevron');
+    if (!wrapper) return;
+    const isOpen = wrapper.style.display !== 'none';
+    wrapper.style.display = isOpen ? 'none' : 'block';
+    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+    localStorage.setItem('varExpOpen', isOpen ? '0' : '1');
+}
+
+function initVariableExpensesState() {
+    const wrapper = document.getElementById('expenses-list-wrapper');
+    const chevron = document.getElementById('other-expenses-chevron');
+    if (!wrapper) return;
+    // Default: closed (0). Only open if explicitly saved as open.
+    const isOpen = localStorage.getItem('varExpOpen') === '1';
+    wrapper.style.display = isOpen ? 'block' : 'none';
+    if (chevron) chevron.style.transform = isOpen ? 'rotate(180deg)' : '';
+}
+
 function renderExpenses() {
     renderQuickAdd();
     const monthExp = getMonthExpenses(currentDate).map(adjustExpenseForCoParent);
@@ -1165,7 +1186,17 @@ function renderExpenses() {
 
     const otherTotal = filtered.reduce((s, e) => s + e.amount, 0);
     const otherTotalEl = document.getElementById('other-expenses-total');
-    if (otherTotalEl) otherTotalEl.textContent = formatCurrency(otherTotal);
+    if (otherTotalEl) otherTotalEl.textContent = filtered.length > 0 ? `(${filtered.length}) ${formatCurrency(otherTotal)}` : '';
+
+    // If a filter is active, auto-open the section so results are visible
+    if ((filterCat || filterType) && filtered.length > 0) {
+        const wrapper = document.getElementById('expenses-list-wrapper');
+        const chevron = document.getElementById('other-expenses-chevron');
+        if (wrapper && wrapper.style.display === 'none') {
+            wrapper.style.display = 'block';
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+        }
+    }
 
     const container = document.getElementById('expenses-list');
     if (filtered.length === 0) {

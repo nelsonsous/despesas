@@ -207,11 +207,16 @@
                 <button onclick="openFixedManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
             </div>
 
-            <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center">
+            <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleVariableExpenses()">
                 <span>Outras Despesas</span>
-                <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+                <span style="display:flex;align-items:center;gap:8px">
+                    <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+                    <i id="other-expenses-chevron" class="fas fa-chevron-down" style="font-size:0.8rem;color:var(--text-light);transition:transform 0.2s"></i>
+                </span>
             </h3>
-            <div id="expenses-list" class="expenses-list"></div>
+            <div id="expenses-list-wrapper" style="display:none">
+                <div id="expenses-list" class="expenses-list"></div>
+            </div>
         </section>
 
         <!-- Income Tab -->
