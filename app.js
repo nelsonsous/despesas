@@ -787,6 +787,30 @@ function isFixedSkipped(fixedId, date) {
     return st?.status === 'ignorado';
 }
 
+// Returns when a fixed expense should start counting in the projected balance.
+// Values: 'month-start' (default), 'due-day', 'salary'. Falls back to the legacy `afterSalary` flag.
+function getFixedIncludeFrom(f) {
+    if (f.includeFrom) return f.includeFrom;
+    if (f.afterSalary) return 'salary';
+    return 'month-start';
+}
+
+// Returns true if a fixed expense should be counted as pending for the given view date.
+// For past/future months, always true (nothing to gate). For the current month, gates
+// by the "include from" mode: month-start = always; due-day = after dayOfMonth;
+// salary = after salaryDay.
+function isFixedActiveForPending(f, viewDate) {
+    const mode = getFixedIncludeFrom(f);
+    if (mode === 'month-start') return true;
+    const today = new Date();
+    const isCurrentMonth = viewDate.getFullYear() === today.getFullYear() && viewDate.getMonth() === today.getMonth();
+    if (!isCurrentMonth) return true;
+    const todayDay = today.getDate();
+    if (mode === 'due-day') return todayDay >= (f.dayOfMonth || 1);
+    if (mode === 'salary') return !!salaryDay && todayDay >= salaryDay;
+    return true;
+}
+
 function toggleSkipFixed(fixedId, date) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
@@ -1179,12 +1203,10 @@ function updateDashboard() {
 
     // Pending fixed expenses
     const activeFixed = getActiveFixedForMonth(currentDate);
-    const todayDay2 = today.getDate();
     const fixedPending = isPastMonth ? 0 : activeFixed.filter(f => {
         const st = getEffectiveFixedStatus(f, currentDate).status;
         if (st === 'pago' || st === 'ignorado') return false;
-        // If afterSalary is set and salary day hasn't passed yet, don't include
-        if (f.afterSalary && salaryDay && todayDay2 < salaryDay) return false;
+        if (!isFixedActiveForPending(f, currentDate)) return false;
         return true;
     }).reduce((s, f) => s + getEffectiveFixedAmount(f, currentDate), 0);
 
@@ -2352,6 +2374,7 @@ function renderChildrenTab() {
 function renderReports() {
     renderIncomeVsExpenses();
     renderMonthlyEvolution();
+    renderSalaryCycleReport();
     renderSavingsAnalysis();
     renderCategoryComparison();
     renderUnnecessaryExpenses();
@@ -2359,6 +2382,134 @@ function renderReports() {
     renderPeopleSpending();
     renderWeekdayHeatmap();
     renderSmartInsights();
+}
+
+// Local-timezone date formatter (YYYY-MM-DD). toISOString() uses UTC and can
+// shift the date by one day for users east/west of UTC.
+function toLocalDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Salary cycle containing the given reference date. A cycle runs from salaryDay
+// of month M to salaryDay-1 of month M+1.
+function getSalaryCycleAt(ref) {
+    if (!salaryDay) return null;
+    const d = new Date(ref);
+    let start, end;
+    if (d.getDate() >= salaryDay) {
+        start = new Date(d.getFullYear(), d.getMonth(), salaryDay);
+        end = new Date(d.getFullYear(), d.getMonth() + 1, salaryDay - 1);
+    } else {
+        start = new Date(d.getFullYear(), d.getMonth() - 1, salaryDay);
+        end = new Date(d.getFullYear(), d.getMonth(), salaryDay - 1);
+    }
+    return { start, end };
+}
+
+// Aggregates actually-registered income/expense within a salary cycle range,
+// covering both variable transactions and paid fixed across the (possibly two)
+// calendar months the cycle spans.
+function getSalaryCycleSummary(cycleStart, cycleEnd) {
+    const startStr = toLocalDateStr(cycleStart);
+    const endStr = toLocalDateStr(cycleEnd);
+    const inRange = (dStr) => dStr >= startStr && dStr <= endStr;
+
+    let totalInc = 0, totalExp = 0;
+
+    incomes.forEach(i => { if (i.date && inRange(i.date)) totalInc += i.amount; });
+    expenses.forEach(e => {
+        if (e.date && inRange(e.date)) totalExp += adjustExpenseForCoParent(e).amount;
+    });
+
+    // Walk each month the cycle touches and pick up paid fixed whose scheduled day falls in range.
+    const monthKeys = new Set();
+    const walker = new Date(cycleStart.getFullYear(), cycleStart.getMonth(), 1);
+    const endMonth = new Date(cycleEnd.getFullYear(), cycleEnd.getMonth(), 1);
+    while (walker <= endMonth) {
+        monthKeys.add(`${walker.getFullYear()}-${walker.getMonth()}`);
+        walker.setMonth(walker.getMonth() + 1);
+    }
+    for (const key of monthKeys) {
+        const [y, m] = key.split('-').map(Number);
+        const monthDate = new Date(y, m, 1);
+        getPaidFixedAsExpenses(monthDate).forEach(e => { if (inRange(e.date)) totalExp += e.amount; });
+        getPaidFixedIncomesAsIncome(monthDate).forEach(i => { if (inRange(i.date)) totalInc += i.amount; });
+    }
+
+    return { totalInc, totalExp, balance: totalInc - totalExp };
+}
+
+function renderSalaryCycleReport() {
+    const container = document.getElementById('salary-cycle-report');
+    if (!container) return;
+    if (!salaryDay) { container.style.display = 'none'; return; }
+
+    // Walk back from today, collecting up to 6 cycles.
+    const today = new Date();
+    const cycles = [];
+    let cursor = new Date(today);
+    for (let i = 0; i < 6; i++) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        cycles.push({ ...c, isCurrent: i === 0 });
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+
+    const summaries = cycles
+        .map(c => ({ ...c, ...getSalaryCycleSummary(c.start, c.end) }))
+        .filter(s => s.totalInc > 0 || s.totalExp > 0);
+
+    if (summaries.length === 0) { container.style.display = 'none'; return; }
+
+    const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fmtLabel = (d) => `${d.getDate()} ${monthsShort[d.getMonth()]}`;
+
+    // Best/worst among completed cycles (skip the partial current one)
+    const completed = summaries.filter(s => !s.isCurrent);
+    const best = completed.length ? completed.slice().sort((a, b) => b.balance - a.balance)[0] : null;
+    const worst = completed.length ? completed.slice().sort((a, b) => a.balance - b.balance)[0] : null;
+
+    container.style.display = 'block';
+    container.innerHTML = `
+        <h3><i class="fas fa-calendar-week"></i> Ciclos de salário</h3>
+        <p class="card-description">Análise entre salários — dia ${salaryDay} de cada mês</p>
+        <div style="margin-top:10px">
+            ${summaries.map(s => {
+                const balColor = s.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+                const balSign = s.balance >= 0 ? '+' : '';
+                const currentBadge = s.isCurrent
+                    ? ' <span style="font-size:0.65rem;font-weight:500;color:var(--primary);background:#EDE7F6;padding:1px 6px;border-radius:4px;margin-left:4px">atual</span>'
+                    : '';
+                return `
+                <div style="padding:10px;margin-bottom:6px;background:var(--surface);border-radius:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-size:0.85rem;font-weight:700">${fmtLabel(s.start)} → ${fmtLabel(s.end)}${currentBadge}</span>
+                        <span style="color:${balColor};font-weight:700;font-size:0.9rem">${balSign}${formatCurrency(s.balance)}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-light)">
+                        <span><i class="fas fa-arrow-up" style="color:var(--success)"></i> ${formatCurrency(s.totalInc)}</span>
+                        <span><i class="fas fa-arrow-down" style="color:var(--danger)"></i> ${formatCurrency(s.totalExp)}</span>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+        ${best && worst && best !== worst ? `
+        <div style="display:flex;gap:8px;margin-top:8px">
+            <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px;text-align:center">
+                <i class="fas fa-trophy" style="color:#2E7D32"></i>
+                <div style="font-size:0.7rem;color:#2E7D32">Melhor ciclo</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#2E7D32">${fmtLabel(best.start)} → ${fmtLabel(best.end)}</div>
+                <div style="font-size:0.75rem;color:#2E7D32">+${formatCurrency(best.balance)}</div>
+            </div>
+            <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px;text-align:center">
+                <i class="fas fa-triangle-exclamation" style="color:#C62828"></i>
+                <div style="font-size:0.7rem;color:#C62828">Pior ciclo</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#C62828">${fmtLabel(worst.start)} → ${fmtLabel(worst.end)}</div>
+                <div style="font-size:0.75rem;color:#C62828">${worst.balance >= 0 ? '+' : ''}${formatCurrency(worst.balance)}</div>
+            </div>
+        </div>` : ''}
+    `;
 }
 
 function renderYTDStrip() {
@@ -3984,12 +4135,15 @@ function renderFixedList() {
         const child = children.find(c => c.id === f.type);
         const varBadge = f.isVariable ? '<span style="font-size:0.65rem;color:var(--primary);background:#EDE7F6;padding:1px 5px;border-radius:4px;margin-left:4px">variavel</span>' : '';
         const splitBadge = (f.split && child) ? `<span style="font-size:0.65rem;color:var(--success);background:#E8F5E9;padding:1px 5px;border-radius:4px;margin-left:4px">÷${f.split ? child.splitPct+'%' : ''}</span>` : '';
+        const mode = getFixedIncludeFrom(f);
+        const modeLabel = mode === 'due-day' ? 'desde dia da despesa' : mode === 'salary' ? 'desde dia do salário' : '';
+        const modeBadge = modeLabel ? `<span style="font-size:0.65rem;color:#555;background:#ECEFF1;padding:1px 5px;border-radius:4px;margin-left:4px">${modeLabel}</span>` : '';
         const typeLabel = child ? child.name : 'Pessoal';
         return `
             <div class="fixed-item">
                 <div class="fixed-icon"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info">
-                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}</div>
+                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}${modeBadge}</div>
                     <div class="fixed-meta">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
                 </div>
                 <div class="fixed-amount">${formatCurrency(f.amount)}</div>
@@ -4012,11 +4166,19 @@ function showAddFixed() {
     const now = new Date();
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
-    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
-    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
-    const afterSalaryEl = document.getElementById('fixed-after-salary');
-    if (afterSalaryEl) afterSalaryEl.checked = false;
+    applyFixedIncludeFromUI('month-start');
     document.getElementById('fixed-modal').classList.add('active');
+}
+
+// Shows/hides the "salary" option based on whether a salary day is configured,
+// and sets the current value on the select.
+function applyFixedIncludeFromUI(value) {
+    const sel = document.getElementById('fixed-include-from');
+    if (!sel) return;
+    const salaryOpt = document.getElementById('fixed-include-from-salary-opt');
+    if (salaryOpt) salaryOpt.hidden = !salaryDay;
+    const desired = value || 'month-start';
+    sel.value = (!salaryDay && desired === 'salary') ? 'month-start' : desired;
 }
 
 function editFixed(id) {
@@ -4044,10 +4206,7 @@ function editFixed(id) {
     if (isChild && f.split !== undefined) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
-    const afterSalaryGroup = document.getElementById('fixed-after-salary-group');
-    if (afterSalaryGroup) afterSalaryGroup.style.display = salaryDay ? 'block' : 'none';
-    const afterSalaryEl = document.getElementById('fixed-after-salary');
-    if (afterSalaryEl) afterSalaryEl.checked = f.afterSalary || false;
+    applyFixedIncludeFromUI(getFixedIncludeFrom(f));
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -4065,7 +4224,7 @@ function saveFixed(event) {
         type: ftype,
         split: isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false,
         isVariable: document.getElementById('fixed-is-variable').checked,
-        afterSalary: document.getElementById('fixed-after-salary')?.checked || false,
+        includeFrom: document.getElementById('fixed-include-from')?.value || 'month-start',
         startDate: document.getElementById('fixed-start').value,
         endDate: document.getElementById('fixed-end').value || null,
         notes: document.getElementById('fixed-notes').value.trim(),
