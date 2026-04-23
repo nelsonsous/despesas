@@ -2556,9 +2556,12 @@ function renderSalaryCycleReport() {
                         <span>${topCatLabel}</span>
                         <span>${s.isCurrent ? `Dia ${daysElapsed}/${daysTotal} · ${formatCurrency(avgPerDay)}/dia` : `${formatCurrency(avgPerDay)}/dia`}</span>
                     </div>
-                    <div style="margin-top:6px;padding:6px 8px;background:#F5F3FF;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:0.7rem">
-                        <span style="color:var(--text-light)">Agregado ${monthsLabel}</span>
-                        <span style="color:var(--text-light)">↑ ${formatCurrency(s.monthAgg.inc)} · ↓ ${formatCurrency(s.monthAgg.exp)} · <span style="color:${aggBalColor};font-weight:700">${aggBalSign}${formatCurrency(s.monthAgg.balance)}</span></span>
+                    <div style="margin-top:6px;padding:8px;background:#F5F3FF;border-radius:6px;font-size:0.7rem">
+                        <div style="color:var(--text-light);margin-bottom:2px">Agregado ${monthsLabel} (meses completos)</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;font-weight:600">
+                            <span>↑ ${formatCurrency(s.monthAgg.inc)} &nbsp; ↓ ${formatCurrency(s.monthAgg.exp)}</span>
+                            <span style="color:${aggBalColor};font-weight:700">${aggBalSign}${formatCurrency(s.monthAgg.balance)}</span>
+                        </div>
                     </div>
                     ${varHtml ? `<div style="margin-top:4px;font-size:0.7rem">${varHtml}</div>` : ''}
                 </div>`;
