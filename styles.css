@@ -45,7 +45,7 @@ body {
 .app-header {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
-    padding: 16px 20px;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -62,7 +62,7 @@ body {
     background: var(--card-bg);
     border-bottom: 1px solid var(--border);
     position: sticky;
-    top: 52px;
+    top: calc(64px + env(safe-area-inset-top, 0px));
     z-index: 99;
 }
 .tab {
