@@ -9,6 +9,10 @@ const CHILDREN_KEY = 'vanessa_filhos';
 const FIXED_INCOME_KEY = 'vanessa_fixas_receitas';
 const FIXED_INCOME_STATUS_KEY = 'vanessa_fixas_receitas_status';
 let salaryDay = null;
+// 'fixed-day' | 'last-working-day' | 'working-day-after'. Controls how the
+// salary date for each month is computed — useful for salaries that arrive
+// on a weekend-shifted schedule.
+let salaryMode = 'fixed-day';
 let expenses = [];
 let incomes = [];
 let fixedExpenses = [];      // recurring templates { id, description, amount, dayOfMonth, category, type, startDate, endDate, notes, split, isVariable }
@@ -1087,38 +1091,34 @@ function renderCategoryDonut() {
 // ===== SALARY CYCLE =====
 function renderSalaryCycle() {
     const card = document.getElementById('salary-cycle-card');
-    if (!card || !salaryDay) { if (card) card.style.display = 'none'; return; }
+    if (!card || !isSalaryConfigured()) { if (card) card.style.display = 'none'; return; }
 
     const today = new Date();
-
-    // Pick the cycle that matches the month currently being viewed:
-    // the live cycle containing today when the user is on the current month,
-    // otherwise the cycle that STARTS on salaryDay of the viewed month.
     const viewYear = currentDate.getFullYear();
     const viewMonth = currentDate.getMonth();
     const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
 
-    let cycleStart, cycleEnd;
+    // Pick the cycle that matches the month currently being viewed.
+    // On the current month we show the cycle containing today; otherwise the
+    // cycle that starts in the viewed month.
+    let cycle;
     if (isCurrentMonth) {
-        if (today.getDate() >= salaryDay) {
-            cycleStart = new Date(today.getFullYear(), today.getMonth(), salaryDay);
-            cycleEnd = new Date(today.getFullYear(), today.getMonth() + 1, salaryDay - 1);
-        } else {
-            cycleStart = new Date(today.getFullYear(), today.getMonth() - 1, salaryDay);
-            cycleEnd = new Date(today.getFullYear(), today.getMonth(), salaryDay - 1);
-        }
+        cycle = getSalaryCycleAt(today) || getSalaryCycleForMonth(viewYear, viewMonth);
     } else {
-        cycleStart = new Date(viewYear, viewMonth, salaryDay);
-        cycleEnd = new Date(viewYear, viewMonth + 1, salaryDay - 1);
+        cycle = getSalaryCycleForMonth(viewYear, viewMonth);
     }
+    if (!cycle) { card.style.display = 'none'; return; }
+    const cycleStart = cycle.start;
+    const cycleEnd = cycle.end;
 
     const cycleContainsToday = today >= cycleStart && today <= cycleEnd;
     const refDate = cycleContainsToday ? today : cycleEnd;
     const daysLeft = cycleContainsToday ? Math.max(0, Math.round((cycleEnd - today) / 86400000)) : 0;
 
-    // Period label
+    // Period label \u2014 use the real cycle boundaries (may vary per month when
+    // salaryMode is "last-working-day" or "working-day-after").
     const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    const periodLabel = `${salaryDay} ${months[cycleStart.getMonth()]} \u2192 ${salaryDay - 1} ${months[cycleEnd.getMonth()]}`;
+    const periodLabel = `${cycleStart.getDate()} ${months[cycleStart.getMonth()]} \u2192 ${cycleEnd.getDate()} ${months[cycleEnd.getMonth()]}`;
 
     const b = getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate);
     const spentSinceSalary = b.expPaid;
@@ -1297,6 +1297,8 @@ function loadData() {
     categoryBudgets = budData ? JSON.parse(budData) : {};
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
+    const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
+    salaryMode = savedSalaryMode || 'fixed-day';
 }
 
 function saveData() {
@@ -1389,7 +1391,13 @@ function toggleSkipFixed(fixedId, date) {
 // Returns effective amount for a fixed expense in a month (override if variable)
 function getEffectiveFixedAmount(f, date) {
     const st = getFixedStatusForMonth(f.id, date);
-    return st?.amount || f.amount;
+    const base = st?.amount || f.amount;
+    const splits = Array.isArray(f.splits) ? f.splits : null;
+    if (splits && splits.length) {
+        const deduction = splits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        return Math.max(0, base - deduction);
+    }
+    return base;
 }
 
 function getFixedPendingTotal(date) {
@@ -2584,13 +2592,32 @@ function renderExpenseItem(e) {
         }
     }
 
-    const hasDeduction = (e.paidByFather && e.split) || (e.spousePaid && e.splitSpouse) || (e.splitWithName && e.splitWithReceived);
+    const splitsArr = Array.isArray(e.splits) ? e.splits : [];
+    const splitsPaidCount = splitsArr.filter(s => s.paid).length;
+    const splitsAllPaid = splitsArr.length > 0 && splitsPaidCount === splitsArr.length;
+    const splitsAnyPaid = splitsPaidCount > 0;
+    const hasDeduction = (e.paidByFather && e.split)
+        || (e.spousePaid && e.splitSpouse)
+        || splitsAnyPaid
+        || (e.splitWithName && e.splitWithReceived);
     const amountDisplay = hasDeduction
         ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:2px">${formatCurrency(fullAmt)}</span>${formatCurrency(e.amount)}`
         : formatCurrency(e.amount);
-    const splitWithBadge = e.splitWithName
-        ? `<button onclick="event.stopPropagation();toggleSplitWithReceived('${e.id}')" class="fixed-status-badge ${e.splitWithReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${e.splitWithReceived ? `<i class="fas fa-check"></i> recebi de ${e.splitWithName}` : `<i class="fas fa-clock"></i> ${e.splitWithName}?`}</button>`
-        : '';
+    // Split badge: one per person when few, or a summary chip when many.
+    let splitWithBadge = '';
+    if (splitsArr.length) {
+        if (splitsArr.length === 1) {
+            const s = splitsArr[0];
+            splitWithBadge = `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',0)" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${s.paid ? `<i class="fas fa-check"></i> ${s.name} ${formatCurrency(s.amount)}` : `<i class="fas fa-clock"></i> ${s.name} ${formatCurrency(s.amount)}?`}</button>`;
+        } else if (splitsArr.length <= 3) {
+            splitWithBadge = splitsArr.map((s, i) => `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',${i})" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${s.paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`).join('');
+        } else {
+            splitWithBadge = `<span class="fixed-status-badge ${splitsAllPaid ? 'status-pago' : 'status-pendente'}" style="font-size:0.65rem"><i class="fas fa-user-group"></i> ${splitsPaidCount}/${splitsArr.length} pagos</span>`;
+        }
+    } else if (e.splitWithName) {
+        // Legacy fallback (single person by pct)
+        splitWithBadge = `<button onclick="event.stopPropagation();toggleSplitWithReceived('${e.id}')" class="fixed-status-badge ${e.splitWithReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${e.splitWithReceived ? `<i class="fas fa-check"></i> recebi de ${e.splitWithName}` : `<i class="fas fa-clock"></i> ${e.splitWithName}?`}</button>`;
+    }
 
     // Grouped expense rendering (has entries array)
     const entryTypeLabel = (t) => {
@@ -2956,20 +2983,70 @@ function toLocalDateStr(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Salary cycle containing the given reference date. A cycle runs from salaryDay
-// of month M to salaryDay-1 of month M+1.
-function getSalaryCycleAt(ref) {
-    if (!salaryDay) return null;
-    const d = new Date(ref);
-    let start, end;
-    if (d.getDate() >= salaryDay) {
-        start = new Date(d.getFullYear(), d.getMonth(), salaryDay);
-        end = new Date(d.getFullYear(), d.getMonth() + 1, salaryDay - 1);
-    } else {
-        start = new Date(d.getFullYear(), d.getMonth() - 1, salaryDay);
-        end = new Date(d.getFullYear(), d.getMonth(), salaryDay - 1);
+// Whether to treat a date as a working day. Weekends only — Portuguese public
+// holidays would need a calendar, out of scope for now.
+function isWorkingDay(date) {
+    const dow = date.getDay();
+    return dow !== 0 && dow !== 6;
+}
+
+// Walks forward from the given date until it lands on a working day (stays put
+// if already a working day).
+function shiftForwardToWorkingDay(date) {
+    const d = new Date(date);
+    while (!isWorkingDay(d)) d.setDate(d.getDate() + 1);
+    return d;
+}
+
+// Walks backward from the given date until it lands on a working day.
+function shiftBackwardToWorkingDay(date) {
+    const d = new Date(date);
+    while (!isWorkingDay(d)) d.setDate(d.getDate() - 1);
+    return d;
+}
+
+// Computes the actual salary pay-date for a calendar month according to the
+// configured salary mode. Returns null when no mode/day is configured.
+function getSalaryDateForMonth(year, month) {
+    const mode = salaryMode || 'fixed-day';
+    if (mode === 'last-working-day') {
+        const lastDay = new Date(year, month + 1, 0);
+        return shiftBackwardToWorkingDay(lastDay);
     }
+    if (!salaryDay) return null;
+    const maxDay = new Date(year, month + 1, 0).getDate();
+    const clampedDay = Math.min(salaryDay, maxDay);
+    const target = new Date(year, month, clampedDay);
+    if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
+    return target; // fixed-day
+}
+
+// Start/end dates of the salary cycle that begins in the given calendar month.
+// End is the day before the next month's salary date.
+function getSalaryCycleForMonth(year, month) {
+    const start = getSalaryDateForMonth(year, month);
+    if (!start) return null;
+    const nextStart = getSalaryDateForMonth(year, month + 1);
+    if (!nextStart) return null;
+    const end = new Date(nextStart);
+    end.setDate(end.getDate() - 1);
     return { start, end };
+}
+
+// Salary cycle that contains the given reference date.
+function getSalaryCycleAt(ref) {
+    const d = new Date(ref);
+    const thisMonthStart = getSalaryDateForMonth(d.getFullYear(), d.getMonth());
+    if (!thisMonthStart) return null;
+    if (d >= thisMonthStart) return getSalaryCycleForMonth(d.getFullYear(), d.getMonth());
+    return getSalaryCycleForMonth(d.getFullYear(), d.getMonth() - 1);
+}
+
+// Checks whether a salary is configured (at all). Used to show/hide the
+// salary-cycle card and the report.
+function isSalaryConfigured() {
+    if (salaryMode === 'last-working-day') return true;
+    return !!salaryDay;
 }
 
 // Detailed breakdown of a salary cycle. refDate (defaults to cycleEnd) separates
@@ -3056,7 +3133,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 function renderSalaryCycleReport() {
     const container = document.getElementById('salary-cycle-report');
     if (!container) return;
-    if (!salaryDay) { container.style.display = 'none'; return; }
+    if (!isSalaryConfigured()) { container.style.display = 'none'; return; }
 
     const today = new Date();
     const cycles = [];
@@ -3112,9 +3189,12 @@ function renderSalaryCycleReport() {
     const monthsFull = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
     container.style.display = 'block';
+    const modeDesc = salaryMode === 'last-working-day' ? 'último dia útil do mês'
+        : salaryMode === 'working-day-after' ? `1.º dia útil após o dia ${salaryDay}`
+        : `dia ${salaryDay} de cada mês`;
     container.innerHTML = `
         <h3><i class="fas fa-calendar-week"></i> Ciclos de salário</h3>
-        <p class="card-description">Análise entre salários — dia ${salaryDay} de cada mês</p>
+        <p class="card-description">Análise entre salários — ${modeDesc}</p>
         ${completed.length >= 2 ? `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;margin-bottom:10px">
             <div style="padding:8px;background:var(--surface);border-radius:8px;text-align:center">
@@ -3820,15 +3900,11 @@ function showAddExpense() {
     }
     // Initialize spouse split UI (married mode)
     setupSpouseSplitUI(null);
-    // Reset split-with-other section
+    // Reset splits section
     const swOther = document.getElementById('split-with-other');
     if (swOther) swOther.checked = false;
-    const swName = document.getElementById('split-with-name');
-    if (swName) swName.value = '';
-    const swPct = document.getElementById('split-with-pct');
-    if (swPct) swPct.value = 50;
-    const swRec = document.getElementById('split-with-received');
-    if (swRec) swRec.checked = false;
+    const list = document.getElementById('splits-list');
+    if (list) list.innerHTML = '';
     toggleSplitWithOther();
     populateSplitWithNamesList();
     document.getElementById('expense-is-grouped').checked = false;
@@ -3839,20 +3915,111 @@ function toggleSplitWithOther() {
     const cb = document.getElementById('split-with-other');
     const fields = document.getElementById('split-with-other-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+    // Ensure at least one empty row when enabled
+    if (cb && cb.checked) {
+        const list = document.getElementById('splits-list');
+        if (list && list.children.length === 0) addSplitRow();
+    }
 }
 
-// Suggests names the user has split with before for quick re-selection.
+// Suggests names previously used for quick re-selection.
 function populateSplitWithNamesList() {
     const dl = document.getElementById('split-with-names-list');
     if (!dl) return;
     const names = new Set();
-    expenses.forEach(e => { if (e.splitWithName) names.add(e.splitWithName); });
+    expenses.forEach(e => {
+        (Array.isArray(e.splits) ? e.splits : []).forEach(s => { if (s.name) names.add(s.name); });
+        if (e.splitWithName) names.add(e.splitWithName);
+    });
+    fixedExpenses.forEach(f => {
+        (Array.isArray(f.splits) ? f.splits : []).forEach(s => { if (s.name) names.add(s.name); });
+    });
     dl.innerHTML = [...names].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('');
 }
 
-// If the expense was split with a specific person and they've paid, reduce the
-// effective amount to the user's share only.
+// Adds a split row to the modal. Accepts an optional pre-fill { name, amount, paid }.
+function addSplitRow(prefill) {
+    const list = document.getElementById('splits-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'split-row';
+    row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+    row.innerHTML = `
+        <input type="text" class="split-name" placeholder="Nome" list="split-with-names-list" style="flex:2;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:0.85rem">
+        <input type="number" class="split-amount" placeholder="Valor" step="0.01" min="0" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:0.85rem">
+        <label style="display:flex;align-items:center;gap:3px;font-size:0.72rem;color:var(--text-light)">
+            <input type="checkbox" class="split-paid"> pago
+        </label>
+        <button type="button" onclick="removeSplitRow(this)" class="btn-icon" style="color:var(--danger);font-size:0.9rem"><i class="fas fa-times"></i></button>
+    `;
+    if (prefill) {
+        row.querySelector('.split-name').value = prefill.name || '';
+        if (prefill.amount != null) row.querySelector('.split-amount').value = parseFloat(prefill.amount).toFixed(2);
+        row.querySelector('.split-paid').checked = !!prefill.paid;
+    }
+    list.appendChild(row);
+}
+
+function removeSplitRow(btn) {
+    const row = btn.closest('.split-row');
+    if (row) row.remove();
+}
+
+// Reads the current splits rows from the modal.
+function collectSplitsFromModal() {
+    const rows = document.querySelectorAll('#splits-list .split-row');
+    return [...rows].map(r => {
+        const name = r.querySelector('.split-name')?.value.trim() || '';
+        const amount = parseFloat(r.querySelector('.split-amount')?.value) || 0;
+        const paid = !!r.querySelector('.split-paid')?.checked;
+        return { name, amount, paid };
+    }).filter(s => s.name && s.amount > 0);
+}
+
+// Divides the expense total equally between the user + each split row.
+function distributeEqually() {
+    const totalEl = document.getElementById('expense-amount') || document.getElementById('fixed-amount');
+    const total = parseFloat(totalEl?.value) || 0;
+    const rows = document.querySelectorAll('#splits-list .split-row');
+    if (total <= 0 || rows.length === 0) { showToast('Define o valor e adiciona pessoas primeiro'); return; }
+    const parts = rows.length + 1; // +1 for the user
+    const perPerson = Math.round((total / parts) * 100) / 100;
+    rows.forEach(r => {
+        const input = r.querySelector('.split-amount');
+        if (input) input.value = perPerson.toFixed(2);
+    });
+    showToast(`${parts} partes de ${formatCurrency(perPerson)}`);
+}
+
+// Fills the modal splits section from an expense/fixed object.
+function populateSplitsUI(e) {
+    const list = document.getElementById('splits-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const splits = Array.isArray(e?.splits) ? e.splits : [];
+    // Legacy single-split migration
+    if (!splits.length && e?.splitWithName) {
+        const pct = parseFloat(e.splitWithPct) || 50;
+        const full = e.fullAmount || e.amount || 0;
+        splits.push({ name: e.splitWithName, amount: full * pct / 100, paid: !!e.splitWithReceived });
+    }
+    const swOther = document.getElementById('split-with-other');
+    if (swOther) swOther.checked = splits.length > 0;
+    toggleSplitWithOther();
+    splits.forEach(s => addSplitRow(s));
+}
+
+// If any splits are marked paid, deduct those amounts from the expense total
+// so the effective amount reflects the user's current out-of-pocket.
 function adjustExpenseForCustomSplit(e) {
+    const splits = Array.isArray(e.splits) ? e.splits : null;
+    if (splits && splits.length) {
+        const received = splits.filter(s => s.paid).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (received <= 0) return e;
+        const fullAmount = e.fullAmount || e.amount;
+        return { ...e, amount: Math.max(0, fullAmount - received), fullAmount };
+    }
+    // Legacy single split by pct — kept for old data.
     if (!e.splitWithName || !e.splitWithReceived) return e;
     const pct = parseFloat(e.splitWithPct);
     if (!(pct > 0 && pct < 100)) return e;
@@ -3860,7 +4027,82 @@ function adjustExpenseForCustomSplit(e) {
     return { ...e, amount: fullAmount * (1 - pct / 100), fullAmount };
 }
 
-// Quick toggle "Recebi" from the expenses list.
+// Toggles a single split entry's paid status from the expense list row.
+function toggleExpenseSplitPaid(expenseId, splitIndex) {
+    const idx = expenses.findIndex(e => e.id === expenseId);
+    if (idx < 0) return;
+    const splits = Array.isArray(expenses[idx].splits) ? expenses[idx].splits : [];
+    if (splits[splitIndex]) {
+        splits[splitIndex].paid = !splits[splitIndex].paid;
+        expenses[idx].splits = splits;
+        expenses[idx].updatedAt = new Date().toISOString();
+        saveData();
+        updateAll();
+        showToast(splits[splitIndex].paid ? 'Pago!' : 'Marcado por receber');
+    }
+}
+
+// ===== Fixed-expense split helpers (mirror of the one-off expense flow,
+// but splits apply to every month: they're a permanent deduction from the
+// fixed amount). =====
+function toggleFixedSplitOther() {
+    const cb = document.getElementById('fixed-split-other');
+    const fields = document.getElementById('fixed-split-other-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+    if (cb && cb.checked) {
+        const list = document.getElementById('fixed-splits-list');
+        if (list && list.children.length === 0) addFixedSplitRow();
+    }
+}
+function addFixedSplitRow(prefill) {
+    const list = document.getElementById('fixed-splits-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'fixed-split-row';
+    row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+    row.innerHTML = `
+        <input type="text" class="fixed-split-name" placeholder="Nome" list="split-with-names-list" style="flex:2;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:0.85rem">
+        <input type="number" class="fixed-split-amount" placeholder="Valor" step="0.01" min="0" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:0.85rem">
+        <button type="button" onclick="this.closest('.fixed-split-row').remove()" class="btn-icon" style="color:var(--danger);font-size:0.9rem"><i class="fas fa-times"></i></button>
+    `;
+    if (prefill) {
+        row.querySelector('.fixed-split-name').value = prefill.name || '';
+        if (prefill.amount != null) row.querySelector('.fixed-split-amount').value = parseFloat(prefill.amount).toFixed(2);
+    }
+    list.appendChild(row);
+}
+function collectFixedSplitsFromModal() {
+    const rows = document.querySelectorAll('#fixed-splits-list .fixed-split-row');
+    return [...rows].map(r => {
+        const name = r.querySelector('.fixed-split-name')?.value.trim() || '';
+        const amount = parseFloat(r.querySelector('.fixed-split-amount')?.value) || 0;
+        return { name, amount, paid: true }; // "paid" for fixed means "deducts from effective amount"
+    }).filter(s => s.name && s.amount > 0);
+}
+function fixedDistributeEqually() {
+    const total = parseFloat(document.getElementById('fixed-amount')?.value) || 0;
+    const rows = document.querySelectorAll('#fixed-splits-list .fixed-split-row');
+    if (total <= 0 || rows.length === 0) { showToast('Define o valor e adiciona pessoas primeiro'); return; }
+    const parts = rows.length + 1;
+    const per = Math.round((total / parts) * 100) / 100;
+    rows.forEach(r => {
+        const input = r.querySelector('.fixed-split-amount');
+        if (input) input.value = per.toFixed(2);
+    });
+    showToast(`${parts} partes de ${formatCurrency(per)}`);
+}
+function populateFixedSplitsUI(f) {
+    const list = document.getElementById('fixed-splits-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const splits = Array.isArray(f?.splits) ? f.splits : [];
+    const cb = document.getElementById('fixed-split-other');
+    if (cb) cb.checked = splits.length > 0;
+    toggleFixedSplitOther();
+    splits.forEach(s => addFixedSplitRow(s));
+}
+
+// Legacy single-person toggle — kept so old saved expenses still work.
 function toggleSplitWithReceived(id) {
     const idx = expenses.findIndex(e => e.id === id);
     if (idx < 0) return;
@@ -3989,17 +4231,9 @@ function editExpense(id) {
         document.getElementById('paid-by-father-group').style.display = 'none';
     }
 
-    // Generic split-with-other
-    const swOther = document.getElementById('split-with-other');
-    const swName = document.getElementById('split-with-name');
-    const swPct = document.getElementById('split-with-pct');
-    const swRec = document.getElementById('split-with-received');
-    if (swOther) swOther.checked = !!e.splitWithName;
-    if (swName) swName.value = e.splitWithName || '';
-    if (swPct) swPct.value = e.splitWithPct || 50;
-    if (swRec) swRec.checked = !!e.splitWithReceived;
-    toggleSplitWithOther();
+    // Multi-person split (with legacy migration)
     populateSplitWithNamesList();
+    populateSplitsUI(e);
 
     pendingAttachment = e.attachment || null;
     renderAttachmentPreview('attachment-preview', pendingAttachment);
@@ -4065,9 +4299,7 @@ function saveExpense(event) {
     const splitSpouse = isMarriedMode() && document.getElementById('split-with-spouse')?.checked;
     const spousePaid = splitSpouse && document.getElementById('spouse-paid')?.checked;
     const splitWithOther = document.getElementById('split-with-other')?.checked;
-    const splitWithName = splitWithOther ? (document.getElementById('split-with-name')?.value.trim() || '') : '';
-    const splitWithPct = splitWithOther ? (parseFloat(document.getElementById('split-with-pct')?.value) || 50) : null;
-    const splitWithReceived = splitWithOther && document.getElementById('split-with-received')?.checked;
+    const splits = splitWithOther ? collectSplitsFromModal() : [];
     const isGrouped = document.getElementById('expense-is-grouped')?.checked || false;
     const amount = parseFloat(document.getElementById('expense-amount').value);
     const dateVal = document.getElementById('expense-date').value;
@@ -4084,9 +4316,7 @@ function saveExpense(event) {
         paidByFather: split ? document.getElementById('paid-by-father').checked : false,
         splitSpouse,
         spousePaid,
-        splitWithName,
-        splitWithPct,
-        splitWithReceived,
+        splits,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
@@ -4831,13 +5061,18 @@ function saveProfileName() {
     const spousePct = parseInt(document.getElementById('profile-spouse-pct')?.value);
     if (spouseName) localStorage.setItem(SPOUSE_NAME_KEY, spouseName);
     if (!isNaN(spousePct)) localStorage.setItem(SPOUSE_PCT_KEY, String(spousePct));
-    // Salary day
+    // Salary day + mode
     const sdInput = document.getElementById('profile-salary-day');
     if (sdInput) {
         const sd = parseInt(sdInput.value);
         salaryDay = (sd >= 1 && sd <= 31) ? sd : null;
         if (salaryDay) localStorage.setItem('vanessa_salary_day', salaryDay);
         else localStorage.removeItem('vanessa_salary_day');
+    }
+    const smode = document.querySelector('input[name="salary-mode"]:checked')?.value;
+    if (smode) {
+        salaryMode = smode;
+        localStorage.setItem('vanessa_salary_mode', salaryMode);
     }
     applyAppTitle();
     applyHouseholdMode();
@@ -4885,6 +5120,25 @@ function switchSettingsTab(tab) {
         if (modeEl) modeEl.checked = true;
         const sdEl = document.getElementById('profile-salary-day');
         if (sdEl && salaryDay) sdEl.value = salaryDay;
+        const smEl = document.querySelector(`input[name="salary-mode"][value="${salaryMode || 'fixed-day'}"]`);
+        if (smEl) smEl.checked = true;
+        updateSalaryDayInputVisibility();
+    }
+}
+
+// Enables/disables the day-of-month input depending on the picked salary mode.
+// "last-working-day" doesn't need a day.
+function updateSalaryDayInputVisibility() {
+    const mode = document.querySelector('input[name="salary-mode"]:checked')?.value || salaryMode || 'fixed-day';
+    const dayWrap = document.getElementById('salary-day-wrap');
+    if (dayWrap) dayWrap.style.display = (mode === 'last-working-day') ? 'none' : '';
+    const hint = document.getElementById('salary-day-hint');
+    if (hint) {
+        hint.textContent = mode === 'working-day-after'
+            ? 'Dia de referência — o salário é considerado pago no 1.º dia útil igual ou após este dia.'
+            : mode === 'last-working-day'
+            ? 'O salário é considerado pago no último dia útil (seg-sex) de cada mês.'
+            : 'Define o início do ciclo orçamental entre salários. Deixar vazio para usar meses normais.';
     }
 }
 
@@ -4902,12 +5156,16 @@ function renderFixedList() {
         const child = children.find(c => c.id === f.type);
         const varBadge = f.isVariable ? '<span style="font-size:0.65rem;color:var(--primary);background:#EDE7F6;padding:1px 5px;border-radius:4px;margin-left:4px">variavel</span>' : '';
         const splitBadge = (f.split && child) ? `<span style="font-size:0.65rem;color:var(--success);background:#E8F5E9;padding:1px 5px;border-radius:4px;margin-left:4px">÷${f.split ? child.splitPct+'%' : ''}</span>` : '';
+        const fixedSplits = Array.isArray(f.splits) ? f.splits : [];
+        const splitsBadge = fixedSplits.length
+            ? `<span style="font-size:0.65rem;color:#fff;background:var(--primary);padding:1px 5px;border-radius:4px;margin-left:4px" title="${fixedSplits.map(s => `${s.name}: ${formatCurrency(s.amount)}`).join(' · ')}"><i class="fas fa-user-group"></i> ${fixedSplits.length}</span>`
+            : '';
         const typeLabel = child ? child.name : 'Pessoal';
         return `
             <div class="fixed-item">
                 <div class="fixed-icon"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info">
-                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}</div>
+                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
                     <div class="fixed-meta">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
                 </div>
                 <div class="fixed-amount">${formatCurrency(f.amount)}</div>
@@ -4930,6 +5188,8 @@ function showAddFixed() {
     const now = new Date();
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
+    populateFixedSplitsUI(null);
+    populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -4958,6 +5218,8 @@ function editFixed(id) {
     if (isChild && f.split !== undefined) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
+    populateFixedSplitsUI(f);
+    populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -4966,6 +5228,8 @@ function saveFixed(event) {
     const id = document.getElementById('fixed-id').value;
     const ftype = document.querySelector('input[name="fixed-type"]:checked').value;
     const isChild = children.some(c => c.id === ftype);
+    const splitOtherOn = document.getElementById('fixed-split-other')?.checked;
+    const fixedSplits = splitOtherOn ? collectFixedSplitsFromModal() : [];
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
@@ -4978,6 +5242,7 @@ function saveFixed(event) {
         startDate: document.getElementById('fixed-start').value,
         endDate: document.getElementById('fixed-end').value || null,
         notes: document.getElementById('fixed-notes').value.trim(),
+        splits: fixedSplits,
         updatedAt: new Date().toISOString()
     };
     if (id) {
