@@ -86,15 +86,22 @@
                         <div class="salary-cycle-label">Ciclo Salarial</div>
                         <div class="salary-cycle-period" id="salary-cycle-period">22 Abr → 21 Mai</div>
                     </div>
-                    <div class="salary-cycle-days" id="salary-cycle-days">8 dias</div>
+                    <div style="text-align:right">
+                        <div class="salary-cycle-days" id="salary-cycle-days">8 dias</div>
+                        <div class="salary-cycle-daycount" id="salary-cycle-daycount"></div>
+                    </div>
                 </div>
                 <div class="salary-cycle-bars">
                     <div class="salary-cycle-row">
-                        <span class="salary-cycle-row-label">Gasto desde salário</span>
+                        <span class="salary-cycle-row-label">Recebido <span class="salary-cycle-row-hint" id="salary-received-pending"></span></span>
+                        <span class="salary-cycle-row-value success" id="salary-received">0 €</span>
+                    </div>
+                    <div class="salary-cycle-row">
+                        <span class="salary-cycle-row-label">Gasto <span class="salary-cycle-row-hint" id="salary-spent-rate"></span></span>
                         <span class="salary-cycle-row-value danger" id="salary-spent">0 €</span>
                     </div>
                     <div class="salary-cycle-row">
-                        <span class="salary-cycle-row-label">Fixas do ciclo</span>
+                        <span class="salary-cycle-row-label">Cativo</span>
                         <span class="salary-cycle-row-value warning" id="salary-fixed">0 €</span>
                     </div>
                     <div class="salary-cycle-progress-bar">
@@ -103,6 +110,16 @@
                     <div class="salary-cycle-row" style="margin-top:6px">
                         <span class="salary-cycle-row-label" style="font-weight:700">Disponível</span>
                         <span class="salary-cycle-row-value success" id="salary-available">0 €</span>
+                    </div>
+                    <div class="salary-cycle-footer" id="salary-cycle-footer" style="display:none">
+                        <div class="salary-cycle-footer-row">
+                            <span>Ao ritmo atual</span>
+                            <span id="salary-projection">—</span>
+                        </div>
+                        <div class="salary-cycle-footer-row" id="salary-topcat-row" style="display:none">
+                            <span>Top categoria</span>
+                            <span id="salary-topcat">—</span>
+                        </div>
                     </div>
                 </div>
             </div>

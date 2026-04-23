@@ -590,10 +590,35 @@ function renderSalaryCycle() {
     const available = totalBudget - spentSinceSalary - cycleFixed;
     const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed) / totalBudget) * 100) : 0;
 
+    // Day counters
+    const daysTotal = Math.max(1, Math.round((cycleEnd - cycleStart) / 86400000) + 1);
+    const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1));
+
+    // Daily spending rate (variable only — fixed doesn't reflect daily behaviour)
+    const dailyVarRate = b.expPaidVariable / daysElapsed;
+    // Projected balance at end of cycle: assume pending incomes arrive, pending fixed get paid,
+    // and variable spending continues at the current per-day rate for the remaining days.
+    const projectedVar = dailyVarRate * daysLeft;
+    const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar);
+
+    // Top category within the cycle
+    const topCat = Object.entries(b.expByCategory).sort((a, b) => b[1] - a[1])[0];
+    const cats = getEffectiveCategories();
+
     card.style.display = 'block';
     document.getElementById('salary-cycle-period').textContent = periodLabel;
     document.getElementById('salary-cycle-days').textContent = daysLeft + ' dias restantes';
+    const dayCountEl = document.getElementById('salary-cycle-daycount');
+    if (dayCountEl) dayCountEl.textContent = `Dia ${daysElapsed}/${daysTotal}`;
+
+    document.getElementById('salary-received').textContent = formatCurrency(b.incReceived);
+    const recPendEl = document.getElementById('salary-received-pending');
+    if (recPendEl) recPendEl.textContent = b.incPending > 0 ? `+ ${formatCurrency(b.incPending)} por receber` : '';
+
     document.getElementById('salary-spent').textContent = formatCurrency(spentSinceSalary);
+    const rateEl = document.getElementById('salary-spent-rate');
+    if (rateEl) rateEl.textContent = b.expPaidVariable > 0 ? `${formatCurrency(dailyVarRate)}/dia` : '';
+
     document.getElementById('salary-fixed').textContent = formatCurrency(cycleFixed);
     document.getElementById('salary-available').textContent = formatCurrency(available);
     document.getElementById('salary-available').style.color = available >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -601,6 +626,33 @@ function renderSalaryCycle() {
     if (fill) {
         fill.style.width = usedPct + '%';
         fill.style.background = usedPct > 90 ? 'var(--danger)' : usedPct > 70 ? 'var(--warning)' : 'var(--success)';
+    }
+
+    // Footer: projection + top category. Only shown once there's something meaningful to project.
+    const footer = document.getElementById('salary-cycle-footer');
+    const hasProjection = b.expPaidVariable > 0 && daysLeft > 0;
+    const hasTop = !!topCat;
+    if (footer) {
+        footer.classList.toggle('is-visible', hasProjection || hasTop);
+    }
+    if (hasProjection) {
+        const projEl = document.getElementById('salary-projection');
+        const sign = projectedEndBalance >= 0 ? '+' : '';
+        const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
+        if (projEl) {
+            projEl.textContent = `${sign}${formatCurrency(projectedEndBalance)} no fim`;
+            projEl.style.color = color;
+        }
+    } else {
+        const projEl = document.getElementById('salary-projection');
+        if (projEl) projEl.textContent = '—';
+    }
+    const topRow = document.getElementById('salary-topcat-row');
+    if (topRow) topRow.style.display = hasTop ? 'flex' : 'none';
+    if (hasTop) {
+        const topEl = document.getElementById('salary-topcat');
+        const cat = cats[topCat[0]];
+        if (topEl) topEl.textContent = `${cat?.label || topCat[0]} · ${formatCurrency(topCat[1])}`;
     }
 }
 

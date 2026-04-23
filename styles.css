@@ -1648,6 +1648,38 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     border-radius: 10px;
     transition: width 0.6s ease;
 }
+.salary-cycle-daycount {
+    font-size: 0.68rem;
+    color: rgba(255,255,255,0.55);
+    margin-top: 4px;
+    font-weight: 500;
+}
+.salary-cycle-row-hint {
+    font-size: 0.68rem;
+    color: rgba(255,255,255,0.5);
+    font-weight: 500;
+    margin-left: 4px;
+}
+.salary-cycle-footer {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    flex-direction: column;
+    gap: 4px;
+}
+.salary-cycle-footer.is-visible { display: flex; }
+.salary-cycle-footer-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+}
+.salary-cycle-footer-row > span:first-child {
+    color: rgba(255,255,255,0.55);
+}
+.salary-cycle-footer-row > span:last-child {
+    color: rgba(255,255,255,0.92);
+    font-weight: 600;
+}
 
 /* ===== Income Section Premium ===== */
 #fixed-income-section {
