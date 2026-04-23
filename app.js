@@ -109,7 +109,7 @@ let pendingExpenses = [];
 const PENDING_KEY = 'vanessa_pending_ai';
 const AI_CFG_KEY = 'vanessa_ai_cfg';
 
-let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null };
+let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
 let _googleTokenClient = null;
 let _googleAccessToken = null;
 
@@ -128,12 +128,14 @@ function saveAiSettings() {
     const groqModel = document.getElementById('ai-groq-model')?.value.trim();
     const provider = document.querySelector('input[name="ai-provider"]:checked')?.value;
     const cid = document.getElementById('ai-google-client-id')?.value.trim();
+    const ownContactsEl = document.getElementById('ai-own-contacts');
     if (key) aiCfg.geminiKey = key;
     if (grokKey) aiCfg.grokKey = grokKey;
     if (grokModel) aiCfg.grokModel = grokModel;
     if (groqKey) aiCfg.groqKey = groqKey;
     if (groqModel) aiCfg.groqModel = groqModel;
     if (provider) aiCfg.aiProvider = provider;
+    if (ownContactsEl) aiCfg.ownContacts = ownContactsEl.value.trim();
     if (cid) aiCfg.googleClientId = cid;
     localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
     _googleTokenClient = null; // reset so it re-initializes with new client ID
@@ -177,6 +179,8 @@ function renderAiSettingsUI() {
     showBlock('ai-grok-block', 'ai-grok-key', provider === 'grok');
     showBlock('ai-groq-block', 'ai-groq-key', provider === 'groq');
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
+    const ownEl = document.getElementById('ai-own-contacts');
+    if (ownEl && aiCfg.ownContacts !== undefined) ownEl.value = aiCfg.ownContacts;
     if (autoEl) autoEl.checked = aiCfg.autoSync;
     const today = new Date().toISOString().slice(0, 10);
     if (fromEl && !fromEl.value) fromEl.value = today;
@@ -465,7 +469,7 @@ Para cada despesa devolve:
 - id: usa o valor após "ID:" no email
 
 ${CATEGORY_HINTS_BLOCK}
-
+${ownContactsPromptBlock()}
 Responde APENAS com um JSON array (sem texto antes/depois, sem markdown).
 Se um email não tem despesa, omite-o. Se nenhum tem, responde [].
 
@@ -476,6 +480,40 @@ function extractJsonArray(text) {
     const m = (text || '').match(/\[[\s\S]*?\]/);
     if (!m) return [];
     try { return JSON.parse(m[0]); } catch { return []; }
+}
+
+// Returns the user's "own contacts" list as trimmed lowercase tokens.
+// Used to skip self-transfers (MBway/IPS to the user's own numbers, their own
+// name, their bank account references) that would otherwise be imported as
+// expenses.
+function getOwnContactTokens() {
+    return (aiCfg.ownContacts || '')
+        .split(/[\n,;]+/)
+        .map(s => s.trim().toLowerCase())
+        .filter(s => s.length >= 3);
+}
+
+function descriptionMatchesOwnContact(description) {
+    const tokens = getOwnContactTokens();
+    if (!tokens.length) return false;
+    const d = (description || '').toLowerCase();
+    return tokens.some(t => {
+        if (d.includes(t)) return true;
+        // Wildcard: "932XXX720" matches "932000720" etc.
+        if (/[x*]/i.test(t)) {
+            try {
+                const re = new RegExp(t.replace(/[xX*]+/g, '\\d*'));
+                return re.test(d);
+            } catch { return false; }
+        }
+        return false;
+    });
+}
+
+function ownContactsPromptBlock() {
+    const tokens = getOwnContactTokens();
+    if (!tokens.length) return '';
+    return `\nATENÇÃO — IGNORA qualquer movimento cuja descrição contenha um destes identificadores (são contas/contactos do próprio utilizador, transferências para si mesmo):\n${tokens.map(t => `- ${t}`).join('\n')}\n`;
 }
 
 // Dispatcher: routes to whichever provider is configured.
@@ -541,9 +579,10 @@ async function runSync(fromDate, toDate) {
             localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
             return;
         }
-        // Deduplicate against existing pending
+        // Deduplicate against existing pending + filter out self-transfers
         const newItems = extracted
             .filter(e => e.amount > 0 && e.date)
+            .filter(e => !descriptionMatchesOwnContact(e.description))
             .map(({ id: _gemId, ...e }) => ({ id: generateId(), ...e, syncedAt: new Date().toISOString() }))
             .filter(e => !pendingExpenses.some(p => p.description === e.description && p.amount === e.amount && p.date === e.date));
         pendingExpenses = [...pendingExpenses, ...newItems];
@@ -714,7 +753,7 @@ Para cada despesa devolve:
 - category: (ver lista abaixo)
 
 ${CATEGORY_HINTS_BLOCK}
-
+${ownContactsPromptBlock()}
 Responde APENAS com um JSON array (sem markdown, sem texto antes/depois, sem backticks).
 Se nenhum movimento for despesa, responde [].
 
@@ -755,6 +794,7 @@ async function handlePdfSelected(event) {
         if (!extracted.length) { setStatus('Nenhuma despesa detetada no extrato.'); showToast('Sem despesas detetadas'); return; }
         const newItems = extracted
             .filter(e => e.amount > 0 && e.date && e.description)
+            .filter(e => !descriptionMatchesOwnContact(e.description))
             .map(e => ({ id: generateId(), ...e, syncedAt: new Date().toISOString(), source: 'pdf' }))
             // Dedup: against pending AND already-approved expenses with same date+amount+description
             .filter(e => !pendingExpenses.some(p => p.description === e.description && Math.abs(p.amount - e.amount) < 0.01 && p.date === e.date))
