@@ -823,12 +823,36 @@
                 </div>
 
                 <div id="stab-ai" class="settings-tab-content">
-                    <p class="settings-desc">Sincroniza despesas automaticamente a partir dos emails do Gmail usando Gemini AI.</p>
+                    <p class="settings-desc">Sincroniza despesas automaticamente a partir dos emails do Gmail usando IA (Gemini ou Grok).</p>
 
                     <div class="form-group">
+                        <label>Provedor de IA</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="ai-provider" value="gemini" checked onchange="saveAiSettings()">
+                                <span>Gemini</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="ai-provider" value="grok" onchange="saveAiSettings()">
+                                <span>Grok (xAI)</span>
+                            </label>
+                        </div>
+                        <small class="field-hint">Podes alternar quando quiseres — por exemplo usar Grok quando o Gemini esgotar.</small>
+                    </div>
+
+                    <div id="ai-gemini-block" class="form-group">
                         <label>Chave API Gemini <a href="https://aistudio.google.com/app/apikey" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter gratis)</a></label>
                         <input type="password" id="ai-gemini-key" placeholder="AIza..." autocomplete="off">
                         <small class="field-hint">Gratuita em Google AI Studio. Nao sai do seu dispositivo.</small>
+                    </div>
+
+                    <div id="ai-grok-block" class="form-group" style="display:none">
+                        <label>Chave API Grok <a href="https://console.x.ai" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter em console.x.ai)</a></label>
+                        <input type="password" id="ai-grok-key" placeholder="xai-..." autocomplete="off">
+                        <small class="field-hint">xAI dá créditos iniciais para usar Grok. Endpoint <code>api.x.ai</code>, formato OpenAI-compatível.</small>
+                        <label style="margin-top:10px">Modelo</label>
+                        <input type="text" id="ai-grok-model" placeholder="grok-4-fast" value="grok-4-fast">
+                        <small class="field-hint">Default: <code>grok-4-fast</code> (mais barato). Alternativas: <code>grok-3-mini</code>, <code>grok-2-1212</code>.</small>
                     </div>
 
                     <div class="form-group">
