@@ -638,18 +638,45 @@ async function extractPdfText(file) {
     return chunks.join('\n\n');
 }
 
-const PDF_EXTRACT_PROMPT = (text) => `Este é texto extraído de um extrato bancário português. Extrai TODAS as despesas (débitos / saídas de dinheiro) em euros.
+const PDF_EXTRACT_PROMPT = (text) => `Este é texto extraído de um extrato bancário português (CGD, Moey/Crédito Agrícola, Millennium, Novobanco, BPI, Santander, Revolut, etc.). Extrai TODAS as despesas (débitos / saídas de dinheiro) em euros.
 
-REGRAS:
-- INCLUI pagamentos a débito: prestações, seguros, rendas, contas, compras com cartão, MBway/transferências PARA terceiros (pessoas ou empresas), levantamentos ATM, comissões bancárias, subscrições.
-- IGNORA créditos/entradas: salário, reembolsos, transferências recebidas.
-- IGNORA transferências entre contas próprias do utilizador (descrição genérica como "transf. entre contas" ou outras que claramente são internas).
-- IGNORA linhas de saldo/cabeçalho/totais.
+CONVENÇÕES DE SINAL (importante):
+- O sinal pode aparecer ANTES do valor (-500,00) ou APÓS (8,87 - ou 107,20 -). Ambos significam DÉBITO (saída).
+- Um "+" ou ausência de sinal significa CRÉDITO (entrada) — IGNORA.
+- Colunas IN/OUT ou Montante negativo = débito.
+
+DATAS:
+- Converte DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY para YYYY-MM-DD.
+- Se houver duas datas por linha (ex: "data lançamento / data valor"), usa a PRIMEIRA (data de lançamento).
+
+DESCRIÇÕES — limpa e simplifica:
+- "COMPRA NETFLIX.COMAMS 7199756" → "Netflix"
+- "COMPRA AUCHAN SANTO T 7199756" → "Auchan"
+- "COMPRA MERCADONAPORTO 7199756" → "Mercadona"
+- "DD-16010014760143-EDP COMERC" → "EDP"
+- "DD-00000371733-Decada Vig" → "Decada Vig"
+- "Trf imediata JAIME SOUSA DIAS" → "Transferência Jaime Sousa Dias"
+- "COBRANCA PRESTACAO" → "Prestação casa"
+- "FIDELIDADE COMPANHI" → "Fidelidade"
+- "MANUT CONTA PACOTE CA" → "Manutenção conta"
+- "COMPRA APPLE.COM/BILL" → "Apple"
+- "Trf MB WAY 935519758" → "MBway"
+
+INCLUI:
+- Débitos diretos (DD-...): prestações, seguros, rendas, telecomunicações, energia, subscrições.
+- COMPRA / purchases com cartão.
+- Trf MBway, IPS para terceiros (sinal negativo).
+- Levantamentos ATM, comissões bancárias, manutenção de conta, imposto selo.
+
+IGNORA:
+- Entradas com sinal "+" (salário, reembolsos, transferências recebidas, IPS recebidos).
+- Transferências entre contas próprias do utilizador.
+- Linhas de saldo, cabeçalho, totais, rodapé do banco.
 
 Para cada despesa devolve:
-- description: curta e clara em português (ex: "Prestação casa", "Fidelidade seguro", "MBway 932XXX720", "Manutenção conta")
-- amount: valor em euros (número POSITIVO, ex: 612.36)
-- date: data do movimento em YYYY-MM-DD
+- description: curta e clara (ver exemplos acima)
+- amount: valor em euros (número POSITIVO sempre, ex: 612.36)
+- date: YYYY-MM-DD
 - category: alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros
 
 Responde APENAS com um JSON array (sem markdown, sem texto antes/depois, sem backticks).
