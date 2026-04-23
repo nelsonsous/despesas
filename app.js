@@ -281,8 +281,8 @@ function decodeEmailBody(payload) {
 function emailToText(msg) {
     const headers = msg.payload?.headers || [];
     const get = n => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
-    // Very short body — only need key numbers/dates, not full prose
-    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    // Larger body snippet so invoice amounts further in the email are visible to the LLM.
+    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 900);
     return `ID:${msg.id}\nAssunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
 }
 
@@ -371,12 +371,23 @@ function callGroqOnce(prompt) {
     return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt);
 }
 
-const EMAIL_EXTRACT_PROMPT = (texts) => `Analisa estes emails e extrai APENAS pagamentos/despesas reais a debito (ignora transferencias entre contas proprias, depositos, publicidade, newsletters).
+const EMAIL_EXTRACT_PROMPT = (texts) => `Extrai despesas/pagamentos destes emails. Inclui:
+- Débitos em conta (bancos, MB Way, SEPA)
+- Faturas emitidas a pagar (EDP, Galp, Vodafone, NOS, MEO, seguros, rendas, ginásios, etc.) — conta a despesa quando a fatura chega, mesmo que ainda não tenha sido debitada
+- Compras online / cartão
+- Subscrições renovadas (Netflix, Spotify, etc.)
 
-Responde UNICAMENTE com JSON array (sem texto extra):
-[{"id":"ID_DO_EMAIL","description":"descricao curta","amount":12.50,"date":"YYYY-MM-DD","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros"}]
+Ignora apenas: transferências entre contas próprias, depósitos/créditos recebidos, publicidade/promoções sem valor concreto, newsletters, notificações de saldo, emails de marketing.
 
-Se um email nao tiver despesa, omite-o do array. Se nao houver nenhuma, responde [].
+Para cada despesa devolve:
+- description: empresa/serviço curto (ex: "EDP", "Netflix", "Continente")
+- amount: valor em euros (numero, ex 42.15)
+- date: data de débito se mencionada, ou data de vencimento, ou data da fatura (YYYY-MM-DD)
+- category: alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros
+- id: usa o valor após "ID:" no email
+
+Responde APENAS com um JSON array (sem texto antes/depois, sem markdown).
+Se um email não tem despesa, omite-o. Se nenhum tem, responde [].
 
 EMAILS:
 ${texts.join('\n===\n')}`;
