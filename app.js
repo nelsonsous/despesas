@@ -2187,11 +2187,22 @@ function renderTopExpenses(monthExp) {
 function addFromTemplate(tplId) {
     const tpl = expenseTemplates.find(t => t.id === tplId);
     if (!tpl) return;
+    // Pick a date in the currently-viewed month so quick-adds land where the
+    // user is looking. Current month → today; other months → same day number
+    // clamped to that month's last day.
+    const today = new Date();
+    const viewYear = currentDate.getFullYear();
+    const viewMonth = currentDate.getMonth();
+    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+    const chosenDate = isCurrentMonth
+        ? today
+        : new Date(viewYear, viewMonth, Math.min(today.getDate(), new Date(viewYear, viewMonth + 1, 0).getDate()));
+    const dateStr = `${chosenDate.getFullYear()}-${String(chosenDate.getMonth() + 1).padStart(2, '0')}-${String(chosenDate.getDate()).padStart(2, '0')}`;
     const expense = {
         id: generateId(),
         description: tpl.description,
         amount: tpl.amount,
-        date: new Date().toISOString().slice(0, 10),
+        date: dateStr,
         category: tpl.category,
         type: tpl.type || 'personal',
         split: tpl.split || false,
