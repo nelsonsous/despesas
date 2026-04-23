@@ -2450,7 +2450,24 @@ function renderSalaryCycleReport() {
         .map(c => {
             const refDate = c.isCurrent ? today : c.end;
             const b = getSalaryCycleBreakdown(c.start, c.end, refDate);
-            return { ...c, ...b };
+            // Full-month aggregate of the two calendar months the cycle touches
+            const monthsTouched = [];
+            const seen = new Set();
+            [c.start, c.end].forEach(d => {
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                monthsTouched.push(new Date(d.getFullYear(), d.getMonth(), 1));
+            });
+            const monthAgg = monthsTouched.reduce((acc, md) => {
+                const inc = getEffectiveMonthIncomes(md).reduce((s, i) => s + i.amount, 0);
+                const exp = getEffectiveMonthExpenses(md).reduce((s, e) => s + e.amount, 0);
+                acc.inc += inc;
+                acc.exp += exp;
+                return acc;
+            }, { inc: 0, exp: 0 });
+            monthAgg.balance = monthAgg.inc - monthAgg.exp;
+            return { ...c, ...b, monthsTouched, monthAgg };
         })
         .filter(s => s.totalInc > 0 || s.totalExp > 0);
 
@@ -2512,6 +2529,10 @@ function renderSalaryCycleReport() {
                 // Pending chips (only if > 0)
                 const pendingInc = s.incPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.incPending)} previstas</span>` : '';
                 const pendingExp = s.expPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.expPending)} cativas</span>` : '';
+                // Full-month aggregate of the months touched by the cycle
+                const monthsLabel = s.monthsTouched.map(m => monthsShort[m.getMonth()]).join(' + ');
+                const aggBalColor = s.monthAgg.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+                const aggBalSign = s.monthAgg.balance >= 0 ? '+' : '';
 
                 return `
                 <div style="padding:10px;margin-bottom:6px;background:var(--surface);border-radius:8px">
@@ -2534,6 +2555,10 @@ function renderSalaryCycleReport() {
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:0.68rem;color:var(--text-light)">
                         <span>${topCatLabel}</span>
                         <span>${s.isCurrent ? `Dia ${daysElapsed}/${daysTotal} · ${formatCurrency(avgPerDay)}/dia` : `${formatCurrency(avgPerDay)}/dia`}</span>
+                    </div>
+                    <div style="margin-top:6px;padding:6px 8px;background:#F5F3FF;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:0.7rem">
+                        <span style="color:var(--text-light)">Agregado ${monthsLabel}</span>
+                        <span style="color:var(--text-light)">↑ ${formatCurrency(s.monthAgg.inc)} · ↓ ${formatCurrency(s.monthAgg.exp)} · <span style="color:${aggBalColor};font-weight:700">${aggBalSign}${formatCurrency(s.monthAgg.balance)}</span></span>
                     </div>
                     ${varHtml ? `<div style="margin-top:4px;font-size:0.7rem">${varHtml}</div>` : ''}
                 </div>`;
