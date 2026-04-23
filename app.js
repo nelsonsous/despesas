@@ -2450,26 +2450,25 @@ function renderSalaryCycleReport() {
         .map(c => {
             const refDate = c.isCurrent ? today : c.end;
             const b = getSalaryCycleBreakdown(c.start, c.end, refDate);
-            // Full-month aggregate of the two calendar months the cycle touches
-            const monthsTouched = [];
+            // Per-month totals for the calendar months the cycle touches
+            const monthTotals = [];
             const seen = new Set();
             [c.start, c.end].forEach(d => {
                 const key = `${d.getFullYear()}-${d.getMonth()}`;
                 if (seen.has(key)) return;
                 seen.add(key);
-                monthsTouched.push(new Date(d.getFullYear(), d.getMonth(), 1));
-            });
-            const monthAgg = monthsTouched.reduce((acc, md) => {
+                const md = new Date(d.getFullYear(), d.getMonth(), 1);
                 const inc = getEffectiveMonthIncomes(md).reduce((s, i) => s + i.amount, 0);
                 const exp = getEffectiveMonthExpenses(md).reduce((s, e) => s + e.amount, 0);
-                acc.inc += inc;
-                acc.exp += exp;
-                return acc;
+                monthTotals.push({ date: md, inc, exp, balance: inc - exp });
+            });
+            const monthAgg = monthTotals.reduce((acc, m) => {
+                acc.inc += m.inc; acc.exp += m.exp; return acc;
             }, { inc: 0, exp: 0 });
             monthAgg.balance = monthAgg.inc - monthAgg.exp;
-            return { ...c, ...b, monthsTouched, monthAgg };
+            return { ...c, ...b, monthTotals, monthAgg };
         })
-        .filter(s => s.totalInc > 0 || s.totalExp > 0);
+        .filter(s => s.monthAgg.inc > 0 || s.monthAgg.exp > 0);
 
     if (summaries.length === 0) { container.style.display = 'none'; return; }
 
@@ -2478,10 +2477,11 @@ function renderSalaryCycleReport() {
     const cats = getEffectiveCategories();
 
     const completed = summaries.filter(s => !s.isCurrent);
-    const best = completed.length ? completed.slice().sort((a, b) => b.balance - a.balance)[0] : null;
-    const worst = completed.length ? completed.slice().sort((a, b) => a.balance - b.balance)[0] : null;
-    const avgBalance = completed.length ? completed.reduce((s, x) => s + x.balance, 0) / completed.length : 0;
-    const avgExp = completed.length ? completed.reduce((s, x) => s + x.expPaid, 0) / completed.length : 0;
+    const best = completed.length ? completed.slice().sort((a, b) => b.monthAgg.balance - a.monthAgg.balance)[0] : null;
+    const worst = completed.length ? completed.slice().sort((a, b) => a.monthAgg.balance - b.monthAgg.balance)[0] : null;
+    const avgBalance = completed.length ? completed.reduce((s, x) => s + x.monthAgg.balance, 0) / completed.length : 0;
+    const avgExp = completed.length ? completed.reduce((s, x) => s + x.monthAgg.exp, 0) / completed.length : 0;
+    const monthsFull = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
     container.style.display = 'block';
     container.innerHTML = `
@@ -2502,68 +2502,48 @@ function renderSalaryCycleReport() {
         </div>` : ''}
         <div>
             ${summaries.map((s, idx) => {
-                const balColor = s.balance >= 0 ? 'var(--success)' : 'var(--danger)';
-                const balSign = s.balance >= 0 ? '+' : '';
+                const aggBalColor = s.monthAgg.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+                const aggBalSign = s.monthAgg.balance >= 0 ? '+' : '';
                 const currentBadge = s.isCurrent
                     ? ' <span style="font-size:0.65rem;font-weight:500;color:var(--primary);background:#EDE7F6;padding:1px 6px;border-radius:4px;margin-left:4px">atual</span>'
                     : '';
-                // Days elapsed / total for current cycle
-                const daysTotal = Math.round((s.end - s.start) / 86400000) + 1;
-                const daysElapsed = s.isCurrent
-                    ? Math.max(1, Math.min(daysTotal, Math.round((today - s.start) / 86400000) + 1))
-                    : daysTotal;
-                const avgPerDay = daysElapsed > 0 ? s.expPaid / daysElapsed : 0;
-                // Variation vs previous cycle (next in list is older)
+                const monthsLabel = s.monthTotals.map(m => monthsShort[m.date.getMonth()]).join(' + ');
+                // Variation vs previous cycle's aggregate (next in list is older)
                 const prev = summaries[idx + 1];
                 let varHtml = '';
                 if (prev && !s.isCurrent) {
-                    const delta = s.balance - prev.balance;
+                    const delta = s.monthAgg.balance - prev.monthAgg.balance;
                     const arrow = delta >= 0 ? '↗' : '↘';
                     const color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
                     const sign = delta >= 0 ? '+' : '';
-                    varHtml = `<span style="color:${color}">${arrow} ${sign}${formatCurrency(delta)} vs ciclo anterior</span>`;
+                    varHtml = `<div style="margin-top:6px;font-size:0.7rem;text-align:right"><span style="color:${color}">${arrow} ${sign}${formatCurrency(delta)} vs ciclo anterior</span></div>`;
                 }
-                // Top category
-                const topCat = Object.entries(s.expByCategory).sort((a, b) => b[1] - a[1])[0];
-                const topCatLabel = topCat ? `<i class="fas ${cats[topCat[0]]?.icon || 'fa-tag'}" style="color:var(--primary)"></i> ${cats[topCat[0]]?.label || topCat[0]} ${formatCurrency(topCat[1])}` : '';
-                // Pending chips (only if > 0)
-                const pendingInc = s.incPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.incPending)} previstas</span>` : '';
-                const pendingExp = s.expPending > 0 ? `<span style="color:var(--text-light)"> + ${formatCurrency(s.expPending)} cativas</span>` : '';
-                // Full-month aggregate of the months touched by the cycle
-                const monthsLabel = s.monthsTouched.map(m => monthsShort[m.getMonth()]).join(' + ');
-                const aggBalColor = s.monthAgg.balance >= 0 ? 'var(--success)' : 'var(--danger)';
-                const aggBalSign = s.monthAgg.balance >= 0 ? '+' : '';
+                const monthBoxes = s.monthTotals.map(m => {
+                    const mBalColor = m.balance >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const mBalSign = m.balance >= 0 ? '+' : '';
+                    return `
+                    <div style="flex:1;padding:8px;background:#fff;border:1px solid var(--border);border-radius:6px">
+                        <div style="font-size:0.7rem;font-weight:700;color:var(--text);text-transform:capitalize;margin-bottom:4px">${monthsFull[m.date.getMonth()]}</div>
+                        <div style="font-size:0.68rem;color:var(--text-light);display:flex;justify-content:space-between"><span>↑ Receitas</span><span style="color:var(--success);font-weight:600">${formatCurrency(m.inc)}</span></div>
+                        <div style="font-size:0.68rem;color:var(--text-light);display:flex;justify-content:space-between"><span>↓ Despesas</span><span style="color:var(--danger);font-weight:600">${formatCurrency(m.exp)}</span></div>
+                        <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;font-size:0.72rem;display:flex;justify-content:space-between"><span style="color:var(--text-light)">Saldo</span><span style="color:${mBalColor};font-weight:700">${mBalSign}${formatCurrency(m.balance)}</span></div>
+                    </div>`;
+                }).join('');
 
                 return `
-                <div style="padding:10px;margin-bottom:6px;background:var(--surface);border-radius:8px">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                        <span style="font-size:0.85rem;font-weight:700">${fmtLabel(s.start)} → ${fmtLabel(s.end)}${currentBadge}</span>
-                        <span style="color:${balColor};font-weight:700;font-size:0.95rem">${balSign}${formatCurrency(s.balance)}</span>
-                    </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.72rem">
+                <div style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
                         <div>
-                            <div style="color:var(--text-light)"><i class="fas fa-arrow-up" style="color:var(--success)"></i> Receitas</div>
-                            <div style="font-weight:600">${formatCurrency(s.incReceived)}${pendingInc}</div>
-                            <div style="color:var(--text-light);font-size:0.68rem">fixas ${formatCurrency(s.incReceivedFixed)} · var ${formatCurrency(s.incReceivedVariable)}</div>
+                            <div style="font-size:0.9rem;font-weight:700;text-transform:capitalize">${monthsLabel}${currentBadge}</div>
+                            <div style="font-size:0.65rem;color:var(--text-light)">ciclo ${fmtLabel(s.start)} → ${fmtLabel(s.end)}</div>
                         </div>
-                        <div>
-                            <div style="color:var(--text-light)"><i class="fas fa-arrow-down" style="color:var(--danger)"></i> Despesas</div>
-                            <div style="font-weight:600">${formatCurrency(s.expPaid)}${pendingExp}</div>
-                            <div style="color:var(--text-light);font-size:0.68rem">fixas ${formatCurrency(s.expPaidFixed)} · var ${formatCurrency(s.expPaidVariable)}</div>
+                        <div style="text-align:right">
+                            <div style="color:${aggBalColor};font-weight:800;font-size:1rem">${aggBalSign}${formatCurrency(s.monthAgg.balance)}</div>
+                            <div style="font-size:0.62rem;color:var(--text-light)">agregado</div>
                         </div>
                     </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:0.68rem;color:var(--text-light)">
-                        <span>${topCatLabel}</span>
-                        <span>${s.isCurrent ? `Dia ${daysElapsed}/${daysTotal} · ${formatCurrency(avgPerDay)}/dia` : `${formatCurrency(avgPerDay)}/dia`}</span>
-                    </div>
-                    <div style="margin-top:6px;padding:8px;background:#F5F3FF;border-radius:6px;font-size:0.7rem">
-                        <div style="color:var(--text-light);margin-bottom:2px">Agregado ${monthsLabel} (meses completos)</div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;font-weight:600">
-                            <span>↑ ${formatCurrency(s.monthAgg.inc)} &nbsp; ↓ ${formatCurrency(s.monthAgg.exp)}</span>
-                            <span style="color:${aggBalColor};font-weight:700">${aggBalSign}${formatCurrency(s.monthAgg.balance)}</span>
-                        </div>
-                    </div>
-                    ${varHtml ? `<div style="margin-top:4px;font-size:0.7rem">${varHtml}</div>` : ''}
+                    <div style="display:flex;gap:6px">${monthBoxes}</div>
+                    ${varHtml}
                 </div>`;
             }).join('')}
         </div>
@@ -2572,14 +2552,14 @@ function renderSalaryCycleReport() {
             <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px;text-align:center">
                 <i class="fas fa-trophy" style="color:#2E7D32"></i>
                 <div style="font-size:0.7rem;color:#2E7D32">Melhor ciclo</div>
-                <div style="font-size:0.8rem;font-weight:700;color:#2E7D32">${fmtLabel(best.start)} → ${fmtLabel(best.end)}</div>
-                <div style="font-size:0.75rem;color:#2E7D32">+${formatCurrency(best.balance)}</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#2E7D32;text-transform:capitalize">${best.monthTotals.map(m => monthsShort[m.date.getMonth()]).join(' + ')}</div>
+                <div style="font-size:0.75rem;color:#2E7D32">+${formatCurrency(best.monthAgg.balance)}</div>
             </div>
             <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px;text-align:center">
                 <i class="fas fa-triangle-exclamation" style="color:#C62828"></i>
                 <div style="font-size:0.7rem;color:#C62828">Pior ciclo</div>
-                <div style="font-size:0.8rem;font-weight:700;color:#C62828">${fmtLabel(worst.start)} → ${fmtLabel(worst.end)}</div>
-                <div style="font-size:0.75rem;color:#C62828">${worst.balance >= 0 ? '+' : ''}${formatCurrency(worst.balance)}</div>
+                <div style="font-size:0.8rem;font-weight:700;color:#C62828;text-transform:capitalize">${worst.monthTotals.map(m => monthsShort[m.date.getMonth()]).join(' + ')}</div>
+                <div style="font-size:0.75rem;color:#C62828">${worst.monthAgg.balance >= 0 ? '+' : ''}${formatCurrency(worst.monthAgg.balance)}</div>
             </div>
         </div>` : ''}
     `;
