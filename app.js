@@ -1394,10 +1394,37 @@ function getEffectiveFixedAmount(f, date) {
     const base = st?.amount || f.amount;
     const splits = Array.isArray(f.splits) ? f.splits : null;
     if (splits && splits.length) {
-        const deduction = splits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        const paidArr = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
+        const deduction = splits.reduce((sum, s, i) => paidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
         return Math.max(0, base - deduction);
     }
     return base;
+}
+
+// Toggles whether a specific split on a fixed expense has paid its share for
+// the given month. Lazily creates/updates a fixedStatus entry for that month.
+function toggleFixedSplitPaid(fixedId, date, splitIndex) {
+    const f = fixedExpenses.find(x => x.id === fixedId);
+    if (!f || !Array.isArray(f.splits) || !f.splits[splitIndex]) return;
+    const monthKey = getFixedMonthKey(date);
+    let st = fixedStatus.find(s => s.fixedId === fixedId && s.month === monthKey);
+    if (!st) {
+        st = { fixedId, month: monthKey, status: 'pendente', splitsPaid: [] };
+        fixedStatus.push(st);
+    }
+    const paid = Array.isArray(st.splitsPaid) ? [...st.splitsPaid] : [];
+    while (paid.length <= splitIndex) paid.push(false);
+    paid[splitIndex] = !paid[splitIndex];
+    st.splitsPaid = paid;
+    saveData();
+    updateAll();
+    showToast(paid[splitIndex] ? 'Pago!' : 'Marcado por receber');
+}
+
+// Read-only helper for the monthly display.
+function getFixedSplitsPaidForMonth(f, date) {
+    const st = getFixedStatusForMonth(f.id, date);
+    return Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
 }
 
 function getFixedPendingTotal(date) {
@@ -2338,6 +2365,18 @@ function renderExpenses() {
                     ${coParentPaid ? `<i class="fas fa-check"></i> ${child.coParentName} pagou` : `<i class="fas fa-clock"></i> ${child.coParentName}?`}
                 </button>`;
             }
+            // Multi-person split badges for this specific month.
+            const fSplits = Array.isArray(f.splits) ? f.splits : [];
+            const fPaidArr = getFixedSplitsPaidForMonth(f, currentDate);
+            const fixedSplitsBadge = fSplits.length
+                ? fSplits.slice(0, 3).map((s, i) => {
+                    const paid = !!fPaidArr[i];
+                    return `<button onclick="event.stopPropagation();toggleFixedSplitPaid('${f.id}', currentDate, ${i})" class="fixed-status-badge ${paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem;margin-left:4px" title="${s.name}: ${formatCurrency(s.amount)}">${paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`;
+                }).join('') + (fSplits.length > 3 ? `<span class="fixed-status-badge status-pendente" style="font-size:0.65rem;margin-left:4px">+${fSplits.length - 3}</span>` : '')
+                : '';
+            const totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
+            const gross = st?.amount || f.amount;
+            const hasSplitDeduction = totalSplitsDeduction > 0;
             const netAmount = (f.split && coParentPaid && child) ? amount * (1 - splitPct / 100) : amount;
 
             const varBadge = f.isVariable ? `<span style="font-size:0.65rem;color:var(--primary);font-weight:600;background:#EDE7F6;padding:1px 5px;border-radius:4px">~</span>` : '';
@@ -2353,8 +2392,10 @@ function renderExpenses() {
                         <div style="font-size:0.72rem;color:var(--text-light)">Dia ${f.dayOfMonth} &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
                     ${varEdit}
-                    <div class="fixed-month-amount" style="${coParentPaid ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
-                        ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}` : formatCurrency(amount)}
+                    <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
+                        ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}`
+                          : hasSplitDeduction ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(gross)}</span>${formatCurrency(amount)}`
+                          : formatCurrency(amount)}
                     </div>
                     <button onclick="markFixedPaid('${f.id}', currentDate, ${!isPaid})"
                         class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
@@ -2364,6 +2405,7 @@ function renderExpenses() {
                         <i class="fas fa-ban"></i>
                     </button>
                     ${splitBadge}
+                    ${fixedSplitsBadge}
                 </div>
             `;
         }
@@ -4076,7 +4118,7 @@ function collectFixedSplitsFromModal() {
     return [...rows].map(r => {
         const name = r.querySelector('.fixed-split-name')?.value.trim() || '';
         const amount = parseFloat(r.querySelector('.fixed-split-amount')?.value) || 0;
-        return { name, amount, paid: true }; // "paid" for fixed means "deducts from effective amount"
+        return { name, amount };
     }).filter(s => s.name && s.amount > 0);
 }
 function fixedDistributeEqually() {
