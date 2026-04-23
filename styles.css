@@ -1716,3 +1716,155 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     border-color: rgba(46,125,50,0.2) !important;
     border-radius: 20px !important;
 }
+
+/* ===== Animations: staggered card entrance on tab open ===== */
+.tab-content.active > .card,
+.tab-content.active > .summary-cards,
+.tab-content.active > .balance-hero,
+.tab-content.active > .salary-cycle-card,
+.tab-content.active > .month-selector {
+    animation: cardRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.tab-content.active > *:nth-child(1)  { animation-delay: 0.00s; }
+.tab-content.active > *:nth-child(2)  { animation-delay: 0.05s; }
+.tab-content.active > *:nth-child(3)  { animation-delay: 0.10s; }
+.tab-content.active > *:nth-child(4)  { animation-delay: 0.15s; }
+.tab-content.active > *:nth-child(5)  { animation-delay: 0.20s; }
+.tab-content.active > *:nth-child(6)  { animation-delay: 0.25s; }
+.tab-content.active > *:nth-child(n+7){ animation-delay: 0.30s; }
+@keyframes cardRise {
+    from { opacity: 0; transform: translateY(14px) scale(0.985); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Balance hero subtle breathing glow */
+.balance-hero {
+    animation: heroGlow 6s ease-in-out infinite;
+}
+@keyframes heroGlow {
+    0%, 100% { box-shadow: 0 12px 40px rgba(108, 92, 231, 0.35); }
+    50%      { box-shadow: 0 18px 54px rgba(108, 92, 231, 0.55); }
+}
+
+/* Donut segments cascading fade-in */
+.donut-svg circle {
+    animation: donutDraw 0.5s ease-out backwards;
+    transform-origin: 55px 55px;
+}
+.donut-svg circle:nth-child(1) { animation-duration: 0.25s; }
+.donut-svg circle:nth-child(2) { animation-delay: 0.05s; }
+.donut-svg circle:nth-child(3) { animation-delay: 0.12s; }
+.donut-svg circle:nth-child(4) { animation-delay: 0.19s; }
+.donut-svg circle:nth-child(5) { animation-delay: 0.26s; }
+.donut-svg circle:nth-child(6) { animation-delay: 0.33s; }
+.donut-svg circle:nth-child(7) { animation-delay: 0.40s; }
+.donut-svg circle:nth-child(8) { animation-delay: 0.47s; }
+.donut-svg circle:nth-child(n+9) { animation-delay: 0.54s; }
+@keyframes donutDraw {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* FAB press micro-interaction */
+.fab {
+    transition: transform 0.15s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.2s;
+}
+.fab:active {
+    transform: scale(0.88) rotate(45deg);
+}
+
+/* Expense & income & fixed list items: slide up on first paint */
+.expense-item,
+.income-item,
+.fixed-item,
+.fixed-month-item,
+.top-expense-item {
+    animation: rowRise 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.expense-item:nth-child(1),
+.income-item:nth-child(1),
+.fixed-item:nth-child(1),
+.fixed-month-item:nth-child(1),
+.top-expense-item:nth-child(1) { animation-delay: 0s; }
+.expense-item:nth-child(2),
+.income-item:nth-child(2),
+.fixed-item:nth-child(2),
+.fixed-month-item:nth-child(2),
+.top-expense-item:nth-child(2) { animation-delay: 0.03s; }
+.expense-item:nth-child(3),
+.income-item:nth-child(3),
+.fixed-item:nth-child(3),
+.fixed-month-item:nth-child(3),
+.top-expense-item:nth-child(3) { animation-delay: 0.06s; }
+.expense-item:nth-child(4),
+.income-item:nth-child(4),
+.fixed-item:nth-child(4),
+.fixed-month-item:nth-child(4),
+.top-expense-item:nth-child(4) { animation-delay: 0.09s; }
+.expense-item:nth-child(n+5),
+.income-item:nth-child(n+5),
+.fixed-item:nth-child(n+5),
+.fixed-month-item:nth-child(n+5),
+.top-expense-item:nth-child(n+5) { animation-delay: 0.12s; }
+@keyframes rowRise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Progress bars get a gentle moving sheen when filled */
+#balance-bar-spent,
+#salary-progress-fill,
+.pace-progress-fill,
+.evolution-fill {
+    position: relative;
+    overflow: hidden;
+}
+#balance-bar-spent::after,
+#salary-progress-fill::after,
+.pace-progress-fill::after,
+.evolution-fill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: barSheen 3.2s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes barSheen {
+    0%   { background-position: -100% 0; }
+    100% { background-position: 200% 0; }
+}
+
+/* Toggle tabs: smooth underline slide on active tab */
+.tab::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%; right: 50%;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary-light), var(--primary));
+    border-radius: 3px 3px 0 0;
+    transition: left 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                right 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tab.active::before { left: 20%; right: 20%; }
+.tab.active::after { display: none; } /* replaced by ::before animation */
+
+/* Respect user's reduced-motion preference — disable everything flashy */
+@media (prefers-reduced-motion: reduce) {
+    .app-header,
+    .balance-hero,
+    .fab::before,
+    .donut-svg circle,
+    .expense-item, .income-item, .fixed-item, .fixed-month-item, .top-expense-item,
+    .tab-content.active > * {
+        animation: none !important;
+    }
+    #balance-bar-spent::after,
+    #salary-progress-fill::after,
+    .pace-progress-fill::after,
+    .evolution-fill::after {
+        display: none;
+    }
+    .tab::before { transition: none; }
+}

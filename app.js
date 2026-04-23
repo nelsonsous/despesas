@@ -611,16 +611,16 @@ function renderSalaryCycle() {
     const dayCountEl = document.getElementById('salary-cycle-daycount');
     if (dayCountEl) dayCountEl.textContent = `Dia ${daysElapsed}/${daysTotal}`;
 
-    document.getElementById('salary-received').textContent = formatCurrency(b.incReceived);
+    animateNumber(document.getElementById('salary-received'), b.incReceived);
     const recPendEl = document.getElementById('salary-received-pending');
     if (recPendEl) recPendEl.textContent = b.incPending > 0 ? `+ ${formatCurrency(b.incPending)} por receber` : '';
 
-    document.getElementById('salary-spent').textContent = formatCurrency(spentSinceSalary);
+    animateNumber(document.getElementById('salary-spent'), spentSinceSalary);
     const rateEl = document.getElementById('salary-spent-rate');
     if (rateEl) rateEl.textContent = b.expPaidVariable > 0 ? `${formatCurrency(dailyVarRate)}/dia` : '';
 
-    document.getElementById('salary-fixed').textContent = formatCurrency(cycleFixed);
-    document.getElementById('salary-available').textContent = formatCurrency(available);
+    animateNumber(document.getElementById('salary-fixed'), cycleFixed);
+    animateNumber(document.getElementById('salary-available'), available, formatCurrency, 700);
     document.getElementById('salary-available').style.color = available >= 0 ? 'var(--success)' : 'var(--danger)';
     const fill = document.getElementById('salary-progress-fill');
     if (fill) {
@@ -1232,10 +1232,10 @@ function updateDashboard() {
     const available = projectedBalance;
 
     // Balance KPI
-    document.getElementById('kpi-income').textContent = formatCurrency(totalIncome);
-    document.getElementById('kpi-expenses').textContent = formatCurrency(totalExpenses);
+    animateNumber(document.getElementById('kpi-income'), totalIncome);
+    animateNumber(document.getElementById('kpi-expenses'), totalExpenses);
     const balanceEl = document.getElementById('kpi-balance');
-    balanceEl.textContent = formatCurrency(balance);
+    animateNumber(balanceEl, balance, formatCurrency, 700);
     balanceEl.className = 'balance-hero-amount' + (balance < 0 ? ' negative' : '');
     // Also update hero amount class
     const heroAmountEl = document.querySelector('.balance-hero-amount');
@@ -4821,6 +4821,29 @@ function generateId() {
 
 function formatCurrency(value) {
     return value.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
+}
+
+// Tweens an element's text from its previously-shown numeric value to `to`.
+// Stores the current value on the element so subsequent calls continue smoothly.
+// Skipped (set-once) when the delta is trivial or the user prefers reduced motion.
+function animateNumber(el, to, formatter = formatCurrency, duration = 500) {
+    if (!el) return;
+    const from = parseFloat(el.dataset.animVal || '0');
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || Math.abs(to - from) < 0.01) {
+        el.textContent = formatter(to);
+        el.dataset.animVal = String(to);
+        return;
+    }
+    el.dataset.animVal = String(to);
+    const start = performance.now();
+    const step = (now) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = formatter(from + (to - from) * eased);
+        if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
 }
 
 function formatDate(dateStr) {
