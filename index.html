@@ -64,31 +64,6 @@
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
-            <!-- Balance Hero Card -->
-            <div class="balance-hero">
-                <div class="balance-hero-bg"></div>
-                <div class="balance-hero-content">
-                    <div class="balance-hero-label">Saldo do Mes</div>
-                    <div class="balance-hero-amount" id="kpi-balance">0 €</div>
-                    <div class="balance-hero-pills">
-                        <div class="balance-pill income-pill">
-                            <i class="fas fa-arrow-trend-up"></i>
-                            <div>
-                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Receitas</div>
-                                <div id="kpi-income">0 €</div>
-                            </div>
-                        </div>
-                        <div class="balance-pill expense-pill">
-                            <i class="fas fa-arrow-trend-down"></i>
-                            <div>
-                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Despesas</div>
-                                <div id="kpi-expenses">0 €</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Salary Cycle Card -->
             <div id="salary-cycle-card" class="salary-cycle-card" style="display:none">
                 <div class="salary-cycle-header">
@@ -129,6 +104,31 @@
                         <div class="salary-cycle-footer-row" id="salary-topcat-row" style="display:none">
                             <span>Top categoria</span>
                             <span id="salary-topcat">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Balance Hero Card -->
+            <div class="balance-hero">
+                <div class="balance-hero-bg"></div>
+                <div class="balance-hero-content">
+                    <div class="balance-hero-label">Saldo do Mes</div>
+                    <div class="balance-hero-amount" id="kpi-balance">0 €</div>
+                    <div class="balance-hero-pills">
+                        <div class="balance-pill income-pill">
+                            <i class="fas fa-arrow-trend-up"></i>
+                            <div>
+                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Receitas</div>
+                                <div id="kpi-income">0 €</div>
+                            </div>
+                        </div>
+                        <div class="balance-pill expense-pill">
+                            <i class="fas fa-arrow-trend-down"></i>
+                            <div>
+                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Despesas</div>
+                                <div id="kpi-expenses">0 €</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -544,16 +544,14 @@
                     <div class="form-group">
                         <label><input type="checkbox" id="split-with-other" onchange="toggleSplitWithOther()"> Dividir com alguém</label>
                         <div id="split-with-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
-                            <label style="font-size:0.78rem;margin-top:0">Nome</label>
-                            <input type="text" id="split-with-name" placeholder="Ex: João" list="split-with-names-list">
+                            <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:8px">Quem paga-te de volta e quanto:</div>
                             <datalist id="split-with-names-list"></datalist>
-                            <label style="font-size:0.78rem;margin-top:8px">% que a outra pessoa paga</label>
-                            <input type="number" id="split-with-pct" min="1" max="99" value="50" placeholder="50">
-                            <label style="margin-top:8px;display:flex;align-items:center;gap:8px;cursor:pointer">
-                                <input type="checkbox" id="split-with-received">
-                                <span style="font-size:0.88rem">Já recebi a parte dela/dele</span>
-                            </label>
-                            <small class="field-hint">Antes de receber, a despesa conta pelo valor total. Quando marcares "Já recebi", passa a contar só a tua parte.</small>
+                            <div id="splits-list"></div>
+                            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+                                <button type="button" onclick="addSplitRow()" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-plus"></i> Adicionar pessoa</button>
+                                <button type="button" onclick="distributeEqually()" title="Divide a despesa igualmente entre ti e as pessoas adicionadas" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-equals"></i> Dividir igualmente</button>
+                            </div>
+                            <small class="field-hint">Antes de alguém pagar, a despesa conta pelo total. À medida que marcas "pago" a cada pessoa, a despesa desconta a parte dela.</small>
                         </div>
                     </div>
                     <div class="form-group">
@@ -838,9 +836,26 @@
                         <small class="field-hint">Ex: 50 = cada um paga metade das despesas partilhadas</small>
                     </div>
                     <div class="form-group" id="salary-day-setting">
-                        <label>Dia de recebimento do salário</label>
-                        <input type="number" id="profile-salary-day" min="1" max="31" placeholder="Ex: 22">
-                        <small class="field-hint">Define o início do ciclo orçamental entre salários. Deixar vazio para usar meses normais.</small>
+                        <label>Quando recebes o salário</label>
+                        <div class="radio-group" style="flex-wrap:wrap;gap:10px">
+                            <label class="radio-label">
+                                <input type="radio" name="salary-mode" value="fixed-day" checked onchange="updateSalaryDayInputVisibility()">
+                                <span>Dia fixo</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="salary-mode" value="working-day-after" onchange="updateSalaryDayInputVisibility()">
+                                <span>1.º dia útil após dia X</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="salary-mode" value="last-working-day" onchange="updateSalaryDayInputVisibility()">
+                                <span>Último dia útil do mês</span>
+                            </label>
+                        </div>
+                        <div id="salary-day-wrap" style="margin-top:10px">
+                            <label style="font-size:0.78rem">Dia do mês</label>
+                            <input type="number" id="profile-salary-day" min="1" max="31" placeholder="Ex: 22">
+                        </div>
+                        <small class="field-hint" id="salary-day-hint">Define o início do ciclo orçamental entre salários. Deixar vazio para usar meses normais.</small>
                     </div>
                     <button onclick="saveProfileName()" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
@@ -1109,6 +1124,18 @@
                         <label>Data de fim (opcional)</label>
                         <input type="month" id="fixed-end">
                         <small class="field-hint">Deixar em branco se for indefinida</small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="fixed-split-other" onchange="toggleFixedSplitOther()"> Dividir com alguém</label>
+                        <div id="fixed-split-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:8px">A tua parte = valor total − soma destas contribuições:</div>
+                            <div id="fixed-splits-list"></div>
+                            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+                                <button type="button" onclick="addFixedSplitRow()" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-plus"></i> Adicionar pessoa</button>
+                                <button type="button" onclick="fixedDistributeEqually()" title="Divide o valor igualmente entre ti e as pessoas" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-equals"></i> Dividir igualmente</button>
+                            </div>
+                            <small class="field-hint">Aplica-se a todos os meses desta despesa fixa. A parte dos outros é deduzida automaticamente do valor efetivo.</small>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Notas (opcional)</label>
