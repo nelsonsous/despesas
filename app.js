@@ -1090,25 +1090,37 @@ function renderSalaryCycle() {
     if (!card || !salaryDay) { if (card) card.style.display = 'none'; return; }
 
     const today = new Date();
-    const todayDay = today.getDate();
 
-    // Determine current salary cycle start and end
+    // Pick the cycle that matches the month currently being viewed:
+    // the live cycle containing today when the user is on the current month,
+    // otherwise the cycle that STARTS on salaryDay of the viewed month.
+    const viewYear = currentDate.getFullYear();
+    const viewMonth = currentDate.getMonth();
+    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+
     let cycleStart, cycleEnd;
-    if (todayDay >= salaryDay) {
-        cycleStart = new Date(today.getFullYear(), today.getMonth(), salaryDay);
-        cycleEnd = new Date(today.getFullYear(), today.getMonth() + 1, salaryDay - 1);
+    if (isCurrentMonth) {
+        if (today.getDate() >= salaryDay) {
+            cycleStart = new Date(today.getFullYear(), today.getMonth(), salaryDay);
+            cycleEnd = new Date(today.getFullYear(), today.getMonth() + 1, salaryDay - 1);
+        } else {
+            cycleStart = new Date(today.getFullYear(), today.getMonth() - 1, salaryDay);
+            cycleEnd = new Date(today.getFullYear(), today.getMonth(), salaryDay - 1);
+        }
     } else {
-        cycleStart = new Date(today.getFullYear(), today.getMonth() - 1, salaryDay);
-        cycleEnd = new Date(today.getFullYear(), today.getMonth(), salaryDay - 1);
+        cycleStart = new Date(viewYear, viewMonth, salaryDay);
+        cycleEnd = new Date(viewYear, viewMonth + 1, salaryDay - 1);
     }
 
-    const daysLeft = Math.max(0, Math.round((cycleEnd - today) / 86400000));
+    const cycleContainsToday = today >= cycleStart && today <= cycleEnd;
+    const refDate = cycleContainsToday ? today : cycleEnd;
+    const daysLeft = cycleContainsToday ? Math.max(0, Math.round((cycleEnd - today) / 86400000)) : 0;
 
     // Period label
     const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     const periodLabel = `${salaryDay} ${months[cycleStart.getMonth()]} \u2192 ${salaryDay - 1} ${months[cycleEnd.getMonth()]}`;
 
-    const b = getSalaryCycleBreakdown(cycleStart, cycleEnd, today);
+    const b = getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate);
     const spentSinceSalary = b.expPaid;
     const cycleFixed = b.expPending;
     const salaryIncome = b.incReceived;
@@ -1117,14 +1129,14 @@ function renderSalaryCycle() {
     const available = totalBudget - spentSinceSalary - cycleFixed;
     const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed) / totalBudget) * 100) : 0;
 
-    // Day counters
+    // Day counters — for past/future cycles show the whole cycle as "done"
     const daysTotal = Math.max(1, Math.round((cycleEnd - cycleStart) / 86400000) + 1);
-    const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1));
+    const daysElapsed = cycleContainsToday
+        ? Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1))
+        : daysTotal;
 
     // Daily spending rate (variable only — fixed doesn't reflect daily behaviour)
-    const dailyVarRate = b.expPaidVariable / daysElapsed;
-    // Projected balance at end of cycle: assume pending incomes arrive, pending fixed get paid,
-    // and variable spending continues at the current per-day rate for the remaining days.
+    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
     const projectedVar = dailyVarRate * daysLeft;
     const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar);
 
@@ -1134,9 +1146,18 @@ function renderSalaryCycle() {
 
     card.style.display = 'block';
     document.getElementById('salary-cycle-period').textContent = periodLabel;
-    document.getElementById('salary-cycle-days').textContent = daysLeft + ' dias restantes';
+    const daysEl = document.getElementById('salary-cycle-days');
+    if (daysEl) {
+        if (cycleContainsToday) {
+            daysEl.textContent = daysLeft + ' dias restantes';
+        } else if (today > cycleEnd) {
+            daysEl.textContent = 'ciclo fechado';
+        } else {
+            daysEl.textContent = 'ciclo futuro';
+        }
+    }
     const dayCountEl = document.getElementById('salary-cycle-daycount');
-    if (dayCountEl) dayCountEl.textContent = `Dia ${daysElapsed}/${daysTotal}`;
+    if (dayCountEl) dayCountEl.textContent = cycleContainsToday ? `Dia ${daysElapsed}/${daysTotal}` : `${daysTotal} dias`;
 
     animateNumber(document.getElementById('salary-received'), b.incReceived);
     const recPendEl = document.getElementById('salary-received-pending');
@@ -1155,24 +1176,41 @@ function renderSalaryCycle() {
         fill.style.background = usedPct > 90 ? 'var(--danger)' : usedPct > 70 ? 'var(--warning)' : 'var(--success)';
     }
 
-    // Footer: projection + top category. Only shown once there's something meaningful to project.
+    // Footer: projection (current cycle) or closed balance (past) + top category.
     const footer = document.getElementById('salary-cycle-footer');
-    const hasProjection = b.expPaidVariable > 0 && daysLeft > 0;
     const hasTop = !!topCat;
-    if (footer) {
-        footer.style.display = (hasProjection || hasTop) ? 'flex' : 'none';
-    }
-    if (hasProjection) {
-        const projEl = document.getElementById('salary-projection');
-        const sign = projectedEndBalance >= 0 ? '+' : '';
-        const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
+    const projLabelEl = document.getElementById('salary-projection-label');
+    const projEl = document.getElementById('salary-projection');
+    const cycleIsPast = today > cycleEnd;
+    const cycleIsFuture = today < cycleStart;
+    let showProjection = false;
+    if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
+        if (projLabelEl) projLabelEl.textContent = 'Ao ritmo atual';
         if (projEl) {
+            const sign = projectedEndBalance >= 0 ? '+' : '';
+            const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
             projEl.textContent = `${sign}${formatCurrency(projectedEndBalance)} no fim`;
             projEl.style.color = color;
         }
-    } else {
-        const projEl = document.getElementById('salary-projection');
-        if (projEl) projEl.textContent = '—';
+        showProjection = true;
+    } else if (cycleIsPast) {
+        // Past cycle: show the closed balance (income received minus all expenses in-cycle).
+        const closed = b.incReceived - b.expPaid;
+        if (projLabelEl) projLabelEl.textContent = 'Saldo do ciclo';
+        if (projEl) {
+            const sign = closed >= 0 ? '+' : '';
+            const color = closed >= 0 ? '#69f0ae' : '#ff9f9f';
+            projEl.textContent = `${sign}${formatCurrency(closed)}`;
+            projEl.style.color = color;
+        }
+        showProjection = true;
+    } else if (cycleIsFuture) {
+        if (projLabelEl) projLabelEl.textContent = 'Ciclo ainda não iniciado';
+        if (projEl) { projEl.textContent = '—'; projEl.style.color = ''; }
+        showProjection = true;
+    }
+    if (footer) {
+        footer.style.display = (showProjection || hasTop) ? 'flex' : 'none';
     }
     const topRow = document.getElementById('salary-topcat-row');
     if (topRow) topRow.style.display = hasTop ? 'flex' : 'none';
