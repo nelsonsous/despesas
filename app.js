@@ -215,7 +215,18 @@ function signInGoogle() {
 }
 
 // Payment-related keywords for subject line pre-filtering
-const PAYMENT_KEYWORDS = ['debit','debito','pagamento','fatura','factura','compra','transac','transferen','movimento','recibo','banco','mbway','multibanco','visa','mastercard','sepa','direct debit','payment','purchase','withdrawal','atm','pos ','ref ','iban','swift','cobranca'];
+const PAYMENT_KEYWORDS = [
+    'debit','debito','pagamento','fatura','factura','compra','transac','transferen',
+    'movimento','recibo','banco','mbway','multibanco','visa','mastercard','sepa',
+    'direct debit','payment','purchase','withdrawal','atm','pos ','ref ','iban','swift',
+    'cobranca','vencimento','subscric',
+    // Common PT billers — catches invoice emails even when subject lacks a generic term
+    'edp','galp','vodafone',' nos ','nos.pt','meo','altice','nowo','lidl','continente',
+    'worten','zara','mango','hm','netflix','spotify','amazon','uber','bolt','glovo',
+    'ifood','zomato','booking','tap','ryanair','ctt','fidelidade','tranquilidade',
+    'ageas','allianz','santander','novobanco','millennium','cgd','bpi','montepio',
+    'revolut','wise','paypal','openbank','activobank'
+];
 
 function isProbablyPaymentEmail(subject, from) {
     const text = (subject + ' ' + from).toLowerCase();
@@ -226,11 +237,11 @@ async function fetchGmailForPeriod(from, to) {
     const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '/');
     const toDate = new Date(to); toDate.setDate(toDate.getDate() + 1);
     const toStr = toDate.toISOString().slice(0, 10).replace(/-/g, '/');
-    // More targeted query: known payment signals in subject
-    const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR compra OR transacao OR mbway OR multibanco OR "movimentos" OR recibo)`;
+    // Broader keyword set so EDP/Galp/telco invoice notifications aren't filtered out.
+    const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR factura OR compra OR transacao OR mbway OR multibanco OR movimentos OR recibo OR cobranca OR EDP OR Galp OR Vodafone OR NOS OR MEO OR Nowo OR seguro OR renda OR subscricao)`;
     // Step 1: fetch metadata only (no body) — free and fast
     const listRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=50`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=150`,
         { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
     );
     if (!listRes.ok) throw new Error('Erro Gmail API: ' + listRes.status);
@@ -240,19 +251,20 @@ async function fetchGmailForPeriod(from, to) {
     // Load already-seen email IDs to avoid re-analysis
     const seenIds = new Set(aiCfg.analyzedEmailIds || []);
 
-    // Step 2: fetch metadata headers only for up to 20 emails
-    const candidates = listData.messages.slice(0, 20);
+    // Step 2: fetch metadata headers for a wider slice so older emails in the
+    // period aren't dropped just because many recent ones match the query.
+    const candidates = listData.messages.slice(0, 80);
     const metaResults = await Promise.all(candidates.map(m =>
         fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
             { headers: { Authorization: 'Bearer ' + _googleAccessToken } }
         ).then(r => r.json())
     ));
 
-    // Step 3: filter to relevant, unseen emails (max 6)
+    // Step 3: filter to relevant, unseen emails (max 15 per sync)
     const getHeader = (msg, name) => (msg.payload?.headers || []).find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
     const relevant = metaResults
         .filter(m => !seenIds.has(m.id) && isProbablyPaymentEmail(getHeader(m, 'Subject'), getHeader(m, 'From')))
-        .slice(0, 6);
+        .slice(0, 15);
 
     if (!relevant.length) return [];
 
