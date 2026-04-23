@@ -1620,9 +1620,51 @@ function expandSplitAcrossChildren(e) {
     });
 }
 
+// Expands a mix-split expense (Pessoal + one child with %) into two virtuals so
+// reports and totals can account for each side's category and split state.
+// The list view still sees the original single expense and shows badges.
+function expandMixPersonalChild(e) {
+    if (!e.mixChildId || !e.mixChildPct) return [e];
+    const pct = parseFloat(e.mixChildPct);
+    if (!(pct > 0 && pct < 100)) return [e];
+    const total = e.fullAmount || e.amount;
+    const childPortion = Math.round(total * (pct / 100) * 100) / 100;
+    const personalPortion = Math.round((total - childPortion) * 100) / 100;
+    const base = (extra) => ({
+        ...e,
+        mixChildId: undefined,
+        mixChildPct: undefined,
+        mixChildSplitCoParent: undefined,
+        mixChildPaidByFather: undefined,
+        parentExpenseId: e.id,
+        isFromMixSplit: true,
+        ...extra
+    });
+    const personalVirtual = base({
+        id: `${e.id}_mix_p`,
+        amount: personalPortion,
+        fullAmount: personalPortion,
+        type: 'personal',
+        split: false,
+        paidByFather: false
+    });
+    const childVirtual = base({
+        id: `${e.id}_mix_c`,
+        amount: childPortion,
+        fullAmount: childPortion,
+        type: e.mixChildId,
+        split: !!e.mixChildSplitCoParent,
+        paidByFather: !!e.mixChildPaidByFather
+    });
+    // Apply co-parent split to the child virtual if needed.
+    const childAdjusted = adjustExpenseForCoParent(childVirtual);
+    return [personalVirtual, childAdjusted];
+}
+
 function getEffectiveMonthExpenses(date) {
     const real = getMonthExpenses(date).map(adjustExpenseForCoParent);
-    const expanded = real.flatMap(expandSplitAcrossChildren);
+    const withMix = real.flatMap(expandMixPersonalChild);
+    const expanded = withMix.flatMap(expandSplitAcrossChildren);
     const paidFixed = getPaidFixedAsExpenses(date).flatMap(expandSplitAcrossChildren);
     return [...expanded, ...paidFixed];
 }
@@ -2660,6 +2702,13 @@ function renderExpenseItem(e) {
         // Legacy fallback (single person by pct)
         splitWithBadge = `<button onclick="event.stopPropagation();toggleSplitWithReceived('${e.id}')" class="fixed-status-badge ${e.splitWithReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${e.splitWithReceived ? `<i class="fas fa-check"></i> recebi de ${e.splitWithName}` : `<i class="fas fa-clock"></i> ${e.splitWithName}?`}</button>`;
     }
+    // Mix Pessoal+filho badge (one combined chip)
+    let mixBadge = '';
+    if (e.mixChildId && e.mixChildPct) {
+        const mc = children.find(c => c.id === e.mixChildId);
+        const mcName = mc?.name || 'filho';
+        mixBadge = `<span class="fixed-status-badge" style="background:#EDE7F6;color:var(--primary);font-size:0.65rem"><i class="fas fa-divide"></i> ${100 - e.mixChildPct}% / ${e.mixChildPct}% ${mcName}</span>`;
+    }
 
     // Grouped expense rendering (has entries array)
     const entryTypeLabel = (t) => {
@@ -2728,6 +2777,7 @@ function renderExpenseItem(e) {
                         ${(e.withPeople && e.withPeople.length > 0) ? `<span style="color:var(--primary)"><i class="fas fa-user-group" style="font-size:0.65rem"></i> ${e.withPeople.slice(0,2).join(', ')}${e.withPeople.length > 2 ? ` +${e.withPeople.length-2}` : ''}</span>` : ''}
                     </div>
                     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+                        ${mixBadge}
                         ${splitWithBadge}
                         ${coParentBadge}
                         <div class="expense-actions">
@@ -3964,7 +4014,7 @@ function toggleMixWithChild() {
     const cb = document.getElementById('mix-with-child');
     const fields = document.getElementById('mix-with-child-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
-    if (cb?.checked) populateMixChildSelect();
+    if (cb?.checked) { populateMixChildSelect(); updateMixCoParentLabels(); }
 }
 
 function populateMixChildSelect() {
@@ -3973,6 +4023,26 @@ function populateMixChildSelect() {
     const currentVal = sel.value;
     sel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     if (currentVal && children.some(c => c.id === currentVal)) sel.value = currentVal;
+}
+
+function toggleMixCoParent() {
+    const cb = document.getElementById('mix-child-split-coparent');
+    const row = document.getElementById('mix-coparent-paid-row');
+    if (cb && row) row.style.display = cb.checked ? 'block' : 'none';
+    if (!cb?.checked) {
+        const paid = document.getElementById('mix-child-paid-by-father');
+        if (paid) paid.checked = false;
+    }
+}
+
+function updateMixCoParentLabels() {
+    const childId = document.getElementById('mix-child-id')?.value;
+    const child = children.find(c => c.id === childId);
+    const lbl = document.getElementById('mix-coparent-label');
+    const paidLbl = document.getElementById('mix-coparent-paid-label');
+    const coName = child?.coParentName || 'co-progenitor';
+    if (lbl) lbl.textContent = `Dividir a parte com ${coName}`;
+    if (paidLbl) paidLbl.textContent = `${coName} já pagou a parte dele`;
 }
 
 function toggleSplitWithOther() {
@@ -4298,11 +4368,23 @@ function editExpense(id) {
     // Multi-person split (with legacy migration)
     populateSplitWithNamesList();
     populateSplitsUI(e);
-    // Hide mix-with-child on edit — only available for new expenses
-    const mixCb = document.getElementById('mix-with-child');
-    if (mixCb) mixCb.checked = false;
+    // Mix-with-child (Pessoal + filho %). Visible when type is personal AND children exist.
     const mixGrp = document.getElementById('mix-personal-child-group');
-    if (mixGrp) mixGrp.style.display = 'none';
+    if (mixGrp) mixGrp.style.display = (e.type === 'personal' && children.length >= 1) ? 'block' : 'none';
+    const mixCb = document.getElementById('mix-with-child');
+    if (mixCb) mixCb.checked = !!e.mixChildId;
+    populateMixChildSelect();
+    const mixSel = document.getElementById('mix-child-id');
+    if (mixSel && e.mixChildId) mixSel.value = e.mixChildId;
+    const mixPct = document.getElementById('mix-child-pct');
+    if (mixPct) mixPct.value = e.mixChildPct || 50;
+    const mixCoSplit = document.getElementById('mix-child-split-coparent');
+    if (mixCoSplit) mixCoSplit.checked = !!e.mixChildSplitCoParent;
+    const mixCoPaid = document.getElementById('mix-child-paid-by-father');
+    if (mixCoPaid) mixCoPaid.checked = !!e.mixChildPaidByFather;
+    toggleMixWithChild();
+    toggleMixCoParent();
+    updateMixCoParentLabels();
 
     pendingAttachment = e.attachment || null;
     renderAttachmentPreview('attachment-preview', pendingAttachment);
@@ -4381,54 +4463,11 @@ function saveExpense(event) {
     const dateVal = document.getElementById('expense-date').value;
     const notesVal = document.getElementById('expense-notes').value.trim();
 
-    // Mix split: create two linked expenses (personal + one child with X%).
-    // Editing the original mixed pair is not supported — user would need to
-    // delete both and re-create. To keep things simple for MVP this branch
-    // only handles creation.
-    if (mixWithChild && mixChildId && mixChildPct > 0 && mixChildPct < 100) {
-        if (id) { showToast('Não é possível converter uma despesa existente em mista. Apague e crie nova.'); return; }
-        const child = children.find(c => c.id === mixChildId);
-        const childAmount = Math.round(amount * (mixChildPct / 100) * 100) / 100;
-        const personalAmount = Math.round((amount - childAmount) * 100) / 100;
-        const groupId = generateId();
-        const now = new Date().toISOString();
-        const baseDesc = document.getElementById('expense-desc').value.trim();
-        const commonFields = {
-            date: dateVal,
-            category: document.getElementById('expense-category').value,
-            essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
-            notes: notesVal,
-            withPeople,
-            attachment: pendingAttachment || null,
-            mixedGroupId: groupId,
-            createdAt: now,
-            updatedAt: now
-        };
-        expenses.push({
-            id: generateId(),
-            description: `${baseDesc} (Pessoal ${100 - mixChildPct}%)`,
-            amount: personalAmount,
-            type: 'personal',
-            split: false,
-            paidByFather: false,
-            ...commonFields
-        });
-        expenses.push({
-            id: generateId(),
-            description: `${baseDesc} (${child.name} ${mixChildPct}%)`,
-            amount: childAmount,
-            type: mixChildId,
-            split: split,
-            paidByFather: split ? document.getElementById('paid-by-father').checked : false,
-            ...commonFields
-        });
-        saveData();
-        closeModal();
-        pendingAttachment = null;
-        updateAll();
-        showToast(`Dividida: Pessoal ${formatCurrency(personalAmount)} · ${child.name} ${formatCurrency(childAmount)}`);
-        return;
-    }
+    // Mix split: stored as ONE expense with mix* fields. Expanded at render
+    // time into Pessoal + child virtuals so reports and totals reflect both
+    // sides. Keeps editing and "Agrupada" working naturally.
+    const mixChildSplitCoParent = mixWithChild && !!document.getElementById('mix-child-split-coparent')?.checked;
+    const mixChildPaidByFather = mixChildSplitCoParent && !!document.getElementById('mix-child-paid-by-father')?.checked;
 
     const expense = {
         id: id || generateId(),
@@ -4442,6 +4481,11 @@ function saveExpense(event) {
         splitSpouse,
         spousePaid,
         splits,
+        // Mix split between Pessoal and a single child
+        mixChildId: mixWithChild && mixChildId && mixChildPct > 0 && mixChildPct < 100 ? mixChildId : null,
+        mixChildPct: mixWithChild && mixChildPct > 0 && mixChildPct < 100 ? mixChildPct : null,
+        mixChildSplitCoParent,
+        mixChildPaidByFather,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
