@@ -52,6 +52,9 @@
             </button>
         </nav>
 
+        <!-- Global hidden file input for PDF statement import (used from multiple places) -->
+        <input type="file" id="ai-pdf-input-global" accept="application/pdf" style="display:none" onchange="handlePdfSelected(event)">
+
         <!-- Dashboard Tab -->
         <section id="tab-dashboard" class="tab-content active">
             <div class="month-selector">
@@ -248,6 +251,11 @@
 
             <!-- Quick Add Bar -->
             <div id="quick-add-bar" style="display:none"></div>
+
+            <!-- Import bank-statement PDF shortcut -->
+            <button onclick="document.getElementById('ai-pdf-input-global').click()" style="width:100%;margin-bottom:12px;padding:12px 14px;background:linear-gradient(135deg,#6C5CE7,#8b5cf6);color:white;border:none;border-radius:14px;cursor:pointer;font-family:var(--font);font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(108,92,231,0.3)">
+                <i class="fas fa-file-pdf"></i> Importar extrato PDF
+            </button>
 
             <!-- Pending AI Expenses -->
             <div id="pending-expenses-section" style="display:none;background:linear-gradient(135deg,#f3efff,#ede7f6);border:1.5px solid rgba(108,92,231,0.25);border-radius:20px;padding:16px;margin-bottom:14px">
@@ -878,6 +886,12 @@
                         <label>Google Client ID <a href="https://console.cloud.google.com/" target="_blank" style="font-size:0.75rem;color:var(--primary)">(Google Cloud Console)</a></label>
                         <input type="text" id="ai-google-client-id" placeholder="xxxxx.apps.googleusercontent.com" autocomplete="off">
                         <small class="field-hint">Crie um projeto no Google Cloud, ative a Gmail API e crie credenciais OAuth2 (Aplicacao Web). Adicione https://nelsonsous.github.io como origem autorizada.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Contactos próprios a ignorar</label>
+                        <textarea id="ai-own-contacts" rows="3" placeholder="Um por linha. Ex:&#10;932XXX720&#10;932000720&#10;NELSON SOUSA DIAS&#10;PT50 0045 ..." style="font-family:var(--font);font-size:0.85rem"></textarea>
+                        <small class="field-hint">Transferências MBway/IPS para estes números/nomes/IBANs são consideradas entre contas próprias e ignoradas. Aceita <code>X</code>/<code>*</code> como wildcard (ex: <code>932XXX720</code> apanha <code>932000720</code>).</small>
                     </div>
 
                     <button onclick="saveAiSettings()" class="btn btn-primary btn-block" style="margin-bottom:12px">
