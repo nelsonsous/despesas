@@ -611,10 +611,23 @@ function checkAutoSync() {
 }
 
 // ===== PDF BANK STATEMENT SYNC =====
+async function waitForPdfLib(timeoutMs = 8000) {
+    const start = Date.now();
+    while (!window.pdfjsLib && Date.now() - start < timeoutMs) {
+        await new Promise(r => setTimeout(r, 200));
+    }
+    if (!window.pdfjsLib) throw new Error('Biblioteca PDF não carregou. Verifica ligação à internet e tenta de novo.');
+}
+
 async function extractPdfText(file) {
-    if (!window.pdfjsLib) throw new Error('Biblioteca PDF ainda a carregar. Tenta daqui a 5s.');
+    await waitForPdfLib();
     const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let pdf;
+    try {
+        pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    } catch (e) {
+        throw new Error('Não consegui abrir o PDF: ' + (e.message || e));
+    }
     const chunks = [];
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -734,8 +747,10 @@ async function handlePdfSelected(event) {
         showToast(`${newItems.length} despesas para aprovar!`);
         renderPendingExpenses();
     } catch (e) {
-        setStatus('⚠ ' + (e.message || e));
-        showToast('Erro: ' + String(e.message || e).slice(0, 60));
+        console.error('PDF sync error', e);
+        const msg = e.message || String(e);
+        setStatus('⚠ ' + msg);
+        showToast('Erro: ' + msg.slice(0, 80));
     }
 }
 
