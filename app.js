@@ -109,7 +109,7 @@ let pendingExpenses = [];
 const PENDING_KEY = 'vanessa_pending_ai';
 const AI_CFG_KEY = 'vanessa_ai_cfg';
 
-let aiCfg = { geminiKey: '', googleClientId: '', autoSync: false, lastSyncDate: null };
+let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null };
 let _googleTokenClient = null;
 let _googleAccessToken = null;
 
@@ -122,8 +122,14 @@ function loadAiData() {
 
 function saveAiSettings() {
     const key = document.getElementById('ai-gemini-key')?.value.trim();
+    const grokKey = document.getElementById('ai-grok-key')?.value.trim();
+    const grokModel = document.getElementById('ai-grok-model')?.value.trim();
+    const provider = document.querySelector('input[name="ai-provider"]:checked')?.value;
     const cid = document.getElementById('ai-google-client-id')?.value.trim();
     if (key) aiCfg.geminiKey = key;
+    if (grokKey) aiCfg.grokKey = grokKey;
+    if (grokModel) aiCfg.grokModel = grokModel;
+    if (provider) aiCfg.aiProvider = provider;
     if (cid) aiCfg.googleClientId = cid;
     localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
     _googleTokenClient = null; // reset so it re-initializes with new client ID
@@ -138,11 +144,21 @@ function toggleAutoSync() {
 
 function renderAiSettingsUI() {
     const keyEl = document.getElementById('ai-gemini-key');
+    const grokKeyEl = document.getElementById('ai-grok-key');
+    const grokModelEl = document.getElementById('ai-grok-model');
     const cidEl = document.getElementById('ai-google-client-id');
     const autoEl = document.getElementById('ai-auto-sync');
     const fromEl = document.getElementById('ai-sync-from');
     const toEl = document.getElementById('ai-sync-to');
     if (keyEl && aiCfg.geminiKey) keyEl.value = aiCfg.geminiKey;
+    if (grokKeyEl && aiCfg.grokKey) grokKeyEl.value = aiCfg.grokKey;
+    if (grokModelEl) grokModelEl.value = aiCfg.grokModel || 'grok-4-fast';
+    const providerEl = document.querySelector(`input[name="ai-provider"][value="${aiCfg.aiProvider || 'gemini'}"]`);
+    if (providerEl) providerEl.checked = true;
+    const geminiBlock = document.getElementById('ai-gemini-block');
+    const grokBlock = document.getElementById('ai-grok-block');
+    if (geminiBlock) geminiBlock.style.display = (aiCfg.aiProvider === 'grok') ? 'none' : '';
+    if (grokBlock) grokBlock.style.display = (aiCfg.aiProvider === 'grok') ? '' : 'none';
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
     if (autoEl) autoEl.checked = aiCfg.autoSync;
     const today = new Date().toISOString().slice(0, 10);
@@ -305,12 +321,33 @@ async function callGeminiOnce(prompt) {
     throw new Error(lastErr || 'Erro Gemini');
 }
 
-async function callGemini(emailTexts) {
-    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
-    if (!emailTexts.length) return [];
+// xAI / Grok uses an OpenAI-compatible endpoint. Single call per batch of emails.
+async function callGrokOnce(prompt) {
+    const model = aiCfg.grokModel || 'grok-4-fast';
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + aiCfg.grokKey
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 800
+        })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data?.error?.message || data?.error || res.statusText || 'Erro Grok';
+        if (res.status === 401) throw new Error('Chave Grok inválida (401)');
+        if (res.status === 429) throw new Error('Grok: limite de pedidos atingido. Tenta em breve.');
+        throw new Error('Grok: ' + msg);
+    }
+    return data;
+}
 
-    // ONE single API call for all emails — drastically reduces quota usage
-    const prompt = `Analisa estes emails e extrai APENAS pagamentos/despesas reais a debito (ignora transferencias entre contas proprias, depositos, publicidade, newsletters).
+const EMAIL_EXTRACT_PROMPT = (texts) => `Analisa estes emails e extrai APENAS pagamentos/despesas reais a debito (ignora transferencias entre contas proprias, depositos, publicidade, newsletters).
 
 Responde UNICAMENTE com JSON array (sem texto extra):
 [{"id":"ID_DO_EMAIL","description":"descricao curta","amount":12.50,"date":"YYYY-MM-DD","category":"alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros"}]
@@ -318,14 +355,31 @@ Responde UNICAMENTE com JSON array (sem texto extra):
 Se um email nao tiver despesa, omite-o do array. Se nao houver nenhuma, responde [].
 
 EMAILS:
-${emailTexts.join('\n===\n')}`;
+${texts.join('\n===\n')}`;
 
-    const data = await callGeminiOnce(prompt);
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    const m = text.match(/\[[\s\S]*?\]/);
+function extractJsonArray(text) {
+    const m = (text || '').match(/\[[\s\S]*?\]/);
     if (!m) return [];
     try { return JSON.parse(m[0]); } catch { return []; }
 }
+
+// Dispatcher: routes to whichever provider is configured.
+async function callAI(emailTexts) {
+    if (!emailTexts.length) return [];
+    const provider = aiCfg.aiProvider || 'gemini';
+    const prompt = EMAIL_EXTRACT_PROMPT(emailTexts);
+    if (provider === 'grok') {
+        if (!aiCfg.grokKey) throw new Error('Chave Grok nao configurada');
+        const data = await callGrokOnce(prompt);
+        return extractJsonArray(data.choices?.[0]?.message?.content);
+    }
+    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
+    const data = await callGeminiOnce(prompt);
+    return extractJsonArray(data.candidates?.[0]?.content?.parts?.[0]?.text);
+}
+
+// Kept as an alias for any older callers.
+const callGemini = callAI;
 
 async function runSync(fromDate, toDate) {
     const btn = document.getElementById('ai-sync-btn');
@@ -349,9 +403,10 @@ async function runSync(fromDate, toDate) {
             localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
             return;
         }
-        setStatus(`A analisar ${msgs.length} email(s) — 1 pedido Gemini...`);
+        const providerLabel = (aiCfg.aiProvider === 'grok') ? 'Grok' : 'Gemini';
+        setStatus(`A analisar ${msgs.length} email(s) — 1 pedido ${providerLabel}...`);
         const texts = msgs.map(emailToText);
-        const extracted = await callGemini(texts);
+        const extracted = await callAI(texts);
 
         // Mark these email IDs as seen (so we never re-analyse them)
         const seenIds = new Set(aiCfg.analyzedEmailIds || []);
@@ -407,7 +462,8 @@ function clearAnalyzedEmailCache() {
 }
 
 function checkAutoSync() {
-    if (!aiCfg.autoSync || !aiCfg.geminiKey) return;
+    const hasKey = (aiCfg.aiProvider === 'grok') ? !!aiCfg.grokKey : !!aiCfg.geminiKey;
+    if (!aiCfg.autoSync || !hasKey) return;
     const today = new Date().toISOString().slice(0, 10);
     if (aiCfg.lastSyncDate === today) return;
     const from = aiCfg.lastSyncDate ? new Date(aiCfg.lastSyncDate) : new Date(Date.now() - 86400000);
