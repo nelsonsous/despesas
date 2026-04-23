@@ -3949,8 +3949,30 @@ function showAddExpense() {
     if (list) list.innerHTML = '';
     toggleSplitWithOther();
     populateSplitWithNamesList();
+    // Reset mix-with-child state (defaults to hidden; setupTypeToggle shows when type=personal)
+    const mixCb = document.getElementById('mix-with-child');
+    if (mixCb) mixCb.checked = false;
+    toggleMixWithChild();
+    const mixGrp = document.getElementById('mix-personal-child-group');
+    if (mixGrp) mixGrp.style.display = children.length >= 1 ? 'block' : 'none';
+    if (children.length >= 1) populateMixChildSelect();
     document.getElementById('expense-is-grouped').checked = false;
     document.getElementById('modal-add').classList.add('active');
+}
+
+function toggleMixWithChild() {
+    const cb = document.getElementById('mix-with-child');
+    const fields = document.getElementById('mix-with-child-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+    if (cb?.checked) populateMixChildSelect();
+}
+
+function populateMixChildSelect() {
+    const sel = document.getElementById('mix-child-id');
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    if (currentVal && children.some(c => c.id === currentVal)) sel.value = currentVal;
 }
 
 function toggleSplitWithOther() {
@@ -4276,6 +4298,11 @@ function editExpense(id) {
     // Multi-person split (with legacy migration)
     populateSplitWithNamesList();
     populateSplitsUI(e);
+    // Hide mix-with-child on edit — only available for new expenses
+    const mixCb = document.getElementById('mix-with-child');
+    if (mixCb) mixCb.checked = false;
+    const mixGrp = document.getElementById('mix-personal-child-group');
+    if (mixGrp) mixGrp.style.display = 'none';
 
     pendingAttachment = e.attachment || null;
     renderAttachmentPreview('attachment-preview', pendingAttachment);
@@ -4342,10 +4369,66 @@ function saveExpense(event) {
     const spousePaid = splitSpouse && document.getElementById('spouse-paid')?.checked;
     const splitWithOther = document.getElementById('split-with-other')?.checked;
     const splits = splitWithOther ? collectSplitsFromModal() : [];
+    // Pessoal + single-child split (e.g. "100€ · 30% Laura, 70% Pessoal")
+    const mixWithChild = type === 'personal'
+        && !splitAcross
+        && children.length > 0
+        && document.getElementById('mix-with-child')?.checked;
+    const mixChildId = mixWithChild ? document.getElementById('mix-child-id')?.value : null;
+    const mixChildPct = mixWithChild ? (parseFloat(document.getElementById('mix-child-pct')?.value) || 0) : 0;
     const isGrouped = document.getElementById('expense-is-grouped')?.checked || false;
     const amount = parseFloat(document.getElementById('expense-amount').value);
     const dateVal = document.getElementById('expense-date').value;
     const notesVal = document.getElementById('expense-notes').value.trim();
+
+    // Mix split: create two linked expenses (personal + one child with X%).
+    // Editing the original mixed pair is not supported — user would need to
+    // delete both and re-create. To keep things simple for MVP this branch
+    // only handles creation.
+    if (mixWithChild && mixChildId && mixChildPct > 0 && mixChildPct < 100) {
+        if (id) { showToast('Não é possível converter uma despesa existente em mista. Apague e crie nova.'); return; }
+        const child = children.find(c => c.id === mixChildId);
+        const childAmount = Math.round(amount * (mixChildPct / 100) * 100) / 100;
+        const personalAmount = Math.round((amount - childAmount) * 100) / 100;
+        const groupId = generateId();
+        const now = new Date().toISOString();
+        const baseDesc = document.getElementById('expense-desc').value.trim();
+        const commonFields = {
+            date: dateVal,
+            category: document.getElementById('expense-category').value,
+            essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
+            notes: notesVal,
+            withPeople,
+            attachment: pendingAttachment || null,
+            mixedGroupId: groupId,
+            createdAt: now,
+            updatedAt: now
+        };
+        expenses.push({
+            id: generateId(),
+            description: `${baseDesc} (Pessoal ${100 - mixChildPct}%)`,
+            amount: personalAmount,
+            type: 'personal',
+            split: false,
+            paidByFather: false,
+            ...commonFields
+        });
+        expenses.push({
+            id: generateId(),
+            description: `${baseDesc} (${child.name} ${mixChildPct}%)`,
+            amount: childAmount,
+            type: mixChildId,
+            split: split,
+            paidByFather: split ? document.getElementById('paid-by-father').checked : false,
+            ...commonFields
+        });
+        saveData();
+        closeModal();
+        pendingAttachment = null;
+        updateAll();
+        showToast(`Dividida: Pessoal ${formatCurrency(personalAmount)} · ${child.name} ${formatCurrency(childAmount)}`);
+        return;
+    }
 
     const expense = {
         id: id || generateId(),
@@ -4557,6 +4640,12 @@ function setupTypeToggle() {
             if (splitGrp) {
                 splitGrp.style.display = (isPersonal && children.length >= 2) ? 'block' : 'none';
                 if (isPersonal && children.length >= 2) renderSplitAcrossChildrenList('split-across-children');
+            }
+            // Mix Pessoal + single child group (only when personal + at least one child)
+            const mixGrp = document.getElementById('mix-personal-child-group');
+            if (mixGrp) {
+                mixGrp.style.display = (isPersonal && children.length >= 1) ? 'block' : 'none';
+                if (isPersonal && children.length >= 1) populateMixChildSelect();
             }
             // Update co-parent labels
             const splitLabel = document.getElementById('split-coparent-label');

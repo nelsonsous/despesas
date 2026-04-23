@@ -514,6 +514,16 @@
                         <label><input type="checkbox" id="split-across-children"> Dividir por filhos (pessoal ou por filho)</label>
                         <div id="split-across-children-list" style="display:none;margin-top:6px;padding:6px;border:1px solid var(--border);border-radius:6px"></div>
                     </div>
+                    <div class="form-group" id="mix-personal-child-group" style="display:none">
+                        <label><input type="checkbox" id="mix-with-child" onchange="toggleMixWithChild()"> Dividir entre Pessoal e um filho</label>
+                        <div id="mix-with-child-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <label style="font-size:0.78rem;margin-top:0">Filho(a)</label>
+                            <select id="mix-child-id"></select>
+                            <label style="font-size:0.78rem;margin-top:8px">% para o/a filho(a)</label>
+                            <input type="number" id="mix-child-pct" min="1" max="99" value="50">
+                            <small class="field-hint">Exemplo: despesa de 100 €, 30% para Laura → 30 € entra como despesa da Laura (pode ser dividida com o co-progenitor), 70 € em Pessoal.</small>
+                        </div>
+                    </div>
                     <div class="form-group show-when-married" id="spouse-split-group" style="display:none">
                         <label><input type="checkbox" id="split-with-spouse"> Dividir com <span id="spouse-name-label">conjuge</span></label>
                         <div id="spouse-paid-row" style="display:none;margin-top:6px">
