@@ -542,6 +542,21 @@
                         </label>
                     </div>
                     <div class="form-group">
+                        <label><input type="checkbox" id="split-with-other" onchange="toggleSplitWithOther()"> Dividir com alguém</label>
+                        <div id="split-with-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <label style="font-size:0.78rem;margin-top:0">Nome</label>
+                            <input type="text" id="split-with-name" placeholder="Ex: João" list="split-with-names-list">
+                            <datalist id="split-with-names-list"></datalist>
+                            <label style="font-size:0.78rem;margin-top:8px">% que a outra pessoa paga</label>
+                            <input type="number" id="split-with-pct" min="1" max="99" value="50" placeholder="50">
+                            <label style="margin-top:8px;display:flex;align-items:center;gap:8px;cursor:pointer">
+                                <input type="checkbox" id="split-with-received">
+                                <span style="font-size:0.88rem">Já recebi a parte dela/dele</span>
+                            </label>
+                            <small class="field-hint">Antes de receber, a despesa conta pelo valor total. Quando marcares "Já recebi", passa a contar só a tua parte.</small>
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label>Essencial?</label>
                         <div class="radio-group">
                             <label class="radio-label">
