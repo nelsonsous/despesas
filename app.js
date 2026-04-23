@@ -430,6 +430,25 @@ function callGroqOnce(prompt) {
     return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt);
 }
 
+const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
+- supermercado: Auchan, Mercadona, Lidl, Continente, Pingo Doce, Intermarché, Aldi, Minipreço, Jumbo
+- restaurantes: McDonalds, Burger King, KFC, Starbucks, Pizza Hut, Uber Eats, Glovo, BOLT Food, restaurantes locais
+- alimentacao: talhos, padarias, mercearias
+- transportes: Carris, Metro, CP, Comboios, Uber, Bolt, Cabify, Via Verde, Ascendi, parques de estacionamento
+- combustivel: Galp, BP, Repsol, Cepsa, Prio, Intermarché combustível
+- saude: hospitais, clínicas, análises, dentista, fisioterapia, Luz Saúde, Lusíadas
+- farmacia: Farmácia, Wells, Holon
+- educacao: colégios, universidades, cursos, livros, material escolar
+- roupa: Zara, H&M, Mango, Primark, Nike, Adidas, Pull&Bear, Bershka, Decathlon (para roupa)
+- casa: prestação casa, hipoteca, renda, manutenção habitação, IKEA, bricomarché
+- contas: EDP, Galp Gás, Águas, IMI, seguros (Fidelidade, Tranquilidade, Ageas, Allianz, Zurich), manutenção conta bancária, impostos
+- telecomunicacoes: Vodafone, NOS, MEO, Altice, Nowo, internet, telefone
+- lazer: cinemas, teatros, concertos, eventos, jogos, ginásios
+- beleza: cabeleireiros, estética, cosmética, Sephora
+- subscricoes: Netflix, Spotify, Apple (iCloud/Music), Amazon Prime, HBO, Disney+, YouTube Premium, ChatGPT, jornais digitais
+- presentes: (quando claramente identificável como presente)
+- outros: tudo o resto (incluindo transferências MBway/IPS para pessoas sem contexto claro)`;
+
 const EMAIL_EXTRACT_PROMPT = (texts) => `Extrai despesas/pagamentos destes emails. Inclui:
 - Débitos em conta (bancos, MB Way, SEPA)
 - Faturas emitidas a pagar (EDP, Galp, Vodafone, NOS, MEO, seguros, rendas, ginásios, etc.) — conta a despesa quando a fatura chega, mesmo que ainda não tenha sido debitada
@@ -442,8 +461,10 @@ Para cada despesa devolve:
 - description: empresa/serviço curto (ex: "EDP", "Netflix", "Continente")
 - amount: valor em euros (numero, ex 42.15)
 - date: data de débito se mencionada, ou data de vencimento, ou data da fatura (YYYY-MM-DD)
-- category: alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros
+- category: (ver lista abaixo)
 - id: usa o valor após "ID:" no email
+
+${CATEGORY_HINTS_BLOCK}
 
 Responde APENAS com um JSON array (sem texto antes/depois, sem markdown).
 Se um email não tem despesa, omite-o. Se nenhum tem, responde [].
@@ -690,7 +711,9 @@ Para cada despesa devolve:
 - description: curta e clara (ver exemplos acima)
 - amount: valor em euros (número POSITIVO sempre, ex: 612.36)
 - date: YYYY-MM-DD
-- category: alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros
+- category: (ver lista abaixo)
+
+${CATEGORY_HINTS_BLOCK}
 
 Responde APENAS com um JSON array (sem markdown, sem texto antes/depois, sem backticks).
 Se nenhum movimento for despesa, responde [].
@@ -764,19 +787,71 @@ function renderPendingExpenses() {
     section.style.display = 'block';
     const cats = getEffectiveCategories();
     const confColor = c => c === 'high' ? 'var(--success)' : c === 'medium' ? '#FF8F00' : 'var(--danger)';
-    list.innerHTML = pendingExpenses.map(e => {
+
+    // Group by category so similar items (all supermarket, all telco) show together
+    const groups = {};
+    pendingExpenses.forEach(e => {
+        const key = e.category || 'outros';
+        (groups[key] = groups[key] || []).push(e);
+    });
+    const groupOrder = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
+
+    const renderItem = (e) => {
         const cat = cats[e.category] || cats.outros;
-        return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
-            <div style="width:32px;height:32px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0"><i class="fas ${cat.icon}"></i></div>
+        return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+            <div style="width:30px;height:30px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0;font-size:0.8rem"><i class="fas ${cat.icon}"></i></div>
             <div style="flex:1;min-width:0">
                 <div style="font-size:0.83rem;font-weight:600">${e.description}${e.merchant && e.merchant !== e.description ? ` <span style="font-weight:400;color:var(--text-light);font-size:0.75rem">(${e.merchant})</span>` : ''}</div>
-                <div style="font-size:0.72rem;color:var(--text-light)">${e.date} &middot; ${cat.label} &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} confianca</span></div>
+                <div style="font-size:0.7rem;color:var(--text-light)">${e.date}${e.confidence ? ` &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} conf.</span>` : ''}</div>
             </div>
-            <div style="font-size:0.88rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
-            <button onclick="approvePending('${e.id}')" style="background:var(--success);color:white;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;flex-shrink:0"><i class="fas fa-check"></i></button>
-            <button onclick="dismissPending('${e.id}')" style="background:#F5F5F5;color:#999;border:none;border-radius:8px;padding:6px 10px;cursor:pointer;flex-shrink:0"><i class="fas fa-times"></i></button>
+            <div style="font-size:0.85rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
+            <button onclick="approvePendingAsFixed('${e.id}')" title="Adicionar como despesa fixa" style="background:#EDE7F6;color:var(--primary);border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-rotate"></i></button>
+            <button onclick="approvePending('${e.id}')" title="Aprovar como despesa única" style="background:var(--success);color:white;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-check"></i></button>
+            <button onclick="dismissPending('${e.id}')" title="Descartar" style="background:#F5F5F5;color:#999;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-times"></i></button>
+        </div>`;
+    };
+
+    list.innerHTML = groupOrder.map(catKey => {
+        const cat = cats[catKey] || cats.outros;
+        const items = groups[catKey];
+        const total = items.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+        return `<div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:0 4px">
+                <span style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px"><i class="fas ${cat.icon}" style="color:var(--primary);margin-right:4px"></i> ${cat.label} · ${items.length}</span>
+                <span style="font-size:0.75rem;color:var(--text-light);font-weight:600">-${formatCurrency(total)}</span>
+            </div>
+            ${items.map(renderItem).join('')}
         </div>`;
     }).join('');
+}
+
+// Opens the fixed-expense modal pre-filled from a pending item. When saved,
+// removes the item from the pending list so it doesn't also appear as a
+// one-off expense.
+function approvePendingAsFixed(id) {
+    const e = pendingExpenses.find(x => x.id === id);
+    if (!e) return;
+    const d = new Date(e.date);
+    const day = isNaN(d) ? 1 : d.getDate();
+    const monthKey = isNaN(d)
+        ? (new Date()).toISOString().slice(0, 7)
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    populateCategorySelects();
+    populateFixedTypeOptions();
+    document.getElementById('fixed-modal-title').textContent = 'Nova Despesa Fixa';
+    document.getElementById('fixed-id').value = '';
+    document.getElementById('fixed-form').reset();
+    document.getElementById('fixed-desc').value = e.description || '';
+    document.getElementById('fixed-amount').value = parseFloat(e.amount).toFixed(2);
+    document.getElementById('fixed-day').value = day;
+    document.getElementById('fixed-start').value = monthKey;
+    const catSel = document.getElementById('fixed-category');
+    if (catSel) catSel.value = e.category || 'outros';
+    const splitGroup = document.getElementById('fixed-split-group');
+    if (splitGroup) splitGroup.style.display = 'none';
+    // Stash the pending id so saveFixed can drop it after persisting
+    window._pendingPromotedToFixed = id;
+    document.getElementById('fixed-modal').classList.add('active');
 }
 
 function approvePending(id) {
@@ -4707,6 +4782,13 @@ function saveFixed(event) {
     saveData();
     closeFixedModal();
     renderFixedList();
+    // If this was promoted from a pending AI-detected expense, drop it from the pending list.
+    if (window._pendingPromotedToFixed) {
+        pendingExpenses = pendingExpenses.filter(x => x.id !== window._pendingPromotedToFixed);
+        localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+        window._pendingPromotedToFixed = null;
+        renderPendingExpenses();
+    }
     updateAll();
 }
 
@@ -4757,7 +4839,11 @@ function confirmDeleteFixed(id) {
     document.getElementById('modal-confirm').classList.add('active');
 }
 
-function closeFixedModal() { document.getElementById('fixed-modal').classList.remove('active'); }
+function closeFixedModal() {
+    document.getElementById('fixed-modal').classList.remove('active');
+    // Drop any pending-promotion marker so a cancel doesn't silently hit the next save.
+    window._pendingPromotedToFixed = null;
+}
 
 // ===== FIXED INCOME MANAGEMENT =====
 function renderFixedIncomeList() {
