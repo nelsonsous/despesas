@@ -2369,10 +2369,10 @@ function renderExpenses() {
             const fSplits = Array.isArray(f.splits) ? f.splits : [];
             const fPaidArr = getFixedSplitsPaidForMonth(f, currentDate);
             const fixedSplitsBadge = fSplits.length
-                ? fSplits.slice(0, 3).map((s, i) => {
+                ? fSplits.map((s, i) => {
                     const paid = !!fPaidArr[i];
-                    return `<button onclick="event.stopPropagation();toggleFixedSplitPaid('${f.id}', currentDate, ${i})" class="fixed-status-badge ${paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem;margin-left:4px" title="${s.name}: ${formatCurrency(s.amount)}">${paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`;
-                }).join('') + (fSplits.length > 3 ? `<span class="fixed-status-badge status-pendente" style="font-size:0.65rem;margin-left:4px">+${fSplits.length - 3}</span>` : '')
+                    return `<button onclick="event.stopPropagation();toggleFixedSplitPaid('${f.id}', currentDate, ${i})" class="fixed-status-badge ${paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem" title="${s.name}: ${formatCurrency(s.amount)}">${paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`;
+                }).join('')
                 : '';
             const totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
             const gross = st?.amount || f.amount;
@@ -2382,8 +2382,9 @@ function renderExpenses() {
             const varBadge = f.isVariable ? `<span style="font-size:0.65rem;color:var(--primary);font-weight:600;background:#EDE7F6;padding:1px 5px;border-radius:4px">~</span>` : '';
             const varEdit = f.isVariable ? `<button onclick="event.stopPropagation();editFixedAmount('${f.id}', currentDate)" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
 
+            const hasExtraBadges = !!splitBadge || !!fixedSplitsBadge;
             return `
-                <div class="fixed-month-item" style="${isPaid ? 'opacity:0.85' : ''}">
+                <div class="fixed-month-item" style="${isPaid ? 'opacity:0.85;' : ''}flex-wrap:wrap">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'};flex-shrink:0">
                         <i class="fas ${cat.icon}"></i>
                     </div>
@@ -2404,8 +2405,7 @@ function renderExpenses() {
                     <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px;margin-left:2px" title="Ignorar este mês">
                         <i class="fas fa-ban"></i>
                     </button>
-                    ${splitBadge}
-                    ${fixedSplitsBadge}
+                    ${hasExtraBadges ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}</div>` : ''}
                 </div>
             `;
         }
