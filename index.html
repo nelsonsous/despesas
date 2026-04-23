@@ -14,6 +14,12 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+        }
+    </script>
 </head>
 <body>
     <div id="app">
@@ -926,6 +932,16 @@
                     <button onclick="clearAnalyzedEmailCache()" style="width:100%;margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:10px;background:none;font-size:0.75rem;color:var(--text-muted);cursor:pointer;font-family:var(--font)">
                         <i class="fas fa-rotate"></i> Forçar reanálise (limpar cache de emails vistos)
                     </button>
+
+                    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+                        <div style="font-size:0.9rem;font-weight:700;margin-bottom:6px"><i class="fas fa-file-pdf" style="color:var(--primary)"></i> Extrato bancário (PDF)</div>
+                        <p class="settings-desc" style="margin-bottom:10px">Carrega o extrato descarregado do homebanking. A IA extrai os débitos e adiciona-os à lista de "Despesas detetadas pela IA".</p>
+                        <input type="file" id="ai-pdf-input" accept="application/pdf" style="display:none" onchange="handlePdfSelected(event)">
+                        <button onclick="document.getElementById('ai-pdf-input').click()" class="btn btn-secondary btn-block">
+                            <i class="fas fa-file-import"></i> Escolher PDF do extrato
+                        </button>
+                        <div id="ai-pdf-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px;line-height:1.4"></div>
+                    </div>
                 </div>
             </div>
         </div>
