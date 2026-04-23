@@ -277,24 +277,52 @@ async function fetchGmailForPeriod(from, to) {
     return msgs;
 }
 
-function decodeEmailBody(payload) {
-    if (payload.body?.data) {
-        try { return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; }
-    }
+// Base64url → string. Gmail wraps lines; atob handles that fine.
+function decodeBase64Url(data) {
+    try { return atob(data.replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; }
+}
+
+// Walks all parts and collects text. Returns the text/plain variant when available —
+// HTML parts from rich senders (EDP, telco) are mostly CSS/markup and drown out the
+// real content when we only look at the first 900 chars.
+function findPartByMime(payload, mime) {
+    if (!payload) return null;
+    if (payload.mimeType === mime && payload.body?.data) return payload;
     if (payload.parts) {
         for (const p of payload.parts) {
-            const t = decodeEmailBody(p);
-            if (t) return t;
+            const found = findPartByMime(p, mime);
+            if (found) return found;
         }
     }
+    return null;
+}
+
+function decodeEmailBody(payload) {
+    const plain = findPartByMime(payload, 'text/plain');
+    if (plain) return decodeBase64Url(plain.body.data);
+    const html = findPartByMime(payload, 'text/html');
+    if (html) return decodeBase64Url(html.body.data);
+    if (payload?.body?.data) return decodeBase64Url(payload.body.data);
     return '';
 }
 
 function emailToText(msg) {
     const headers = msg.payload?.headers || [];
     const get = n => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
-    // Larger body snippet so invoice amounts further in the email are visible to the LLM.
-    const body = decodeEmailBody(msg.payload || {}).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 900);
+    // Strip style/script contents (not just tags) before removing the remaining tags —
+    // otherwise inline CSS fills the first 900 chars of HTML-only emails.
+    let body = decodeEmailBody(msg.payload || {})
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&euro;/g, '€')
+        .replace(/&#8364;/g, '€')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 1200);
     return `ID:${msg.id}\nAssunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
 }
 
