@@ -633,7 +633,7 @@ function renderSalaryCycle() {
     const hasProjection = b.expPaidVariable > 0 && daysLeft > 0;
     const hasTop = !!topCat;
     if (footer) {
-        footer.classList.toggle('is-visible', hasProjection || hasTop);
+        footer.style.display = (hasProjection || hasTop) ? 'flex' : 'none';
     }
     if (hasProjection) {
         const projEl = document.getElementById('salary-projection');
