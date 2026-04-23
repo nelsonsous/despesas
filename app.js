@@ -109,7 +109,7 @@ let pendingExpenses = [];
 const PENDING_KEY = 'vanessa_pending_ai';
 const AI_CFG_KEY = 'vanessa_ai_cfg';
 
-let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null };
+let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null };
 let _googleTokenClient = null;
 let _googleAccessToken = null;
 
@@ -124,11 +124,15 @@ function saveAiSettings() {
     const key = document.getElementById('ai-gemini-key')?.value.trim();
     const grokKey = document.getElementById('ai-grok-key')?.value.trim();
     const grokModel = document.getElementById('ai-grok-model')?.value.trim();
+    const groqKey = document.getElementById('ai-groq-key')?.value.trim();
+    const groqModel = document.getElementById('ai-groq-model')?.value.trim();
     const provider = document.querySelector('input[name="ai-provider"]:checked')?.value;
     const cid = document.getElementById('ai-google-client-id')?.value.trim();
     if (key) aiCfg.geminiKey = key;
     if (grokKey) aiCfg.grokKey = grokKey;
     if (grokModel) aiCfg.grokModel = grokModel;
+    if (groqKey) aiCfg.groqKey = groqKey;
+    if (groqModel) aiCfg.groqModel = groqModel;
     if (provider) aiCfg.aiProvider = provider;
     if (cid) aiCfg.googleClientId = cid;
     localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
@@ -146,6 +150,8 @@ function renderAiSettingsUI() {
     const keyEl = document.getElementById('ai-gemini-key');
     const grokKeyEl = document.getElementById('ai-grok-key');
     const grokModelEl = document.getElementById('ai-grok-model');
+    const groqKeyEl = document.getElementById('ai-groq-key');
+    const groqModelEl = document.getElementById('ai-groq-model');
     const cidEl = document.getElementById('ai-google-client-id');
     const autoEl = document.getElementById('ai-auto-sync');
     const fromEl = document.getElementById('ai-sync-from');
@@ -153,11 +159,13 @@ function renderAiSettingsUI() {
     if (keyEl && aiCfg.geminiKey) keyEl.value = aiCfg.geminiKey;
     if (grokKeyEl && aiCfg.grokKey) grokKeyEl.value = aiCfg.grokKey;
     if (grokModelEl) grokModelEl.value = aiCfg.grokModel || 'grok-4-fast';
+    if (groqKeyEl && aiCfg.groqKey) groqKeyEl.value = aiCfg.groqKey;
+    if (groqModelEl) groqModelEl.value = aiCfg.groqModel || 'llama-3.3-70b-versatile';
     const providerEl = document.querySelector(`input[name="ai-provider"][value="${aiCfg.aiProvider || 'gemini'}"]`);
     if (providerEl) providerEl.checked = true;
     // Toggle provider-specific blocks. If the wrapper IDs aren't in the DOM
     // (stale HTML cache), fall back to walking up from the known input IDs.
-    const isGrok = aiCfg.aiProvider === 'grok';
+    const provider = aiCfg.aiProvider || 'gemini';
     const showBlock = (blockId, inputId, visible) => {
         const byId = document.getElementById(blockId);
         if (byId) { byId.style.display = visible ? '' : 'none'; return; }
@@ -165,8 +173,9 @@ function renderAiSettingsUI() {
         const group = input?.closest('.form-group');
         if (group) group.style.display = visible ? '' : 'none';
     };
-    showBlock('ai-gemini-block', 'ai-gemini-key', !isGrok);
-    showBlock('ai-grok-block', 'ai-grok-key', isGrok);
+    showBlock('ai-gemini-block', 'ai-gemini-key', provider === 'gemini');
+    showBlock('ai-grok-block', 'ai-grok-key', provider === 'grok');
+    showBlock('ai-groq-block', 'ai-groq-key', provider === 'groq');
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
     if (autoEl) autoEl.checked = aiCfg.autoSync;
     const today = new Date().toISOString().slice(0, 10);
@@ -329,14 +338,14 @@ async function callGeminiOnce(prompt) {
     throw new Error(lastErr || 'Erro Gemini');
 }
 
-// xAI / Grok uses an OpenAI-compatible endpoint. Single call per batch of emails.
-async function callGrokOnce(prompt) {
-    const model = aiCfg.grokModel || 'grok-4-fast';
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+// Generic call for OpenAI-compatible providers (xAI/Grok, Groq).
+// Returns the parsed response body or throws with a provider-prefixed message.
+async function callOpenAICompatibleOnce(label, url, key, model, prompt) {
+    const res = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + aiCfg.grokKey
+            'Authorization': 'Bearer ' + key
         },
         body: JSON.stringify({
             model,
@@ -347,12 +356,19 @@ async function callGrokOnce(prompt) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-        const msg = data?.error?.message || data?.error || res.statusText || 'Erro Grok';
-        if (res.status === 401) throw new Error('Chave Grok inválida (401)');
-        if (res.status === 429) throw new Error('Grok: limite de pedidos atingido. Tenta em breve.');
-        throw new Error('Grok: ' + msg);
+        const msg = data?.error?.message || data?.error || res.statusText || `Erro ${label}`;
+        if (res.status === 401) throw new Error(`Chave ${label} inválida (401)`);
+        if (res.status === 429) throw new Error(`${label}: limite de pedidos atingido. Tenta em breve.`);
+        throw new Error(`${label}: ${msg}`);
     }
     return data;
+}
+
+function callGrokOnce(prompt) {
+    return callOpenAICompatibleOnce('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, aiCfg.grokModel || 'grok-4-fast', prompt);
+}
+function callGroqOnce(prompt) {
+    return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt);
 }
 
 const EMAIL_EXTRACT_PROMPT = (texts) => `Analisa estes emails e extrai APENAS pagamentos/despesas reais a debito (ignora transferencias entre contas proprias, depositos, publicidade, newsletters).
@@ -379,6 +395,11 @@ async function callAI(emailTexts) {
     if (provider === 'grok') {
         if (!aiCfg.grokKey) throw new Error('Chave Grok nao configurada');
         const data = await callGrokOnce(prompt);
+        return extractJsonArray(data.choices?.[0]?.message?.content);
+    }
+    if (provider === 'groq') {
+        if (!aiCfg.groqKey) throw new Error('Chave Groq nao configurada');
+        const data = await callGroqOnce(prompt);
         return extractJsonArray(data.choices?.[0]?.message?.content);
     }
     if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
@@ -411,7 +432,7 @@ async function runSync(fromDate, toDate) {
             localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
             return;
         }
-        const providerLabel = (aiCfg.aiProvider === 'grok') ? 'Grok' : 'Gemini';
+        const providerLabel = aiCfg.aiProvider === 'grok' ? 'Grok' : aiCfg.aiProvider === 'groq' ? 'Groq' : 'Gemini';
         setStatus(`A analisar ${msgs.length} email(s) — 1 pedido ${providerLabel}...`);
         const texts = msgs.map(emailToText);
         const extracted = await callAI(texts);
@@ -470,7 +491,9 @@ function clearAnalyzedEmailCache() {
 }
 
 function checkAutoSync() {
-    const hasKey = (aiCfg.aiProvider === 'grok') ? !!aiCfg.grokKey : !!aiCfg.geminiKey;
+    const hasKey = aiCfg.aiProvider === 'grok' ? !!aiCfg.grokKey
+        : aiCfg.aiProvider === 'groq' ? !!aiCfg.groqKey
+        : !!aiCfg.geminiKey;
     if (!aiCfg.autoSync || !hasKey) return;
     const today = new Date().toISOString().slice(0, 10);
     if (aiCfg.lastSyncDate === today) return;
