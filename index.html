@@ -1128,13 +1128,13 @@
                     <div class="form-group">
                         <label><input type="checkbox" id="fixed-split-other" onchange="toggleFixedSplitOther()"> Dividir com alguém</label>
                         <div id="fixed-split-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
-                            <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:8px">A tua parte = valor total − soma destas contribuições:</div>
+                            <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:8px">Quem te paga de volta e quanto (todos os meses):</div>
                             <div id="fixed-splits-list"></div>
                             <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
                                 <button type="button" onclick="addFixedSplitRow()" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-plus"></i> Adicionar pessoa</button>
                                 <button type="button" onclick="fixedDistributeEqually()" title="Divide o valor igualmente entre ti e as pessoas" style="background:#EDE7F6;color:var(--primary);border:none;padding:5px 10px;border-radius:6px;font-size:0.78rem;font-family:var(--font);font-weight:600;cursor:pointer"><i class="fas fa-equals"></i> Dividir igualmente</button>
                             </div>
-                            <small class="field-hint">Aplica-se a todos os meses desta despesa fixa. A parte dos outros é deduzida automaticamente do valor efetivo.</small>
+                            <small class="field-hint">Em cada mês, marcas na lista de despesas quem já te pagou — a despesa desconta a parte dessa pessoa só a partir desse mês.</small>
                         </div>
                     </div>
                     <div class="form-group">
