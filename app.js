@@ -610,6 +610,108 @@ function checkAutoSync() {
     setTimeout(() => runSync(from, to), 3000);
 }
 
+// ===== PDF BANK STATEMENT SYNC =====
+async function extractPdfText(file) {
+    if (!window.pdfjsLib) throw new Error('Biblioteca PDF ainda a carregar. Tenta daqui a 5s.');
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const chunks = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        // Preserve line breaks where text items jump to a new Y position.
+        let prevY = null;
+        const line = [];
+        const out = [];
+        for (const it of content.items) {
+            const y = it.transform?.[5];
+            if (prevY !== null && Math.abs(y - prevY) > 3) {
+                out.push(line.join(' '));
+                line.length = 0;
+            }
+            line.push(it.str);
+            prevY = y;
+        }
+        if (line.length) out.push(line.join(' '));
+        chunks.push(out.join('\n'));
+    }
+    return chunks.join('\n\n');
+}
+
+const PDF_EXTRACT_PROMPT = (text) => `Este é texto extraído de um extrato bancário português. Extrai TODAS as despesas (débitos / saídas de dinheiro) em euros.
+
+REGRAS:
+- INCLUI pagamentos a débito: prestações, seguros, rendas, contas, compras com cartão, MBway/transferências PARA terceiros (pessoas ou empresas), levantamentos ATM, comissões bancárias, subscrições.
+- IGNORA créditos/entradas: salário, reembolsos, transferências recebidas.
+- IGNORA transferências entre contas próprias do utilizador (descrição genérica como "transf. entre contas" ou outras que claramente são internas).
+- IGNORA linhas de saldo/cabeçalho/totais.
+
+Para cada despesa devolve:
+- description: curta e clara em português (ex: "Prestação casa", "Fidelidade seguro", "MBway 932XXX720", "Manutenção conta")
+- amount: valor em euros (número POSITIVO, ex: 612.36)
+- date: data do movimento em YYYY-MM-DD
+- category: alimentacao|transportes|saude|casa|lazer|subscricoes|contas|telecomunicacoes|outros
+
+Responde APENAS com um JSON array (sem markdown, sem texto antes/depois, sem backticks).
+Se nenhum movimento for despesa, responde [].
+
+EXTRATO:
+${text}`;
+
+async function callAIForPdf(text) {
+    const provider = aiCfg.aiProvider || 'gemini';
+    const prompt = PDF_EXTRACT_PROMPT(text);
+    if (provider === 'grok') {
+        if (!aiCfg.grokKey) throw new Error('Chave Grok nao configurada');
+        const data = await callGrokOnce(prompt);
+        return extractJsonArray(data.choices?.[0]?.message?.content);
+    }
+    if (provider === 'groq') {
+        if (!aiCfg.groqKey) throw new Error('Chave Groq nao configurada');
+        const data = await callGroqOnce(prompt);
+        return extractJsonArray(data.choices?.[0]?.message?.content);
+    }
+    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
+    const data = await callGeminiOnce(prompt);
+    return extractJsonArray(data.candidates?.[0]?.content?.parts?.[0]?.text);
+}
+
+async function handlePdfSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = ''; // allow re-selecting same file
+    const status = document.getElementById('ai-pdf-status');
+    const setStatus = t => { if (status) status.textContent = t; };
+    try {
+        setStatus(`A ler ${file.name}...`);
+        const text = await extractPdfText(file);
+        if (!text || text.length < 50) { setStatus('Nao consegui extrair texto do PDF (pode ser uma imagem).'); return; }
+        const providerLabel = aiCfg.aiProvider === 'grok' ? 'Grok' : aiCfg.aiProvider === 'groq' ? 'Groq' : 'Gemini';
+        setStatus(`Texto extraído (${text.length} caracteres). A analisar com ${providerLabel}...`);
+        const extracted = await callAIForPdf(text);
+        if (!extracted.length) { setStatus('Nenhuma despesa detetada no extrato.'); showToast('Sem despesas detetadas'); return; }
+        const newItems = extracted
+            .filter(e => e.amount > 0 && e.date && e.description)
+            .map(e => ({ id: generateId(), ...e, syncedAt: new Date().toISOString(), source: 'pdf' }))
+            // Dedup: against pending AND already-approved expenses with same date+amount+description
+            .filter(e => !pendingExpenses.some(p => p.description === e.description && Math.abs(p.amount - e.amount) < 0.01 && p.date === e.date))
+            .filter(e => !expenses.some(x => Math.abs(x.amount - e.amount) < 0.01 && x.date === e.date && (x.description || '').toLowerCase().slice(0, 10) === (e.description || '').toLowerCase().slice(0, 10)));
+        if (!newItems.length) {
+            setStatus(`${extracted.length} despesa(s) detetada(s) mas todas já existiam.`);
+            showToast('Sem novidades');
+            return;
+        }
+        pendingExpenses = [...pendingExpenses, ...newItems];
+        localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+        setStatus(`✓ ${newItems.length} despesa(s) nova(s) aguardam aprovação (de ${extracted.length} detetadas).`);
+        showToast(`${newItems.length} despesas para aprovar!`);
+        renderPendingExpenses();
+    } catch (e) {
+        setStatus('⚠ ' + (e.message || e));
+        showToast('Erro: ' + String(e.message || e).slice(0, 60));
+    }
+}
+
 function renderPendingExpenses() {
     const section = document.getElementById('pending-expenses-section');
     const list = document.getElementById('pending-expenses-list');
