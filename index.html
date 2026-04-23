@@ -827,23 +827,36 @@
 
                     <div class="form-group">
                         <label>Provedor de IA</label>
-                        <div class="radio-group">
+                        <div class="radio-group" style="flex-wrap:wrap">
                             <label class="radio-label">
                                 <input type="radio" name="ai-provider" value="gemini" checked onchange="saveAiSettings()">
                                 <span>Gemini</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="ai-provider" value="groq" onchange="saveAiSettings()">
+                                <span>Groq (grátis)</span>
                             </label>
                             <label class="radio-label">
                                 <input type="radio" name="ai-provider" value="grok" onchange="saveAiSettings()">
                                 <span>Grok (xAI)</span>
                             </label>
                         </div>
-                        <small class="field-hint">Podes alternar quando quiseres — por exemplo usar Grok quando o Gemini esgotar.</small>
+                        <small class="field-hint">Groq ≠ Grok. Groq é uma plataforma de inferência rápida com tier grátis generoso (Llama 3). Grok é o modelo da xAI (Elon Musk), pago.</small>
                     </div>
 
                     <div id="ai-gemini-block" class="form-group">
                         <label>Chave API Gemini <a href="https://aistudio.google.com/app/apikey" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter gratis)</a></label>
                         <input type="password" id="ai-gemini-key" placeholder="AIza..." autocomplete="off">
                         <small class="field-hint">Gratuita em Google AI Studio. Nao sai do seu dispositivo.</small>
+                    </div>
+
+                    <div id="ai-groq-block" class="form-group" style="display:none">
+                        <label>Chave API Groq <a href="https://console.groq.com/keys" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter grátis)</a></label>
+                        <input type="password" id="ai-groq-key" placeholder="gsk_..." autocomplete="off">
+                        <small class="field-hint">Grátis em <code>console.groq.com</code>. Tier generoso. Endpoint <code>api.groq.com</code>.</small>
+                        <label style="margin-top:10px">Modelo</label>
+                        <input type="text" id="ai-groq-model" placeholder="llama-3.3-70b-versatile" value="llama-3.3-70b-versatile">
+                        <small class="field-hint">Default: <code>llama-3.3-70b-versatile</code> (melhor). Mais rápidos: <code>llama-3.1-8b-instant</code>, <code>gemma2-9b-it</code>.</small>
                     </div>
 
                     <div id="ai-grok-block" class="form-group" style="display:none">
