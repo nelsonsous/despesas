@@ -1223,22 +1223,20 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 /* ===== Settings Modal ===== */
 .modal-full { border-radius: 24px 24px 0 0; }
 .settings-tabs {
-    display: flex;
-    gap: 4px;
-    padding: 4px;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+    padding: 3px;
     background: var(--bg);
     border-radius: 12px;
     margin-bottom: 16px;
-    overflow-x: auto;
-    scrollbar-width: none;
 }
-.settings-tabs::-webkit-scrollbar { display: none; }
 .settings-tab {
-    flex-shrink: 0;
-    padding: 7px 12px;
+    flex-direction: column;
+    padding: 6px 2px;
     border: none;
     border-radius: 8px;
-    font-size: 0.72rem;
+    font-size: 0.6rem;
     font-family: var(--font);
     font-weight: 600;
     cursor: pointer;
@@ -1247,10 +1245,13 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     transition: all 0.2s;
     display: flex;
     align-items: center;
-    gap: 4px;
-    white-space: nowrap;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    text-align: center;
+    line-height: 1.1;
 }
-.settings-tab i { font-size: 0.85rem; }
+.settings-tab i { font-size: 0.9rem; }
 .settings-tab.active {
     background: var(--card-bg);
     color: var(--primary);
