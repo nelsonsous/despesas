@@ -4208,6 +4208,25 @@ function saveProfileName() {
     showToast('Perfil atualizado!');
 }
 
+// Unregister service workers and wipe caches so the next load fetches fresh
+// assets from the network. localStorage (user data) is untouched.
+async function forceAppUpdate() {
+    if (!confirm('Limpar cache e recarregar? Os dados (despesas, receitas, definições) NÃO são apagados.')) return;
+    try {
+        if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+        }
+        if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+        }
+    } catch (e) {
+        console.error('forceAppUpdate failed', e);
+    }
+    window.location.reload();
+}
+
 function applyHouseholdMode() {
     const married = isMarriedMode();
     document.body.classList.toggle('mode-married', married);
