@@ -825,6 +825,15 @@ function renderPendingExpenses() {
     if (!section || !list) return;
     if (!pendingExpenses.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
+    const groupBtn = document.getElementById('pending-group-btn');
+    if (groupBtn) {
+        const clusters = findGroupableClusters();
+        groupBtn.style.display = clusters.length ? '' : 'none';
+        if (clusters.length) {
+            const totalItems = clusters.reduce((s, c) => s + c.items.length, 0);
+            groupBtn.title = `${clusters.length} grupo(s), ${totalItems} itens similares`;
+        }
+    }
     const cats = getEffectiveCategories();
     const confColor = c => c === 'high' ? 'var(--success)' : c === 'medium' ? '#FF8F00' : 'var(--danger)';
 
@@ -920,6 +929,70 @@ function dismissPending(id) {
     pendingExpenses = pendingExpenses.filter(x => x.id !== id);
     localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
     renderPendingExpenses();
+}
+
+// First non-trivial word of a description, lowercased. Used to cluster
+// similar transactions (e.g. all MBway lines) so they can be merged.
+function pendingGroupKey(desc) {
+    if (!desc) return '';
+    const words = desc
+        .replace(/[^A-Za-zÀ-ÿ0-9 ]+/g, ' ')
+        .split(/\s+/)
+        .map(w => w.toLowerCase())
+        .filter(w => w.length >= 3 && !['para', 'com', 'pelo', 'pela', 'transf', 'transferencia', 'transferência', 'trf'].includes(w));
+    return words[0] || desc.trim().toLowerCase();
+}
+
+// Scans current pending items and returns a list of groups of 2+ items that
+// share a normalized description prefix inside the same calendar month.
+function findGroupableClusters() {
+    const clusters = new Map();
+    for (const e of pendingExpenses) {
+        const key = pendingGroupKey(e.description);
+        if (!key || !e.date) continue;
+        const month = e.date.slice(0, 7);
+        const k = `${key}|${month}`;
+        if (!clusters.has(k)) clusters.set(k, { key, month, items: [] });
+        clusters.get(k).items.push(e);
+    }
+    return [...clusters.values()].filter(c => c.items.length >= 2);
+}
+
+// Merges each cluster into a single pending item ("MBway · 5 movimentos — Mar 2026")
+// summing the amounts, keeping the most common category, and tagging it so
+// the list shows it's a roll-up.
+function groupSimilarPending() {
+    const clusters = findGroupableClusters();
+    if (!clusters.length) { showToast('Nada para agrupar'); return; }
+    const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const toRemoveIds = new Set();
+    const merged = [];
+    for (const c of clusters) {
+        const labelBase = (c.items[0].description.match(/^[A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)?/) || [c.key])[0];
+        // Most common category among the items
+        const catCounts = {};
+        c.items.forEach(i => { catCounts[i.category || 'outros'] = (catCounts[i.category || 'outros'] || 0) + 1; });
+        const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0][0];
+        const total = c.items.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        const [y, m] = c.month.split('-').map(Number);
+        // Use the latest date in the cluster so it lands in the same month
+        const latestDate = c.items.map(i => i.date).sort().slice(-1)[0];
+        merged.push({
+            id: generateId(),
+            description: `${labelBase} · ${c.items.length} movimentos — ${monthNames[m - 1]} ${y}`,
+            amount: Math.round(total * 100) / 100,
+            date: latestDate,
+            category: topCat,
+            syncedAt: new Date().toISOString(),
+            source: 'grouped',
+            groupedCount: c.items.length
+        });
+        c.items.forEach(i => toRemoveIds.add(i.id));
+    }
+    pendingExpenses = pendingExpenses.filter(e => !toRemoveIds.has(e.id)).concat(merged);
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+    showToast(`${merged.length} grupo(s) criado(s) (${toRemoveIds.size} → ${merged.length})`);
 }
 
 function approveAllPending() {

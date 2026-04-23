@@ -27,6 +27,7 @@
         <header class="app-header">
             <h1 id="header-title">Despesas</h1>
             <div class="header-actions">
+                <button onclick="document.getElementById('ai-pdf-input-global').click()" class="btn-icon" title="Importar extrato PDF"><i class="fas fa-file-pdf"></i></button>
                 <button onclick="showSettingsModal()" class="btn-icon" title="Definicoes"><i class="fas fa-gear"></i></button>
                 <button onclick="showExportMenu()" class="btn-icon" title="Exportar"><i class="fas fa-file-export"></i></button>
                 <button onclick="showImportDialog()" class="btn-icon" title="Importar"><i class="fas fa-file-import"></i></button>
@@ -252,11 +253,6 @@
             <!-- Quick Add Bar -->
             <div id="quick-add-bar" style="display:none"></div>
 
-            <!-- Import bank-statement PDF shortcut -->
-            <button onclick="document.getElementById('ai-pdf-input-global').click()" style="width:100%;margin-bottom:12px;padding:12px 14px;background:linear-gradient(135deg,#6C5CE7,#8b5cf6);color:white;border:none;border-radius:14px;cursor:pointer;font-family:var(--font);font-size:0.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 14px rgba(108,92,231,0.3)">
-                <i class="fas fa-file-pdf"></i> Importar extrato PDF
-            </button>
-
             <!-- Pending AI Expenses -->
             <div id="pending-expenses-section" style="display:none;background:linear-gradient(135deg,#f3efff,#ede7f6);border:1.5px solid rgba(108,92,231,0.25);border-radius:20px;padding:16px;margin-bottom:14px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -264,7 +260,8 @@
                         <i class="fas fa-robot"></i> Despesas detetadas pela IA
                         <span id="pending-count-badge" style="background:var(--primary);color:white;border-radius:10px;padding:1px 7px;font-size:0.72rem;margin-left:4px"></span>
                     </h3>
-                    <div style="display:flex;gap:6px">
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        <button id="pending-group-btn" onclick="groupSimilarPending()" class="btn btn-sm" style="display:none;background:#EDE7F6;color:var(--primary);font-size:0.75rem;padding:4px 10px"><i class="fas fa-object-group"></i> Agrupar similares</button>
                         <button onclick="approveAllPending()" class="btn btn-sm" style="background:var(--success);color:white;font-size:0.75rem;padding:4px 10px"><i class="fas fa-check-double"></i> Aprovar tudo</button>
                         <button onclick="dismissAllPending()" class="btn btn-sm" style="background:var(--bg);color:var(--text-light);font-size:0.75rem;padding:4px 10px"><i class="fas fa-trash"></i></button>
                     </div>
@@ -890,8 +887,8 @@
 
                     <div class="form-group">
                         <label>Contactos próprios a ignorar</label>
-                        <textarea id="ai-own-contacts" rows="3" placeholder="Um por linha. Ex:&#10;932XXX720&#10;932000720&#10;NELSON SOUSA DIAS&#10;PT50 0045 ..." style="font-family:var(--font);font-size:0.85rem"></textarea>
-                        <small class="field-hint">Transferências MBway/IPS para estes números/nomes/IBANs são consideradas entre contas próprias e ignoradas. Aceita <code>X</code>/<code>*</code> como wildcard (ex: <code>932XXX720</code> apanha <code>932000720</code>).</small>
+                        <textarea id="ai-own-contacts" rows="3" placeholder="Um por linha. Ex:&#10;9XXXXX123&#10;Primeiro Apelido&#10;PT50 0000 0000 0000 0000 0000 0" style="font-family:var(--font);font-size:0.85rem"></textarea>
+                        <small class="field-hint">Transferências MBway/IPS para estes números/nomes/IBANs são consideradas entre contas próprias e ignoradas. Aceita <code>X</code>/<code>*</code> como wildcard (ex: <code>9XXXXX123</code> apanha qualquer número começado por 9 terminado em 123).</small>
                     </div>
 
                     <button onclick="saveAiSettings()" class="btn btn-primary btn-block" style="margin-bottom:12px">
