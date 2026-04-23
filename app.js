@@ -260,11 +260,30 @@ async function fetchGmailForPeriod(from, to) {
         ).then(r => r.json())
     ));
 
-    // Step 3: filter to relevant, unseen emails (max 15 per sync)
+    // Step 3: rank candidates by how "expense-y" their headers look, then take top N.
+    // Without ranking, wide date ranges get swamped by marketing emails that also
+    // contain "fatura"/"débito" in the subject — actual bills get pushed out.
     const getHeader = (msg, name) => (msg.payload?.headers || []).find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+    const scoreCandidate = (msg) => {
+        const subj = getHeader(msg, 'Subject').toLowerCase();
+        const from = getHeader(msg, 'From').toLowerCase();
+        let s = 0;
+        const strong = ['débito', 'debito', 'recibo', 'pagamento', 'fatura', 'factura', 'cobran', 'aviso de pagamento', 'mbway', 'multibanco', 'sepa', 'direct debit', 'compra confirmada', 'order confirmation', 'receipt'];
+        if (strong.some(w => subj.includes(w))) s += 3;
+        if (/\d+[.,]\d{2}/.test(subj)) s += 3; // amount-like pattern in subject
+        if (/€|\beur\b|\bvalor\b|\bmontante\b|\btotal\b/i.test(subj)) s += 1;
+        const billers = ['edp', 'galp', 'vodafone', 'meo', 'altice', 'nowo', ' nos ', 'nos.pt', 'netflix', 'spotify', 'amazon', 'apple', 'seguro', 'fidelidade', 'tranquilidade', 'ageas', 'allianz', 'revolut', 'paypal', 'wise', 'santander', 'millennium', 'bpi', 'cgd', 'novobanco', 'montepio', 'activobank', 'beliani', 'ctt', 'worten', 'lidl', 'continente', 'pingo doce', 'auchan', 'ikea', 'ginasio', 'fitness'];
+        if (billers.some(b => from.includes(b) || subj.includes(b))) s += 2;
+        const noise = ['newsletter', 'webinar', 'promo', 'desconto', 'super preço', 'oferta exclusiva', 'poupa já', 'black friday', 'não perca'];
+        if (noise.some(n => subj.includes(n))) s -= 2;
+        return s;
+    };
     const relevant = metaResults
-        .filter(m => !seenIds.has(m.id) && isProbablyPaymentEmail(getHeader(m, 'Subject'), getHeader(m, 'From')))
-        .slice(0, 15);
+        .filter(m => m.id && !seenIds.has(m.id) && isProbablyPaymentEmail(getHeader(m, 'Subject'), getHeader(m, 'From')))
+        .map(m => ({ m, score: scoreCandidate(m) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 25)
+        .map(x => x.m);
 
     if (!relevant.length) return [];
 
@@ -338,7 +357,7 @@ async function callGeminiOnce(prompt) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
                 })
             }
         );
@@ -365,7 +384,7 @@ async function callGeminiOnce(prompt) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
+                        generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
                     })
                 }
             );
@@ -391,7 +410,7 @@ async function callOpenAICompatibleOnce(label, url, key, model, prompt) {
             model,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
-            max_tokens: 800
+            max_tokens: 2000
         })
     });
     const data = await res.json().catch(() => ({}));
@@ -529,6 +548,44 @@ function triggerManualSync() {
     const from = fromVal ? new Date(fromVal + 'T00:00:00') : new Date();
     const to = toVal ? new Date(toVal + 'T23:59:59') : new Date();
     runSync(from, to);
+}
+
+function formatDateInput(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Populates the email-sync "De / Até" pickers with the last `days` days, inclusive of today.
+function setSyncRange(days) {
+    const to = new Date();
+    const from = new Date(); from.setDate(from.getDate() - (days - 1));
+    const fromEl = document.getElementById('ai-sync-from');
+    const toEl = document.getElementById('ai-sync-to');
+    if (fromEl) fromEl.value = formatDateInput(from);
+    if (toEl) toEl.value = formatDateInput(to);
+}
+
+// Current ISO week (Monday to Sunday).
+function setSyncRangeThisWeek() {
+    const today = new Date();
+    const dow = today.getDay() || 7; // Monday=1..Sunday=7
+    const monday = new Date(today); monday.setDate(today.getDate() - (dow - 1));
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const fromEl = document.getElementById('ai-sync-from');
+    const toEl = document.getElementById('ai-sync-to');
+    if (fromEl) fromEl.value = formatDateInput(monday);
+    if (toEl) toEl.value = formatDateInput(sunday);
+}
+
+function setSyncRangeLastWeek() {
+    const today = new Date();
+    const dow = today.getDay() || 7;
+    const thisMonday = new Date(today); thisMonday.setDate(today.getDate() - (dow - 1));
+    const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
+    const lastSunday = new Date(lastMonday); lastSunday.setDate(lastMonday.getDate() + 6);
+    const fromEl = document.getElementById('ai-sync-from');
+    const toEl = document.getElementById('ai-sync-to');
+    if (fromEl) fromEl.value = formatDateInput(lastMonday);
+    if (toEl) toEl.value = formatDateInput(lastSunday);
 }
 
 function clearAnalyzedEmailCache() {

@@ -900,6 +900,12 @@
                     </div>
 
                     <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px">Intervalo de datas dos emails (não da despesa)</div>
+                    <div class="quick-amounts" style="margin-bottom:8px">
+                        <button type="button" class="quick-amt-btn" onclick="setSyncRange(7)">Últimos 7 dias</button>
+                        <button type="button" class="quick-amt-btn" onclick="setSyncRange(14)">Últimos 14 dias</button>
+                        <button type="button" class="quick-amt-btn" onclick="setSyncRangeThisWeek()">Esta semana</button>
+                        <button type="button" class="quick-amt-btn" onclick="setSyncRangeLastWeek()">Semana passada</button>
+                    </div>
                     <div style="display:flex;gap:8px;margin-bottom:8px">
                         <div class="form-group" style="flex:1;margin:0">
                             <label style="font-size:0.78rem">Emails desde</label>
@@ -910,6 +916,7 @@
                             <input type="date" id="ai-sync-to">
                         </div>
                     </div>
+                    <small class="field-hint" style="margin-bottom:8px">Intervalos curtos (até 14 dias) funcionam melhor — janelas largas podem saturar o filtro com emails de marketing.</small>
 
                     <button id="ai-sync-btn" onclick="triggerManualSync()" class="btn btn-primary btn-block">
                         <i class="fas fa-sync"></i> Sincronizar agora
