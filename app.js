@@ -155,10 +155,18 @@ function renderAiSettingsUI() {
     if (grokModelEl) grokModelEl.value = aiCfg.grokModel || 'grok-4-fast';
     const providerEl = document.querySelector(`input[name="ai-provider"][value="${aiCfg.aiProvider || 'gemini'}"]`);
     if (providerEl) providerEl.checked = true;
-    const geminiBlock = document.getElementById('ai-gemini-block');
-    const grokBlock = document.getElementById('ai-grok-block');
-    if (geminiBlock) geminiBlock.style.display = (aiCfg.aiProvider === 'grok') ? 'none' : '';
-    if (grokBlock) grokBlock.style.display = (aiCfg.aiProvider === 'grok') ? '' : 'none';
+    // Toggle provider-specific blocks. If the wrapper IDs aren't in the DOM
+    // (stale HTML cache), fall back to walking up from the known input IDs.
+    const isGrok = aiCfg.aiProvider === 'grok';
+    const showBlock = (blockId, inputId, visible) => {
+        const byId = document.getElementById(blockId);
+        if (byId) { byId.style.display = visible ? '' : 'none'; return; }
+        const input = document.getElementById(inputId);
+        const group = input?.closest('.form-group');
+        if (group) group.style.display = visible ? '' : 'none';
+    };
+    showBlock('ai-gemini-block', 'ai-gemini-key', !isGrok);
+    showBlock('ai-grok-block', 'ai-grok-key', isGrok);
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
     if (autoEl) autoEl.checked = aiCfg.autoSync;
     const today = new Date().toISOString().slice(0, 10);
