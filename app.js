@@ -1543,6 +1543,8 @@ function getPaidFixedAsExpenses(date) {
 }
 
 function adjustExpenseForCoParent(e) {
+    // Generic split-with-other takes precedence — the user explicitly tagged a person.
+    if (e.splitWithName) return adjustExpenseForCustomSplit(e);
     // In married mode: apply spouse split
     if (isMarriedMode()) {
         if (e.splitSpouse && e.spousePaid) {
@@ -2582,10 +2584,13 @@ function renderExpenseItem(e) {
         }
     }
 
-    const hasDeduction = (e.paidByFather && e.split) || (e.spousePaid && e.splitSpouse);
+    const hasDeduction = (e.paidByFather && e.split) || (e.spousePaid && e.splitSpouse) || (e.splitWithName && e.splitWithReceived);
     const amountDisplay = hasDeduction
         ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:2px">${formatCurrency(fullAmt)}</span>${formatCurrency(e.amount)}`
         : formatCurrency(e.amount);
+    const splitWithBadge = e.splitWithName
+        ? `<button onclick="event.stopPropagation();toggleSplitWithReceived('${e.id}')" class="fixed-status-badge ${e.splitWithReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${e.splitWithReceived ? `<i class="fas fa-check"></i> recebi de ${e.splitWithName}` : `<i class="fas fa-clock"></i> ${e.splitWithName}?`}</button>`
+        : '';
 
     // Grouped expense rendering (has entries array)
     const entryTypeLabel = (t) => {
@@ -2653,7 +2658,8 @@ function renderExpenseItem(e) {
                         ${e.splitSpouse && isMarriedMode() ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${getSpousePct()}/${100-getSpousePct()}</span>` : ''}
                         ${(e.withPeople && e.withPeople.length > 0) ? `<span style="color:var(--primary)"><i class="fas fa-user-group" style="font-size:0.65rem"></i> ${e.withPeople.slice(0,2).join(', ')}${e.withPeople.length > 2 ? ` +${e.withPeople.length-2}` : ''}</span>` : ''}
                     </div>
-                    <div style="display:flex;align-items:center;gap:4px">
+                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+                        ${splitWithBadge}
                         ${coParentBadge}
                         <div class="expense-actions">
                             ${e.isGrouped && !isFixedVirtual ? `<button onclick="event.stopPropagation();addGroupedEntry('${e.id}')" title="Adicionar entrada" class="btn-grouped-add"><i class="fas fa-plus"></i></button>` : ''}
@@ -3814,8 +3820,55 @@ function showAddExpense() {
     }
     // Initialize spouse split UI (married mode)
     setupSpouseSplitUI(null);
+    // Reset split-with-other section
+    const swOther = document.getElementById('split-with-other');
+    if (swOther) swOther.checked = false;
+    const swName = document.getElementById('split-with-name');
+    if (swName) swName.value = '';
+    const swPct = document.getElementById('split-with-pct');
+    if (swPct) swPct.value = 50;
+    const swRec = document.getElementById('split-with-received');
+    if (swRec) swRec.checked = false;
+    toggleSplitWithOther();
+    populateSplitWithNamesList();
     document.getElementById('expense-is-grouped').checked = false;
     document.getElementById('modal-add').classList.add('active');
+}
+
+function toggleSplitWithOther() {
+    const cb = document.getElementById('split-with-other');
+    const fields = document.getElementById('split-with-other-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+
+// Suggests names the user has split with before for quick re-selection.
+function populateSplitWithNamesList() {
+    const dl = document.getElementById('split-with-names-list');
+    if (!dl) return;
+    const names = new Set();
+    expenses.forEach(e => { if (e.splitWithName) names.add(e.splitWithName); });
+    dl.innerHTML = [...names].sort().map(n => `<option value="${n.replace(/"/g, '&quot;')}">`).join('');
+}
+
+// If the expense was split with a specific person and they've paid, reduce the
+// effective amount to the user's share only.
+function adjustExpenseForCustomSplit(e) {
+    if (!e.splitWithName || !e.splitWithReceived) return e;
+    const pct = parseFloat(e.splitWithPct);
+    if (!(pct > 0 && pct < 100)) return e;
+    const fullAmount = e.fullAmount || e.amount;
+    return { ...e, amount: fullAmount * (1 - pct / 100), fullAmount };
+}
+
+// Quick toggle "Recebi" from the expenses list.
+function toggleSplitWithReceived(id) {
+    const idx = expenses.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    expenses[idx].splitWithReceived = !expenses[idx].splitWithReceived;
+    expenses[idx].updatedAt = new Date().toISOString();
+    saveData();
+    updateAll();
+    showToast(expenses[idx].splitWithReceived ? 'Parte recebida!' : 'Marcado como por receber');
 }
 
 function setupSpouseSplitUI(e) {
@@ -3936,6 +3989,18 @@ function editExpense(id) {
         document.getElementById('paid-by-father-group').style.display = 'none';
     }
 
+    // Generic split-with-other
+    const swOther = document.getElementById('split-with-other');
+    const swName = document.getElementById('split-with-name');
+    const swPct = document.getElementById('split-with-pct');
+    const swRec = document.getElementById('split-with-received');
+    if (swOther) swOther.checked = !!e.splitWithName;
+    if (swName) swName.value = e.splitWithName || '';
+    if (swPct) swPct.value = e.splitWithPct || 50;
+    if (swRec) swRec.checked = !!e.splitWithReceived;
+    toggleSplitWithOther();
+    populateSplitWithNamesList();
+
     pendingAttachment = e.attachment || null;
     renderAttachmentPreview('attachment-preview', pendingAttachment);
 
@@ -3999,6 +4064,10 @@ function saveExpense(event) {
 
     const splitSpouse = isMarriedMode() && document.getElementById('split-with-spouse')?.checked;
     const spousePaid = splitSpouse && document.getElementById('spouse-paid')?.checked;
+    const splitWithOther = document.getElementById('split-with-other')?.checked;
+    const splitWithName = splitWithOther ? (document.getElementById('split-with-name')?.value.trim() || '') : '';
+    const splitWithPct = splitWithOther ? (parseFloat(document.getElementById('split-with-pct')?.value) || 50) : null;
+    const splitWithReceived = splitWithOther && document.getElementById('split-with-received')?.checked;
     const isGrouped = document.getElementById('expense-is-grouped')?.checked || false;
     const amount = parseFloat(document.getElementById('expense-amount').value);
     const dateVal = document.getElementById('expense-date').value;
@@ -4015,6 +4084,9 @@ function saveExpense(event) {
         paidByFather: split ? document.getElementById('paid-by-father').checked : false,
         splitSpouse,
         spousePaid,
+        splitWithName,
+        splitWithPct,
+        splitWithReceived,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
