@@ -2044,51 +2044,129 @@ function updateDashboard() {
 // total, the partner's share and how much of it is still by-receive, plus a
 // tiny breakdown by category. Hidden when no partner is configured or in
 // married mode.
+// Unified partner-involvement helper. Takes an ORIGINAL expense (not an
+// expanded virtual) and returns the totals that matter for partner reports:
+//   involved   — gross amount of this expense that involved the partner
+//   attributed — conceptually "hers" (mix pct · gross, or split entry amount)
+//   owed       — still to receive from her
+//   paid       — already received from her
+// Handles: grouped per-entry withPartner, mix Pessoal+partner, regular splits
+// tagged with partner name. An expense that doesn't involve the partner
+// returns all-zero.
+function getPartnerInvolvement(e, nameLower) {
+    const out = { involved: 0, attributed: 0, owed: 0, paid: 0 };
+    const gross = e.fullAmount != null ? e.fullAmount : (e.amount || 0);
+
+    // Grouped expense with per-entry partner flag
+    if (e.isGrouped && Array.isArray(e.entries)) {
+        const sumPartnerEntries = e.entries
+            .filter(en => en.withPartner)
+            .reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+        if (sumPartnerEntries > 0) {
+            out.involved += sumPartnerEntries;
+            out.attributed += sumPartnerEntries;
+        }
+    }
+
+    // Mix Pessoal+partner on this expense
+    if (e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower && e.mixPartnerPct) {
+        const pct = parseFloat(e.mixPartnerPct) || 0;
+        const attrAmt = gross * pct / 100;
+        // Avoid double-counting when grouped entries also contributed
+        if (out.involved === 0) out.involved += gross;
+        out.attributed += attrAmt;
+        if (e.mixPartnerSplit) {
+            const splitPct = parseFloat(e.mixPartnerSplitPct) || 50;
+            const share = attrAmt * splitPct / 100;
+            if (e.mixPartnerPaid) out.paid += share; else out.owed += share;
+        }
+    }
+
+    // Splits array where partner is one of the people
+    if (Array.isArray(e.splits)) {
+        const partnerSplits = e.splits.filter(s => (s.name || '').toLowerCase() === nameLower);
+        if (partnerSplits.length) {
+            if (out.involved === 0) out.involved += gross;
+            partnerSplits.forEach(s => {
+                const a = parseFloat(s.amount) || 0;
+                // Only count split amount as attributed when not already captured by mix
+                if (!(e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower)) {
+                    out.attributed += a;
+                }
+                if (s.paid) out.paid += a; else out.owed += a;
+            });
+        }
+    }
+
+    // Name in withPeople (legacy/manual tagging)
+    if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) {
+        if (out.involved === 0) out.involved += gross;
+    }
+
+    return out;
+}
+
+// Aggregates partner involvement across the month's ORIGINAL expenses (no
+// virtuals). Returns totals plus the list of involved expenses for rendering.
+function getPartnerMonthStats(date, name) {
+    const nameLower = (name || '').toLowerCase();
+    if (!nameLower) return { totals: { involved: 0, attributed: 0, owed: 0, paid: 0 }, entries: [] };
+    const month = getMonthExpenses(date).map(adjustExpenseForCoParent);
+    const totals = { involved: 0, attributed: 0, owed: 0, paid: 0 };
+    const entries = [];
+    month.forEach(e => {
+        const r = getPartnerInvolvement(e, nameLower);
+        if (r.involved > 0 || r.attributed > 0) {
+            totals.involved += r.involved;
+            totals.attributed += r.attributed;
+            totals.owed += r.owed;
+            totals.paid += r.paid;
+            entries.push({ expense: e, ...r });
+        }
+    });
+    return { totals, entries };
+}
+
 function renderPartnerSummary() {
     const card = document.getElementById('partner-summary-card');
     if (!card) return;
     const name = getPartnerName();
+    // Always visible in separated mode once a partner name is configured, even
+    // when the month has zero involved expenses (renders an empty state).
     if (isMarriedMode() || !name) { card.style.display = 'none'; return; }
-    const nameLower = name.toLowerCase();
 
-    const monthExp = getEffectiveMonthExpenses(currentDate);
-    const involved = monthExp.filter(e =>
-        (e.withPeople || []).some(p => p.toLowerCase() === nameLower)
-        || (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower))
-    );
-    if (involved.length === 0) { card.style.display = 'none'; return; }
-    const totalInvolved = involved.reduce((s, e) => s + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0), 0);
-    let partnerOwes = 0, partnerPaid = 0;
-    involved.forEach(e => {
-        if (!Array.isArray(e.splits)) return;
-        e.splits.forEach(s => {
-            if ((s.name || '').toLowerCase() !== nameLower) return;
-            const a = parseFloat(s.amount) || 0;
-            if (s.paid) partnerPaid += a; else partnerOwes += a;
-        });
-    });
+    const { totals, entries } = getPartnerMonthStats(currentDate, name);
     const cats = getEffectiveCategories();
-    // Top 3 categories involved
     const byCat = {};
-    involved.forEach(e => {
-        const k = e.category || 'outros';
-        byCat[k] = (byCat[k] || 0) + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0);
+    entries.forEach(({ expense, involved }) => {
+        const k = expense.category || 'outros';
+        byCat[k] = (byCat[k] || 0) + involved;
     });
     const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
     card.style.display = 'block';
+    if (entries.length === 0) {
+        card.innerHTML = `
+            <h3 style="color:#C2185B"><i class="fas fa-heart"></i> Gasto com ${name}</h3>
+            <div style="text-align:center;padding:12px 0;color:var(--text-light);font-size:0.85rem">
+                Sem despesas com ${name} este mês.<br>
+                <span style="font-size:0.72rem">Marca "Atribuir parte a ${name}" numa despesa ou "Com ${name}" numa entrada agrupada.</span>
+            </div>`;
+        return;
+    }
+
     card.innerHTML = `
         <h3 style="color:#C2185B"><i class="fas fa-heart"></i> Gasto com ${name}</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <div style="padding:10px;background:#FCE4EC;border-radius:10px">
-                <div style="font-size:0.7rem;color:#880E4F">Total envolvido</div>
-                <div style="font-size:1.15rem;font-weight:800;color:#C2185B">${formatCurrency(totalInvolved)}</div>
-                <div style="font-size:0.65rem;color:#AD1457">${involved.length} ${involved.length === 1 ? 'despesa' : 'despesas'}</div>
+                <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
+                <div style="font-size:1.15rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
+                <div style="font-size:0.65rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
             </div>
             <div style="padding:10px;background:var(--surface);border-radius:10px">
-                <div style="font-size:0.7rem;color:var(--text-light)">Parte de ${name}</div>
-                <div style="font-size:0.95rem;font-weight:700">${formatCurrency(partnerOwes + partnerPaid)}</div>
-                <div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(partnerPaid)} pagos · <span style="color:var(--danger)">${formatCurrency(partnerOwes)} por receber</span></div>
+                <div style="font-size:0.7rem;color:var(--text-light)">Atribuído a ${name}</div>
+                <div style="font-size:1.05rem;font-weight:800">${formatCurrency(totals.attributed)}</div>
+                ${(totals.owed + totals.paid) > 0 ? `<div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(totals.paid)} pagos · <span style="color:var(--danger)">${formatCurrency(totals.owed)} por receber</span></div>` : '<div style="font-size:0.65rem;color:var(--text-light)">sem split pendente</div>'}
             </div>
         </div>
         ${topCats.length ? `
@@ -2681,6 +2759,19 @@ function addGroupedEntry(id) {
         withGroup.style.display = 'none';
     }
     document.getElementById('modal-grouped-entry').classList.add('active');
+    // Per-entry partner toggle: only visible in separated mode with a configured
+    // partner. Lets the user mark this particular entry as "with partner"
+    // without affecting other entries of the same group.
+    const pGrp = document.getElementById('grouped-entry-partner-group');
+    const pCb = document.getElementById('grouped-entry-with-partner');
+    const pName = document.getElementById('grouped-entry-partner-name');
+    const partnerName = getPartnerName();
+    if (pGrp) {
+        const show = !isMarriedMode() && !!partnerName;
+        pGrp.style.display = show ? 'block' : 'none';
+        if (show && pName) pName.textContent = partnerName;
+        if (pCb) pCb.checked = false;
+    }
     setTimeout(() => document.getElementById('grouped-entry-amount').focus(), 100);
 }
 
@@ -2699,8 +2790,9 @@ function saveGroupedEntry(event) {
     const entryType = (withGroup && withGroup.style.display !== 'none')
         ? document.getElementById('grouped-entry-with').value
         : e.type;
+    const withPartner = !!document.getElementById('grouped-entry-with-partner')?.checked;
     e.entries = e.entries || [];
-    e.entries.push({ date, amount, notes, type: entryType });
+    e.entries.push({ date, amount, notes, type: entryType, withPartner });
     e.amount = computeGroupedTotal(e);
     e.date = [...e.entries].sort((a, b) => b.date.localeCompare(a.date))[0].date;
     e.updatedAt = new Date().toISOString();
@@ -3237,62 +3329,37 @@ function renderPartnerSpending() {
     if (isMarriedMode() || !name) { container.style.display = 'none'; return; }
     const nameLower = name.toLowerCase();
 
-    const monthExpRaw = getEffectiveMonthExpenses(currentDate);
-    // Include expenses where partner is tagged in withPeople OR appears in splits.
-    const involved = monthExpRaw.filter(e => {
-        if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) return true;
-        if (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower)) return true;
-        return false;
-    });
-    // Use fullAmount when present so the "envolvido" total shows the gross
-    // before any partner reimbursement is deducted.
-    const totalInvolved = involved.reduce((s, e) => s + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0), 0);
-    const countInvolved = involved.length;
+    const { totals, entries } = getPartnerMonthStats(currentDate, name);
 
-    // Partner's share of shared costs (whether already paid back or not).
-    let partnerOwes = 0, partnerAlreadyPaid = 0;
-    involved.forEach(e => {
-        if (!Array.isArray(e.splits)) return;
-        e.splits.forEach(s => {
-            if ((s.name || '').toLowerCase() !== nameLower) return;
-            const amt = parseFloat(s.amount) || 0;
-            if (s.paid) partnerAlreadyPaid += amt; else partnerOwes += amt;
-        });
-    });
-
-    // Last 6 months trend
+    // Last 6 months trend (use involved totals)
     const now = new Date();
     const series = [];
     for (let i = 5; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthExp = getEffectiveMonthExpenses(d);
-        const inv = monthExp.filter(e => {
-            if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) return true;
-            if (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower)) return true;
-            return false;
-        });
-        series.push({ date: d, total: inv.reduce((s, e) => s + (e.amount || 0), 0) });
+        const { totals: t } = getPartnerMonthStats(d, name);
+        series.push({ date: d, total: t.involved });
     }
     const maxSeries = Math.max(...series.map(s => s.total), 1);
     const monthsShort = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const cats = getEffectiveCategories();
+
+    // Sort entries by date desc
+    const detailEntries = entries.slice().sort((a, b) => (b.expense.date || '').localeCompare(a.expense.date || ''));
+    const isOpen = localStorage.getItem('partner-details-open') === '1';
 
     container.style.display = 'block';
-    const cats = getEffectiveCategories();
-    // Build a list of the concrete partner-involved entries for this month with
-    // the attributed share clearly shown.
-    const detailEntries = involved.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-10).reverse();
     container.innerHTML = `
         <h3><i class="fas fa-heart" style="color:#E91E63"></i> Gasto com ${name}</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
             <div style="padding:10px;background:#FCE4EC;border-radius:10px">
-                <div style="font-size:0.7rem;color:#880E4F">Total envolvido este mês</div>
-                <div style="font-size:1.1rem;font-weight:800;color:#C2185B">${formatCurrency(totalInvolved)}</div>
-                <div style="font-size:0.65rem;color:#AD1457">${countInvolved} ${countInvolved === 1 ? 'despesa' : 'despesas'}</div>
+                <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
+                <div style="font-size:0.65rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
             </div>
             <div style="padding:10px;background:var(--surface);border-radius:10px">
-                <div style="font-size:0.7rem;color:var(--text-light)">Parte do/a ${name}</div>
-                <div style="font-size:0.95rem;font-weight:700">${formatCurrency(partnerOwes + partnerAlreadyPaid)}</div>
-                <div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(partnerAlreadyPaid)} pagos · <span style="color:var(--danger)">${formatCurrency(partnerOwes)} por receber</span></div>
+                <div style="font-size:0.7rem;color:var(--text-light)">Atribuído a ${name}</div>
+                <div style="font-size:1.05rem;font-weight:800">${formatCurrency(totals.attributed)}</div>
+                ${(totals.owed + totals.paid) > 0 ? `<div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(totals.paid)} pagos · <span style="color:var(--danger)">${formatCurrency(totals.owed)} por receber</span></div>` : '<div style="font-size:0.65rem;color:var(--text-light)">sem split pendente</div>'}
             </div>
         </div>
         <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Últimos 6 meses</div>
@@ -3307,36 +3374,55 @@ function renderPartnerSpending() {
             }).join('')}
         </div>
         ${detailEntries.length ? `
-        <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Despesas com ${name} este mês</div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-            ${detailEntries.map(e => {
+        <button id="partner-details-toggle" onclick="togglePartnerDetails()" style="width:100%;background:#F5F3FF;color:var(--primary);border:none;border-radius:8px;padding:8px 10px;cursor:pointer;font-family:var(--font);font-size:0.78rem;font-weight:600;display:flex;justify-content:space-between;align-items:center">
+            <span>Detalhe das ${detailEntries.length} ${detailEntries.length === 1 ? 'despesa' : 'despesas'} com ${name}</span>
+            <i class="fas fa-chevron-${isOpen ? 'up' : 'down'}"></i>
+        </button>
+        <div id="partner-details-list" style="display:${isOpen ? 'flex' : 'none'};flex-direction:column;gap:4px;margin-top:8px">
+            ${detailEntries.map(({ expense: e, involved, attributed, owed, paid }) => {
                 const cat = cats[e.category] || cats.outros;
-                const partnerSplitEntry = Array.isArray(e.splits) ? e.splits.find(s => (s.name||'').toLowerCase() === nameLower) : null;
                 const gross = e.fullAmount != null ? e.fullAmount : e.amount;
-                // Reconstruct the % this entry represents of the original expense (pre-expansion).
-                // Child/partner virtuals carry parentExpenseId + isFromMixPartner/isFromMixSplit.
-                let pctLabel = '';
-                if (e.isFromMixPartner) {
-                    // Look up the original to get mixPartnerPct
-                    const orig = expenses.find(x => x.id === e.parentExpenseId);
-                    if (orig && orig.mixPartnerPct) pctLabel = ` · ${orig.mixPartnerPct}% atribuído`;
-                }
+                const partnerSplitEntry = Array.isArray(e.splits) ? e.splits.find(s => (s.name||'').toLowerCase() === nameLower) : null;
+                const pctLabel = e.mixPartnerPct ? ` · ${e.mixPartnerPct}% atribuído` : '';
                 const settleLabel = partnerSplitEntry
                     ? (partnerSplitEntry.paid
                         ? `<span style="color:var(--success);font-weight:600">✓ ${formatCurrency(partnerSplitEntry.amount)} pago</span>`
                         : `<span style="color:var(--danger);font-weight:600">🕐 ${formatCurrency(partnerSplitEntry.amount)} por receber</span>`)
-                    : '';
+                    : (e.mixPartnerSplit
+                        ? (e.mixPartnerPaid
+                            ? `<span style="color:var(--success);font-weight:600">✓ parte recebida</span>`
+                            : `<span style="color:var(--danger);font-weight:600">🕐 parte por receber</span>`)
+                        : '');
                 return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid var(--border);border-radius:8px">
                     <div style="width:26px;height:26px;border-radius:6px;background:${cat.color}22;color:${cat.color};display:flex;align-items:center;justify-content:center;font-size:0.75rem;flex-shrink:0"><i class="fas ${cat.icon}"></i></div>
                     <div style="flex:1;min-width:0">
                         <div style="font-size:0.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(e.description || '').replace(/\(.+?\)$/, '').trim()}</div>
                         <div style="font-size:0.65rem;color:var(--text-light)">${formatDate(e.date)}${pctLabel} ${settleLabel ? '· ' + settleLabel : ''}</div>
                     </div>
-                    <div style="font-size:0.8rem;font-weight:700;color:#C2185B;white-space:nowrap">${formatCurrency(gross)}</div>
+                    <div style="text-align:right;white-space:nowrap">
+                        <div style="font-size:0.8rem;font-weight:700;color:#C2185B">${formatCurrency(involved)}</div>
+                        ${attributed > 0 && attributed !== involved ? `<div style="font-size:0.6rem;color:var(--text-light)">atrib. ${formatCurrency(attributed)}</div>` : ''}
+                    </div>
                 </div>`;
             }).join('')}
         </div>` : ''}
     `;
+}
+
+function togglePartnerDetails() {
+    const list = document.getElementById('partner-details-list');
+    const btn = document.getElementById('partner-details-toggle');
+    if (!list) return;
+    const isOpen = list.style.display !== 'none';
+    list.style.display = isOpen ? 'none' : 'flex';
+    localStorage.setItem('partner-details-open', isOpen ? '0' : '1');
+    if (btn) {
+        const chevron = btn.querySelector('.fa-chevron-down, .fa-chevron-up');
+        if (chevron) {
+            chevron.classList.toggle('fa-chevron-up', !isOpen);
+            chevron.classList.toggle('fa-chevron-down', isOpen);
+        }
+    }
 }
 
 // Local-timezone date formatter (YYYY-MM-DD). toISOString() uses UTC and can
