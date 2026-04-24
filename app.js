@@ -5089,51 +5089,124 @@ Contexto: ${JSON.stringify(context)}`;
 }
 
 // ----- Receipt OCR (photo → expense) -----
-// Uses Gemini multimodal (vision) to extract fields from a receipt photo.
-// Silently no-op if the user isn't on Gemini or hasn't set a key.
-async function callGeminiVision(base64Data, mimeType, prompt) {
-    if (!aiCfg.geminiKey) throw new Error('Chave Gemini não configurada');
-    const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiCfg.geminiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [
-                        { text: prompt },
-                        { inline_data: { mime_type: mimeType, data: base64Data } }
-                    ]
-                }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
-            })
-        }
-    );
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'Erro Gemini');
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+// Resizes the photo to at most 1024px on the longer side and re-encodes as
+// JPEG at 0.85 quality. Huge impact on token count for every provider:
+// a raw 4000×3000 camera capture is ~4-5 MB base64; after this it's
+// usually <200 KB. The user's keyboard thumb doesn't notice a crop this
+// aggressive for a legible receipt.
+function resizeImageForOcr(file, maxDim = 1024, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', quality);
+            const comma = dataUrl.indexOf(',');
+            resolve({ data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl, type: 'image/jpeg' });
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui ler a imagem')); };
+        img.src = url;
+    });
 }
 
-function fileToBase64Gemini(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const res = reader.result || '';
-            // Drop the "data:<mime>;base64," prefix; Gemini only wants the
-            // raw base64 payload.
-            const comma = res.indexOf(',');
-            resolve({ data: comma >= 0 ? res.slice(comma + 1) : res, type: file.type || 'image/jpeg' });
-        };
-        reader.onerror = () => reject(new Error('Não consegui ler a imagem'));
-        reader.readAsDataURL(file);
+async function callGeminiVision(base64Data, mimeType, prompt) {
+    if (!aiCfg.geminiKey) throw new Error('Chave Gemini não configurada');
+    // flash-lite is ~5× cheaper in free-tier quota and handles receipts fine.
+    // If it 404s on older deployments we fall through to flash.
+    const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+    let lastErr;
+    for (const model of models) {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiCfg.geminiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [ { text: prompt }, { inline_data: { mime_type: mimeType, data: base64Data } } ] }],
+                    generationConfig: { temperature: 0.1, maxOutputTokens: 600 }
+                })
+            }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!data.error) return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        lastErr = data.error.message || '';
+        if (lastErr.toLowerCase().includes('quota')) throw new Error('Quota Gemini esgotada.');
+    }
+    throw new Error(lastErr || 'Erro Gemini');
+}
+
+// Groq and xAI both expose OpenAI-compatible multimodal calls: image as
+// an image_url content part with a data URL.
+async function callOpenAIVision(label, url, key, model, base64Data, mimeType, prompt) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({
+            model,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: prompt },
+                    { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Data}` } }
+                ]
+            }],
+            temperature: 0.1,
+            max_tokens: 600
+        })
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data?.error?.message || data?.error || res.statusText || `Erro ${label}`;
+        if (res.status === 401) throw new Error(`Chave ${label} inválida (401)`);
+        if (res.status === 429) throw new Error(`${label}: limite atingido.`);
+        throw new Error(`${label}: ${msg}`);
+    }
+    return data?.choices?.[0]?.message?.content || '';
+}
+function callGroqVision(b64, mime, prompt) {
+    // Llama 4 Scout is Groq's current multimodal model in the free tier.
+    return callOpenAIVision('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, 'meta-llama/llama-4-scout-17b-16e-instruct', b64, mime, prompt);
+}
+function callGrokVision(b64, mime, prompt) {
+    return callOpenAIVision('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, 'grok-2-vision-latest', b64, mime, prompt);
+}
+
+// Dispatch OCR to whatever provider is configured — starts with the user's
+// selected one; on quota/failure falls back to another provider that has
+// a key. Matters because Gemini free tier runs out, Groq is generous.
+async function runReceiptOcr(base64Data, mimeType, prompt) {
+    const tried = [];
+    const order = [];
+    const preferred = aiCfg.aiProvider || 'gemini';
+    const byKey = { gemini: !!aiCfg.geminiKey, groq: !!aiCfg.groqKey, grok: !!aiCfg.grokKey };
+    if (byKey[preferred]) order.push(preferred);
+    ['groq', 'gemini', 'grok'].forEach(p => { if (byKey[p] && !order.includes(p)) order.push(p); });
+    if (!order.length) throw new Error('Sem chave de IA configurada (Gemini, Groq ou Grok).');
+
+    for (const provider of order) {
+        try {
+            if (provider === 'gemini') return { text: await callGeminiVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'groq')   return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'grok')   return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
+        } catch (e) {
+            tried.push(`${provider}: ${e?.message || e}`);
+        }
+    }
+    throw new Error(tried.join(' | ') || 'OCR falhou');
 }
 
 async function onReceiptImageSelected(input) {
     const file = input?.files?.[0];
     if (!file) return;
-    if (!aiCfg.geminiKey) {
-        showToast('Scan de recibo requer chave Gemini');
+    if (!(aiCfg.geminiKey || aiCfg.groqKey || aiCfg.grokKey)) {
+        showToast('Scan de recibo requer chave Gemini, Groq ou Grok');
         input.value = '';
         return;
     }
@@ -5141,21 +5214,21 @@ async function onReceiptImageSelected(input) {
     const originalHtml = btn?.innerHTML;
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A ler recibo…'; }
     try {
-        const { data, type } = await fileToBase64Gemini(file);
+        const { data, type } = await resizeImageForOcr(file);
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
         const today = new Date().toISOString().slice(0, 10);
         const prompt = `Extrai os dados deste recibo/fatura. Devolve APENAS JSON: {"descricao":"nome curto do estabelecimento","valor":N,"data":"YYYY-MM-DD","estabelecimento":"…","categoria":"<id exato>","essencial":true|false,"confianca":0..1,"notas":"…"}. Se não conseguires, devolve {"erro":"razão"}. Sem markdown.
 Categorias (usa o id exato): ${JSON.stringify(catList)}
 Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
-        const raw = await callGeminiVision(data, type, prompt);
-        const obj = extractJsonObject(raw);
+        const { text, provider } = await runReceiptOcr(data, type, prompt);
+        const obj = extractJsonObject(text);
         if (!obj || obj.erro) {
             showToast(obj?.erro || 'Não consegui ler o recibo');
             return;
         }
         prefillExpenseFromReceipt(obj);
-        showToast('Recibo lido — verifica os campos');
+        showToast(`Recibo lido via ${provider} — verifica os campos`);
     } catch (e) {
         showToast(`Erro: ${e?.message || e}`);
     } finally {
