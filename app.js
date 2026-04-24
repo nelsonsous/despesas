@@ -1338,12 +1338,21 @@ async function setupBiometricLock() {
                 rp: { name: 'Despesas', id: location.hostname },
                 user: { id: userId, name: 'user@despesas', displayName: getUserName() || 'Utilizador' },
                 pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-                authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+                // residentKey: 'discouraged' + requireResidentKey: false keeps
+                // this as a classic non-discoverable WebAuthn credential, so
+                // iOS doesn't wrap the unlock in the passkey sheet ("Usar
+                // chave-passe?") — it goes straight to Face ID / Touch ID.
+                authenticatorSelection: {
+                    authenticatorAttachment: 'platform',
+                    userVerification: 'required',
+                    residentKey: 'discouraged',
+                    requireResidentKey: false
+                },
                 timeout: 60000,
                 attestation: 'none'
             }
         });
-        setLockCfg({ enabled: true, biometricId: b64urlEncode(credential.rawId), autoLockMs: getLockCfg().autoLockMs || 30000 });
+        setLockCfg({ enabled: true, biometricId: b64urlEncode(credential.rawId), autoLockMs: getLockCfg().autoLockMs || 30000, credVersion: 2 });
         showToast('Biometria ativada');
         renderSecuritySettingsUI();
         return true;
@@ -1526,6 +1535,13 @@ function renderSecuritySettingsUI() {
             bioBtn.innerHTML = '<i class="fas fa-fingerprint"></i> Ativar Face ID / Touch ID';
             bioBtn.onclick = setupBiometricLock;
         }
+    }
+    // One-time migration hint: older credentials (credVersion != 2) trigger
+    // the iOS passkey sheet before Face ID. Suggest re-activating to get
+    // straight biometric.
+    const migHint = document.getElementById('security-bio-migration');
+    if (migHint) {
+        migHint.style.display = (cfg.biometricId && cfg.credVersion !== 2) ? 'block' : 'none';
     }
     if (pinBtn) {
         if (cfg.pinHash) {
