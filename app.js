@@ -3733,6 +3733,7 @@ function renderReports() {
     renderSalaryCycleReport();
     renderPartnerSpending();
     renderIrsTracker();
+    renderProductPrices();
     renderSavingsAnalysis();
     renderCategoryComparison();
     renderUnnecessaryExpenses();
@@ -5521,8 +5522,10 @@ async function onReceiptImageSelected(input) {
   "ivaTaxa": 6 | 13 | 23 | null,
   "metodoPagamento": "cartao" | "mbway" | "dinheiro" | "transferencia" | "cheque" | "outro" | null,
   "cartaoUltimos4": "4 dígitos" | null,
-  "tipoDocumento": "fatura" | "fatura-recibo" | "recibo" | "nota-credito" | null
+  "tipoDocumento": "fatura" | "fatura-recibo" | "recibo" | "nota-credito" | null,
+  "itens": [{ "nome": "produto/prato normalizado", "qtd": N, "unidade": "un|kg|L|g|ml|dose" | null, "precoUnitario": N | null, "total": N, "iva": 6|13|23 | null }] | null
 }
+Para "itens": extrai cada linha da factura que represente um produto ou prato. Normaliza o nome (ex: "LEITE MIMOSA M.G. 1L" → "Leite Mimosa 1L"; "Prato do dia carne" → "Prato do dia"). Se a factura só tem o total agregado (ex: recibo de restauração sem linhas), devolve null ou []. Máximo 30 itens.
 Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
 
 Categorias (usa o id exato): ${JSON.stringify(catList)}
@@ -5558,6 +5561,7 @@ function prefillExpenseFromReceipt(obj) {
         cardLast4:    /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
         purchaseTime: /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
         documentType: ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
+        lineItems:    sanitizeLineItems(obj.itens),
         source: 'ocr'
     };
     showAddExpense();
@@ -5592,6 +5596,36 @@ function prefillExpenseFromReceipt(obj) {
 // edited expense when the user opens an existing entry.
 let pendingReceiptFields = null;
 
+// Shape/trim line items returned by the OCR so they're safe to store and
+// easy to aggregate later. Keeps normalised name, quantity, unit, unit
+// price, total and VAT rate; drops anything that doesn't at least have a
+// name and a positive total.
+function sanitizeLineItems(arr) {
+    if (!Array.isArray(arr)) return null;
+    const out = arr.slice(0, 40).map(it => {
+        if (!it || typeof it !== 'object') return null;
+        const name = String(it.nome || '').trim().slice(0, 80);
+        const total = toNumberOrNull(it.total);
+        if (!name || total == null || total < 0) return null;
+        const qty = toNumberOrNull(it.qtd);
+        const unitPrice = toNumberOrNull(it.precoUnitario);
+        const unit = typeof it.unidade === 'string' ? it.unidade.slice(0, 6) : null;
+        const vat = [6, 13, 23].includes(it.iva) ? it.iva : null;
+        return {
+            name,
+            quantity: qty != null && qty > 0 ? qty : 1,
+            unit,
+            unitPrice: unitPrice ?? (qty ? Math.round((total / qty) * 10000) / 10000 : null),
+            total,
+            vat,
+            // Normalised key (lowercased, no punctuation) so we can group
+            // "Leite Mimosa 1L" and "LEITE MIMOSA 1L" together later.
+            key: name.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, '').replace(/\s+/g, ' ').trim()
+        };
+    }).filter(Boolean);
+    return out.length ? out : null;
+}
+
 function cleanNif(v) {
     const s = String(v || '').replace(/\D+/g, '');
     return /^\d{9}$/.test(s) ? s : null;
@@ -5620,11 +5654,34 @@ function updateFiscalFieldsUI() {
     // Show the block collapsed by default unless something came from OCR.
     const body = document.getElementById('fiscal-details-body');
     const toggleIcon = document.getElementById('fiscal-details-toggle');
-    const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType;
+    const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType || (p.lineItems && p.lineItems.length);
     if (body && toggleIcon) {
         body.style.display = hasAny ? 'block' : 'none';
         toggleIcon.className = hasAny ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     }
+    // Line items preview
+    const itemsBox = document.getElementById('fiscal-line-items');
+    if (itemsBox) {
+        if (Array.isArray(p.lineItems) && p.lineItems.length) {
+            itemsBox.style.display = 'block';
+            itemsBox.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px">${p.lineItems.length} ${p.lineItems.length === 1 ? 'item' : 'itens'} detetados</div>` +
+                p.lineItems.map((it, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:0.78rem;gap:8px">
+                    <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}${it.quantity !== 1 ? ` <span style="color:var(--text-light)">×${it.quantity}${it.unit || ''}</span>` : ''}</div>
+                    <div style="white-space:nowrap;font-weight:600">${formatCurrency(it.total)}</div>
+                    <button type="button" onclick="removeLineItem(${idx})" class="btn-icon" style="width:22px;height:22px;color:var(--danger)"><i class="fas fa-xmark" style="font-size:0.7rem"></i></button>
+                </div>`).join('');
+        } else {
+            itemsBox.style.display = 'none';
+            itemsBox.innerHTML = '';
+        }
+    }
+}
+
+function removeLineItem(idx) {
+    if (!pendingReceiptFields?.lineItems) return;
+    pendingReceiptFields.lineItems.splice(idx, 1);
+    if (!pendingReceiptFields.lineItems.length) pendingReceiptFields.lineItems = null;
+    updateFiscalFieldsUI();
 }
 
 function toggleFiscalDetails() {
@@ -5791,6 +5848,108 @@ function renderIrsTracker() {
         <div style="font-size:1.8rem;font-weight:700;color:#2A1F4F;margin-top:2px">${formatCurrency(grandDeductible)}</div>
         <div style="font-size:0.72rem;color:var(--text-light)">Com ${eligibleExp.length} facturas elegíveis em ${year}</div>
     </div>${rows}`;
+}
+
+// ===== PRODUCT PRICE TRACKER =====
+// Walks every expense that has lineItems and builds an index per normalised
+// product name. Each product gets: total occurrences, last price seen,
+// lowest/highest price with merchant, trend vs 3 months ago, and a matrix
+// of prices by merchant so the user can spot that the same yogurt costs
+// less at Lidl than at Pingo Doce.
+function buildProductPriceIndex() {
+    const bucket = new Map(); // key -> { name, entries: [{ date, unitPrice, total, merchant, quantity, unit }] }
+    expenses.forEach(e => {
+        if (!Array.isArray(e.lineItems) || !e.lineItems.length) return;
+        const merchant = extractMerchant(e) || (e.description || '').trim() || 'Sem descrição';
+        const date = e.date;
+        e.lineItems.forEach(it => {
+            if (!it || !it.key) return;
+            if (!bucket.has(it.key)) bucket.set(it.key, { name: it.name, entries: [] });
+            const unitPrice = it.unitPrice != null ? it.unitPrice : (it.quantity ? it.total / it.quantity : it.total);
+            bucket.get(it.key).entries.push({ date, unitPrice, total: it.total, merchant, quantity: it.quantity || 1, unit: it.unit || null });
+        });
+    });
+    return bucket;
+}
+
+function renderProductPrices() {
+    const card = document.getElementById('product-prices-card');
+    const body = document.getElementById('product-prices-body');
+    if (!card || !body) return;
+
+    const index = buildProductPriceIndex();
+    if (!index.size) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    const filter = (document.getElementById('product-search')?.value || '').toLowerCase().trim();
+    const rows = [];
+    index.forEach((v, key) => {
+        if (filter && !v.name.toLowerCase().includes(filter)) return;
+        if (v.entries.length < 1) return;
+        // Sort entries chronologically for the trend calc.
+        const sorted = [...v.entries].sort((a, b) => a.date.localeCompare(b.date));
+        const last = sorted[sorted.length - 1];
+        const first = sorted[0];
+        const prices = sorted.map(e => e.unitPrice).filter(p => p != null && isFinite(p));
+        if (!prices.length) return;
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const avg = prices.reduce((s, p) => s + p, 0) / prices.length;
+        // Merchant breakdown: average unit price per merchant.
+        const byMerchant = {};
+        sorted.forEach(e => {
+            if (!byMerchant[e.merchant]) byMerchant[e.merchant] = { total: 0, n: 0, prices: [] };
+            byMerchant[e.merchant].total += e.total;
+            byMerchant[e.merchant].n += 1;
+            if (e.unitPrice != null && isFinite(e.unitPrice)) byMerchant[e.merchant].prices.push(e.unitPrice);
+        });
+        const merchantList = Object.entries(byMerchant)
+            .map(([m, v2]) => ({ m, avg: v2.prices.length ? v2.prices.reduce((s,p) => s+p, 0) / v2.prices.length : null, n: v2.n }))
+            .filter(x => x.avg != null)
+            .sort((a, b) => a.avg - b.avg);
+        const cheapest = merchantList[0];
+        const priciest = merchantList[merchantList.length - 1];
+        const trend = first.unitPrice && last.unitPrice ? ((last.unitPrice - first.unitPrice) / first.unitPrice) * 100 : 0;
+        rows.push({
+            key, name: v.name, count: sorted.length, last, min, max, avg, trend,
+            sorted, merchantList, cheapest, priciest
+        });
+    });
+
+    // Most-frequently-bought first (higher count = more signal).
+    rows.sort((a, b) => b.count - a.count);
+
+    if (!rows.length) {
+        body.innerHTML = `<p class="empty-state" style="padding:16px 0">${filter ? 'Sem produtos que correspondam ao filtro.' : 'Faz scan de receitas com linhas (supermercado/restaurante) para começar a comparar preços.'}</p>`;
+        return;
+    }
+
+    body.innerHTML = rows.slice(0, 30).map(r => {
+        const trendColor = r.trend > 5 ? 'var(--danger)' : r.trend < -5 ? 'var(--success)' : 'var(--text-light)';
+        const trendIcon = r.trend > 5 ? 'arrow-up' : r.trend < -5 ? 'arrow-down' : 'minus';
+        const trendLbl = Math.abs(r.trend) < 1 ? 'estável' : `${r.trend > 0 ? '+' : ''}${r.trend.toFixed(0)}%`;
+        const diffMerchant = (r.merchantList.length >= 2 && r.priciest.avg > r.cheapest.avg * 1.08)
+            ? `<div style="font-size:0.72rem;margin-top:4px;color:#5A3BD8"><i class="fas fa-scale-balanced"></i> Mais barato em <strong>${r.cheapest.m}</strong> (${formatCurrency(r.cheapest.avg)}) vs <strong>${r.priciest.m}</strong> (${formatCurrency(r.priciest.avg)})</div>`
+            : '';
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+                    <div style="font-size:0.72rem;color:var(--text-light)">${r.count} ${r.count === 1 ? 'compra' : 'compras'} · última ${formatDate(r.last.date)} ${r.last.merchant ? `no ${r.last.merchant}` : ''}</div>
+                    ${diffMerchant}
+                </div>
+                <div style="text-align:right;white-space:nowrap">
+                    <div style="font-weight:700;font-size:0.9rem">${formatCurrency(r.last.unitPrice)}${r.last.unit ? `/${r.last.unit}` : ''}</div>
+                    <div style="font-size:0.7rem;color:${trendColor}"><i class="fas fa-${trendIcon}"></i> ${trendLbl}</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px;font-size:0.7rem;color:var(--text-light);flex-wrap:wrap">
+                <span>min <strong style="color:var(--success)">${formatCurrency(r.min)}</strong></span>
+                <span>máx <strong style="color:var(--danger)">${formatCurrency(r.max)}</strong></span>
+                <span>média ${formatCurrency(r.avg)}</span>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function renderCategoryComparison() {
@@ -6497,6 +6656,7 @@ function editExpense(id) {
         cardLast4: e.cardLast4 || null,
         purchaseTime: e.purchaseTime || null,
         documentType: e.documentType || null,
+        lineItems: Array.isArray(e.lineItems) ? e.lineItems : null,
         source: 'edit'
     };
     updateFiscalFieldsUI();
@@ -6638,6 +6798,7 @@ function saveExpense(event) {
         cardLast4:     fiscal.cardLast4,
         purchaseTime:  fiscal.purchaseTime,
         documentType:  fiscal.documentType,
+        lineItems:     pendingReceiptFields?.lineItems || null,
         updatedAt: new Date().toISOString()
     };
 

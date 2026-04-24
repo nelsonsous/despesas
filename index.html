@@ -437,6 +437,15 @@
             <!-- Partner spending (separated mode) -->
             <div class="card" id="partner-spending-card" style="display:none"></div>
 
+            <!-- Product Price Tracker -->
+            <div class="card" id="product-prices-card" style="display:none">
+                <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                    <span><i class="fas fa-tags" style="color:#5A3BD8"></i> Preços de produtos</span>
+                    <input type="text" id="product-search" placeholder="filtrar produto…" oninput="renderProductPrices()" style="font-size:0.78rem;padding:4px 8px;border:1px solid var(--border);border-radius:8px;max-width:180px">
+                </h3>
+                <div id="product-prices-body"></div>
+            </div>
+
             <!-- IRS Tracker -->
             <div class="card" id="irs-tracker-card" style="display:none">
                 <h3 style="display:flex;justify-content:space-between;align-items:center">
@@ -745,6 +754,7 @@
                                 </div>
                             </div>
                             <small class="field-hint" style="margin-top:6px">Se o NIF na factura for o teu, entra no Tracker IRS nos Relatórios. Só os tipos "Fatura" e "Fatura-Recibo" dão dedução.</small>
+                            <div id="fiscal-line-items" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)"></div>
                         </div>
                     </div>
 
