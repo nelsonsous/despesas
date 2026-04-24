@@ -4592,6 +4592,19 @@ function renderAiInsightsCard() {
     if (!card) return;
     if (!hasAnyAiKey()) { card.style.display = 'none'; return; }
     card.style.display = 'block';
+
+    // Swap the card title based on whether an active salary cycle is in view.
+    const today = new Date();
+    const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
+    const viewIsCurrent = currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() === today.getMonth();
+    const cycleActive = !!(cycle && viewIsCurrent && today >= cycle.start && today <= cycle.end);
+    const titleEl = card.querySelector('.ai-insights-title');
+    if (titleEl) {
+        titleEl.innerHTML = cycleActive
+            ? '<i class="fas fa-sparkles"></i> IA · Ciclo salarial em curso'
+            : '<i class="fas fa-sparkles"></i> IA · Resumo do mês';
+    }
+
     const key = aiMonthKey(currentDate);
     const cached = _aiNarrativeCache[key];
     const textEl = document.getElementById('ai-narrative-text');
@@ -4599,7 +4612,7 @@ function renderAiInsightsCard() {
         if (textEl) { textEl.classList.remove('loading'); textEl.innerHTML = cached.text; }
         return;
     }
-    if (textEl) { textEl.classList.add('loading'); textEl.textContent = 'A IA está a analisar o mês…'; }
+    if (textEl) { textEl.classList.add('loading'); textEl.textContent = cycleActive ? 'A IA está a analisar o ciclo salarial…' : 'A IA está a analisar o mês…'; }
     generateAiMonthNarrative(currentDate).then(text => {
         if (aiMonthKey(currentDate) !== key) return; // month switched during call
         _aiNarrativeCache[key] = { text, at: Date.now() };
@@ -4638,12 +4651,49 @@ async function generateAiMonthNarrative(date) {
         .map(x => ({ ...x, atual: Math.round(x.atual*100)/100, anterior: Math.round(x.anterior*100)/100 }));
 
     const monthLabel = date.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
-    const prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+
+    // If the viewed month carries an active salary cycle, the cycle is the
+    // operational lens the user cares about — lead with it and make the month
+    // comparison the supporting context.
+    const today = new Date();
+    const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
+    const viewIsCurrent = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
+    const cycleActive = !!(cycle && viewIsCurrent && today >= cycle.start && today <= cycle.end);
+
+    let prompt;
+    if (cycleActive) {
+        const b = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
+        const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
+        const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
+        const daysLeft = Math.max(0, daysTotal - daysElapsed);
+        const totalBudget = b.incReceived || (b.expPaid + b.expPending);
+        const available = totalBudget - b.expPaid - b.expPending;
+        const dailyRate = b.expPaidVariable > 0 ? b.expPaidVariable / daysElapsed : 0;
+        const dailyBudget = daysLeft > 0 && available > 0 ? available / daysLeft : 0;
+        const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
+        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, podes contextualizar com o mês de calendário. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra. Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+
+Dados do ciclo (EUR):
+Recebido: ${b.incReceived.toFixed(2)}
+Gasto até agora: ${b.expPaid.toFixed(2)} (dos quais ${b.expPaidVariable.toFixed(2)} variável)
+Fixo cativo a sair: ${b.expPending.toFixed(2)}
+Disponível no ciclo: ${available.toFixed(2)}
+Ritmo atual variável: ${dailyRate.toFixed(2)}/dia
+Podes gastar (budget): ${dailyBudget.toFixed(2)}/dia nos próximos ${daysLeft} dias
+
+Contexto do mês de calendário (secundário):
+Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)}
+Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)}
+Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}`;
+    } else {
+        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
 
 Dados (EUR):
 Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)} (poupança ${(totI-totE).toFixed(2)})
 Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)} (poupança ${(prevI-prevE).toFixed(2)})
 Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}`;
+    }
 
     const raw = await callAIText(prompt);
     return (raw || '').replace(/```/g, '').trim().slice(0, 600);
@@ -4874,7 +4924,12 @@ Contexto: ${JSON.stringify(context)}`;
 async function runAiSalaryScenario() {
     if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
     const ans = document.getElementById('ai-scenario-answer');
-    if (ans) { ans.style.display = 'block'; ans.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A simular…'; }
+    // Toggle: a second tap while the panel is open collapses it.
+    if (ans && ans.style.display === 'block' && ans.dataset.loaded === '1') {
+        ans.style.display = 'none';
+        return;
+    }
+    if (ans) { ans.style.display = 'block'; ans.dataset.loaded = '0'; ans.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A simular…'; }
     try {
         const cats = getEffectiveCategories();
         const monthExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense);
@@ -4885,14 +4940,15 @@ Categorias do mês: ${JSON.stringify(byCat)}`;
         const raw = await callAIText(prompt);
         const parsed = extractJsonArray(raw);
         if (!ans) return;
-        if (!parsed.length) { ans.textContent = 'Sem sugestões desta vez.'; return; }
+        if (!parsed.length) { ans.textContent = 'Sem sugestões desta vez.'; ans.dataset.loaded = '1'; return; }
         ans.innerHTML = parsed.map(s => `<div style="padding:8px 0;border-bottom:1px dashed var(--border)">
             <div style="font-weight:700;color:#5A3BD8">${s.nome || ''}</div>
             <div style="font-size:0.82rem">${s.acao || ''}</div>
             <div style="font-size:0.78rem;margin-top:3px;color:var(--success);font-weight:700">Poupa ~${formatCurrency(s.poupa_eur || 0)}</div>
         </div>`).join('');
+        ans.dataset.loaded = '1';
     } catch (e) {
-        if (ans) ans.textContent = `Erro: ${e?.message || e}`;
+        if (ans) { ans.textContent = `Erro: ${e?.message || e}`; ans.dataset.loaded = '1'; }
     }
 }
 
