@@ -194,6 +194,20 @@
             <!-- Partner summary (separated mode) -->
             <div class="card" id="partner-summary-card" style="display:none;border-left:4px solid #E91E63"></div>
 
+            <!-- Savings goals -->
+            <div class="card" id="savings-goals-card" style="display:none">
+                <h3 style="display:flex;justify-content:space-between;align-items:center"><span><i class="fas fa-bullseye" style="color:#5A3BD8"></i> Objetivos de poupança</span>
+                    <button onclick="showAddGoalPrompt()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Novo</button>
+                </h3>
+                <div id="savings-goals-list"></div>
+            </div>
+
+            <!-- Net worth mini -->
+            <div class="card" id="net-worth-card" style="display:none">
+                <h3><i class="fas fa-landmark" style="color:#5A3BD8"></i> Património</h3>
+                <div id="net-worth-body"></div>
+            </div>
+
             <!-- Prepaid cards / wallets -->
             <div class="card" id="prepaid-cards-card" style="display:none">
                 <h3 style="display:flex;justify-content:space-between;align-items:center"><span><i class="fas fa-credit-card" style="color:#5A3BD8"></i> Cartões de carregamento</span>
@@ -452,6 +466,12 @@
                     <button id="ai-items-btn" class="btn btn-sm" onclick="runAiItemAnalysis()" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-wand-magic-sparkles"></i> Analisar itens com IA</button>
                 </h3>
                 <div id="ai-items-body"><p class="empty-state" style="padding:16px 0">Toca em "Analisar itens com IA" para obteres insights sobre produtos de supermercado, pratos de restaurantes e faturas de utilities extraídos das tuas faturas.</p></div>
+            </div>
+
+            <!-- Subscriptions audit -->
+            <div class="card" id="subscriptions-card" style="display:none">
+                <h3><i class="fas fa-arrows-rotate" style="color:#5A3BD8"></i> Auditoria de subscrições</h3>
+                <div id="subscriptions-body"></div>
             </div>
 
             <!-- Utility Consumption Tracker -->
