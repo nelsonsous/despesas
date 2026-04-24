@@ -890,6 +890,95 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 
 /* ===== Savings Analysis ===== */
 .savings-card { border-left: 4px solid var(--success); }
+.ai-insights-card {
+    background: linear-gradient(135deg, #F3EFFF 0%, #FCF4FF 100%);
+    border: 1px solid #E1D6FF;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+.ai-insights-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.ai-insights-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #5A3BD8;
+    letter-spacing: 0.02em;
+}
+.ai-insights-body {
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: #2A1F4F;
+    margin-bottom: 10px;
+}
+.ai-insights-body.loading { font-style: italic; color: var(--text-light); }
+.ai-ask-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #E1D6FF;
+    border-radius: 10px;
+    padding: 4px 4px 4px 10px;
+}
+.ai-ask-row input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    font-family: var(--font);
+    font-size: 0.85rem;
+    outline: none;
+    min-width: 0;
+}
+.ai-ask-btn {
+    background: #5A3BD8 !important;
+    color: #fff !important;
+    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+}
+.ai-ask-answer {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #fff;
+    border-radius: 10px;
+    border: 1px solid #E1D6FF;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: #2A1F4F;
+}
+.ai-chip {
+    display: inline-block;
+    background: #EEE7FF;
+    color: #5A3BD8;
+    border-radius: 4px;
+    font-size: 0.62rem;
+    padding: 1px 6px;
+    font-weight: 700;
+    margin-right: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.04em;
+}
+.ai-category-suggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 5px 10px;
+    background: #EEE7FF;
+    color: #5A3BD8;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    border: 1px dashed #B9A4F0;
+}
+.ai-category-suggestion:hover { background: #E1D6FF; }
+
 .savings-item {
     display: flex;
     align-items: flex-start;

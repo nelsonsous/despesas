@@ -1268,6 +1268,8 @@ function renderSalaryCycle() {
         const cat = cats[topCat[0]];
         if (topEl) topEl.textContent = `${cat?.label || topCat[0]} · ${formatCurrency(topCat[1])}`;
     }
+    const aiScenarioRow = document.getElementById('ai-scenario-row');
+    if (aiScenarioRow) aiScenarioRow.style.display = (hasAnyAiKey() && cycleContainsToday) ? 'block' : 'none';
 }
 
 // ===== INIT =====
@@ -1759,9 +1761,6 @@ function expandMixPersonalChild(e) {
 // virtual carries a splits[] entry recording how much the partner owes/paid.
 function expandMixPersonalPartner(e) {
     if (!e.mixPartnerPct || !e.mixPartnerName) return [e];
-    // Grouped expenses use per-entry withPartner flags as the source of truth,
-    // so ignore any whole-expense mixPartner* fields that may have leaked in.
-    if (e.isGrouped && Array.isArray(e.entries)) return [e];
     const pct = parseFloat(e.mixPartnerPct);
     if (!(pct > 0 && pct < 100)) return [e];
     const total = e.fullAmount || e.amount;
@@ -2108,6 +2107,7 @@ function updateDashboard() {
     renderCategoryDonut();
     renderSalaryCycle();
     renderPartnerSummary();
+    renderAiInsightsCard();
 }
 
 // Compact partner summary on the dashboard. Shows the month's partner-involved
@@ -2127,17 +2127,26 @@ function getPartnerInvolvement(e, nameLower) {
     const out = { involved: 0, attributed: 0, owed: 0, paid: 0 };
     const gross = e.fullAmount != null ? e.fullAmount : (e.amount || 0);
 
-    // Grouped expense: per-entry withPartner flags are the SOLE source of
-    // truth. Skip the whole-expense mix/splits/withPeople logic so an entry
-    // without the flag never leaks in as "with partner".
+    // Grouped expense: rules of precedence to avoid double-counting.
+    //  - If the whole expense has mixPartnerPct set, that wins: attribute the
+    //    configured % of the total. Per-entry flags are ignored.
+    //  - Otherwise use per-entry withPartner flags (100% of each tagged entry
+    //    is hers).
     if (e.isGrouped && Array.isArray(e.entries)) {
-        const sumPartnerEntries = e.entries
-            .filter(en => en.withPartner)
-            .reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
-        if (sumPartnerEntries > 0) {
-            out.attributed += sumPartnerEntries;
-            out.involved = out.attributed;
+        if (e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower && e.mixPartnerPct) {
+            const pct = parseFloat(e.mixPartnerPct) || 0;
+            const attrAmt = gross * pct / 100;
+            out.attributed += attrAmt;
+            if (e.mixPartnerSplit) {
+                if (e.mixPartnerPaid) out.paid += attrAmt; else out.owed += attrAmt;
+            }
+        } else {
+            const sumPartnerEntries = e.entries
+                .filter(en => en.withPartner)
+                .reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+            if (sumPartnerEntries > 0) out.attributed += sumPartnerEntries;
         }
+        out.involved = out.attributed;
         return out;
     }
 
@@ -4461,12 +4470,58 @@ function hasAnyAiKey() {
     return false;
 }
 
+// Single entry point for "text in, text out" AI calls. Handles provider
+// dispatch (Gemini/Grok/Groq) and error normalisation so each feature can
+// stay short.
+async function callAIText(prompt) {
+    const provider = aiCfg.aiProvider || 'gemini';
+    if (provider === 'grok') {
+        const data = await callGrokOnce(prompt);
+        return data?.choices?.[0]?.message?.content || '';
+    }
+    if (provider === 'groq') {
+        const data = await callGroqOnce(prompt);
+        return data?.choices?.[0]?.message?.content || '';
+    }
+    const data = await callGeminiOnce(prompt);
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+// Tries to parse a JSON object from the AI response, tolerating code fences
+// or leading prose. Returns null if nothing usable is found.
+function extractJsonObject(text) {
+    if (!text) return null;
+    const cleaned = text.replace(/```json|```/g, '');
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try { return JSON.parse(match[0]); } catch { return null; }
+}
+
 async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
     const cats = getEffectiveCategories();
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
     const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
     const byCat = groupByCategory(monthExp);
-    const prevByCat = groupByCategory(prevExp);
+
+    // Three months of history lets the AI spot drifts rather than one-off
+    // spikes ("tem vindo a subir há 3 meses" vs "só este mês").
+    const history = [];
+    for (let i = 0; i < 3; i++) {
+        const d = new Date(currentDate); d.setDate(1); d.setMonth(d.getMonth() - (i + 1));
+        const exp = getEffectiveMonthExpenses(d);
+        const inc = getEffectiveMonthIncomes(d);
+        const totalE = exp.reduce((s, e) => s + e.amount, 0);
+        const totalI = inc.reduce((s, e) => s + e.amount, 0);
+        history.push({
+            mes: d.toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
+            rendimento: Math.round(totalI * 100) / 100,
+            gastos: Math.round(totalE * 100) / 100,
+            poupanca: Math.round((totalI - totalE) * 100) / 100,
+            categorias: Object.entries(groupByCategory(exp))
+                .sort((a, b) => b[1] - a[1]).slice(0, 6)
+                .map(([c, v]) => ({ cat: cats[c]?.label || c, val: Math.round(v * 100) / 100 }))
+        });
+    }
 
     const byMerchant = {};
     monthExp.forEach(e => {
@@ -4478,45 +4533,41 @@ async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
         byMerchant[key].total += e.amount;
     });
     const topMerchants = Object.values(byMerchant)
-        .filter(m => m.count >= 1)
         .sort((a, b) => b.total - a.total)
-        .slice(0, 12)
+        .slice(0, 14)
         .map(m => ({ categoria: m.cat, estabelecimento: m.merchant, vezes: m.count, total: Math.round(m.total * 100) / 100, media: Math.round((m.total / m.count) * 100) / 100 }));
 
     const categoriasAtual = Object.entries(byCat)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
-        .map(([c, v]) => ({ categoria: cats[c]?.label || c, atual: Math.round(v * 100) / 100, anterior: Math.round((prevByCat[c] || 0) * 100) / 100 }));
+        .map(([c, v]) => ({ categoria: cats[c]?.label || c, atual: Math.round(v * 100) / 100 }));
 
-    const prompt = `És um assistente financeiro em Português de Portugal. Analisa os dados abaixo e devolve APENAS um array JSON com 4 a 6 sugestões acionáveis, breves (máx. 2 frases cada). Cada item: {"type":"tip"|"warning"|"alert","text":"..."}. HTML <strong>...</strong> é permitido. Sem markdown, sem texto fora do array.
+    const fixedTotal = Math.round(monthExp.filter(e => e.isFixedExpense).reduce((s, e) => s + e.amount, 0) * 100) / 100;
+    const nonEssential = Math.round(monthExp.filter(e => e.essential === false).reduce((s, e) => s + e.amount, 0) * 100) / 100;
 
-Foca-te em insights não-óbvios:
-- Diferenças de preço médio entre estabelecimentos da mesma categoria (ex: "gastas mais por ida ao Lidl que ao Mercadona").
-- Subidas relevantes vs mês anterior e o porquê provável.
-- Estabelecimentos em que gastas pouco por visita mas muitas vezes (potencial de agregar compras).
-- Sugestões concretas de poupança com valores estimados em EUR.
-Evita platitudes ("poupe mais") e evita repetir a taxa de poupança.
+    const prompt = `És um consultor financeiro pessoal em Português de Portugal. Analisa os dados e devolve APENAS um array JSON com 4 a 6 sugestões acionáveis.
+Formato por item: {"type":"tip"|"warning"|"alert","text":"..."}. HTML só com <strong>…</strong>. Sem markdown, sem texto antes/depois do array.
 
-Dados do mês (EUR):
+Regras do conteúdo:
+- Cita sempre VALORES concretos em EUR (ex: "podes poupar ~25€/mês").
+- Prefere padrões entre estabelecimentos da mesma categoria (ticket médio, frequência, preço médio por visita).
+- Usa o histórico dos 3 meses para identificar tendências (a subir há N meses, dispara só este mês, etc.).
+- Sinaliza despesas que parecem evitáveis ou substituíveis (ex: delivery frequente).
+- NÃO repitas a taxa de poupança nem dês conselhos genéricos ("poupe mais", "faça orçamento").
+- Mantém PT-PT natural (ex: "ao Lidl", "no Continente"), 1-2 frases por sugestão.
+
+Contexto do mês atual (EUR):
 Rendimento: ${totalIncome.toFixed(2)}
-Gastos: ${totalExpenses.toFixed(2)}
+Gastos totais: ${totalExpenses.toFixed(2)} (dos quais ${fixedTotal.toFixed(2)} são fixos, ${nonEssential.toFixed(2)} não-essenciais)
 Categorias: ${JSON.stringify(categoriasAtual)}
-Top estabelecimentos: ${JSON.stringify(topMerchants)}
+Top estabelecimentos (com total, nº de visitas e média por visita): ${JSON.stringify(topMerchants)}
+
+Histórico recente (mais recente primeiro):
+${JSON.stringify(history)}
 
 Responde só com o JSON array.`;
 
-    const provider = aiCfg.aiProvider || 'gemini';
-    let rawText = '';
-    if (provider === 'grok') {
-        const data = await callGrokOnce(prompt);
-        rawText = data?.choices?.[0]?.message?.content || '';
-    } else if (provider === 'groq') {
-        const data = await callGroqOnce(prompt);
-        rawText = data?.choices?.[0]?.message?.content || '';
-    } else {
-        const data = await callGeminiOnce(prompt);
-        rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    }
+    const rawText = await callAIText(prompt);
     const parsed = extractJsonArray(rawText);
     if (!Array.isArray(parsed)) return [];
     return parsed
@@ -4527,6 +4578,321 @@ Responde só com o JSON array.`;
             ai: true
         }))
         .slice(0, 6);
+}
+
+// ===== AI ASSISTANTS =====
+// Cache narrative per-month so switching tabs doesn't re-spend tokens.
+const _aiNarrativeCache = {}; // { "YYYY-MM": { text, at } }
+const _aiCategoryCache = new Map(); // description -> {category, essential}
+
+function aiMonthKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+function renderAiInsightsCard() {
+    const card = document.getElementById('ai-insights-card');
+    if (!card) return;
+    if (!hasAnyAiKey()) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const key = aiMonthKey(currentDate);
+    const cached = _aiNarrativeCache[key];
+    const textEl = document.getElementById('ai-narrative-text');
+    if (cached) {
+        if (textEl) { textEl.classList.remove('loading'); textEl.innerHTML = cached.text; }
+        return;
+    }
+    if (textEl) { textEl.classList.add('loading'); textEl.textContent = 'A IA está a analisar o mês…'; }
+    generateAiMonthNarrative(currentDate).then(text => {
+        if (aiMonthKey(currentDate) !== key) return; // month switched during call
+        _aiNarrativeCache[key] = { text, at: Date.now() };
+        if (textEl) { textEl.classList.remove('loading'); textEl.innerHTML = text; }
+    }).catch(e => {
+        console.warn('AI narrative failed:', e?.message || e);
+        if (textEl) { textEl.classList.remove('loading'); textEl.textContent = 'Não consegui gerar o resumo agora. Tenta de novo.'; }
+    });
+}
+
+function refreshAiNarrative() {
+    const key = aiMonthKey(currentDate);
+    delete _aiNarrativeCache[key];
+    const ansEl = document.getElementById('ai-ask-answer');
+    if (ansEl) { ansEl.style.display = 'none'; ansEl.textContent = ''; }
+    renderAiInsightsCard();
+}
+
+async function generateAiMonthNarrative(date) {
+    const cats = getEffectiveCategories();
+    const monthExp = getEffectiveMonthExpenses(date);
+    const monthInc = getEffectiveMonthIncomes(date);
+    const prev = new Date(date); prev.setDate(1); prev.setMonth(prev.getMonth() - 1);
+    const prevExp = getEffectiveMonthExpenses(prev);
+    const prevInc = getEffectiveMonthIncomes(prev);
+
+    const totE = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totI = monthInc.reduce((s, e) => s + e.amount, 0);
+    const prevE = prevExp.reduce((s, e) => s + e.amount, 0);
+    const prevI = prevInc.reduce((s, e) => s + e.amount, 0);
+
+    const topDeltas = Object.entries(groupByCategory(monthExp))
+        .map(([c, v]) => ({ cat: cats[c]?.label || c, atual: v, anterior: groupByCategory(prevExp)[c] || 0 }))
+        .sort((a, b) => Math.abs(b.atual - b.anterior) - Math.abs(a.atual - a.anterior))
+        .slice(0, 5)
+        .map(x => ({ ...x, atual: Math.round(x.atual*100)/100, anterior: Math.round(x.anterior*100)/100 }));
+
+    const monthLabel = date.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+    const prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+
+Dados (EUR):
+Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)} (poupança ${(totI-totE).toFixed(2)})
+Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)} (poupança ${(prevI-prevE).toFixed(2)})
+Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}`;
+
+    const raw = await callAIText(prompt);
+    return (raw || '').replace(/```/g, '').trim().slice(0, 600);
+}
+
+// ----- Natural-language money question -----
+async function askAiMoney() {
+    const input = document.getElementById('ai-ask-input');
+    const ansEl = document.getElementById('ai-ask-answer');
+    if (!input || !ansEl) return;
+    const question = input.value.trim();
+    if (!question) return;
+    if (!hasAnyAiKey()) { ansEl.style.display = 'block'; ansEl.textContent = 'Configura uma chave de IA nas Definições para usar esta funcionalidade.'; return; }
+    ansEl.style.display = 'block';
+    ansEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA está a pensar…';
+    try {
+        const answer = await answerAiMoneyQuestion(question);
+        ansEl.innerHTML = answer;
+    } catch (e) {
+        ansEl.textContent = `Erro: ${e?.message || 'não consegui responder'}`;
+    }
+}
+
+async function answerAiMoneyQuestion(question) {
+    const cats = getEffectiveCategories();
+    // Pull 6 months of expenses so "desde Janeiro", "nos últimos 3 meses" etc. work.
+    const history = [];
+    for (let i = 0; i < 6; i++) {
+        const d = new Date(currentDate); d.setDate(1); d.setMonth(d.getMonth() - i);
+        const exp = getEffectiveMonthExpenses(d).filter(e => !e.isFixedExpense);
+        history.push(...exp.map(e => ({
+            data: e.date,
+            desc: (e.description || '').slice(0, 40),
+            valor: Math.round((e.amount || 0) * 100) / 100,
+            categoria: cats[e.category]?.label || e.category,
+            essencial: e.essential !== false
+        })));
+    }
+    // Keep size bounded to avoid blowing up the context
+    const slim = history.slice(0, 800);
+
+    const today = new Date().toISOString().slice(0,10);
+    const prompt = `És um assistente financeiro pessoal em Português de Portugal. Responde à pergunta do utilizador com base nas despesas abaixo.
+Hoje é ${today}. Formato da resposta: 1-3 frases curtas, com valores em EUR quando aplicável. Permite <strong>…</strong>. Sem markdown, sem listas salvo necessidade.
+Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
+
+Pergunta: "${question.replace(/"/g, "'")}"
+
+Despesas (últimos meses):
+${JSON.stringify(slim)}`;
+
+    const raw = await callAIText(prompt);
+    return (raw || 'Sem resposta.').replace(/```/g, '').trim().slice(0, 800);
+}
+
+// ----- Auto-categorize from description -----
+async function aiSuggestCategory(description) {
+    if (!hasAnyAiKey() || !description || description.length < 3) return null;
+    const key = description.toLowerCase().trim().slice(0, 50);
+    if (_aiCategoryCache.has(key)) return _aiCategoryCache.get(key);
+    const cats = getEffectiveCategories();
+    const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+    const recent = expenses.slice(-80).map(e => ({
+        desc: (e.description || '').slice(0, 40),
+        cat: e.category,
+        essencial: e.essential !== false
+    }));
+    const prompt = `Categoriza esta descrição de despesa. Devolve APENAS JSON: {"categoria":"<id>","essencial":true|false,"confianca":0..1}. Sem texto extra.
+Descrição: "${description.replace(/"/g, "'")}"
+Categorias disponíveis (usa o id exato): ${JSON.stringify(catList)}
+Exemplos recentes do utilizador: ${JSON.stringify(recent)}`;
+    try {
+        const raw = await callAIText(prompt);
+        const obj = extractJsonObject(raw);
+        if (!obj || !obj.categoria || !cats[obj.categoria]) return null;
+        const result = {
+            category: obj.categoria,
+            essential: obj.essencial !== false,
+            confidence: typeof obj.confianca === 'number' ? obj.confianca : 0.7
+        };
+        _aiCategoryCache.set(key, result);
+        return result;
+    } catch (e) {
+        console.warn('AI categorise failed:', e?.message || e);
+        return null;
+    }
+}
+
+let _aiCategoryDebounce = null;
+function scheduleAiCategorySuggestion(descEl, categorySelect, hintEl, essentialInputs) {
+    if (!hasAnyAiKey() || !descEl || !categorySelect || !hintEl) return;
+    clearTimeout(_aiCategoryDebounce);
+    _aiCategoryDebounce = setTimeout(async () => {
+        const desc = descEl.value.trim();
+        if (desc.length < 3) { hintEl.style.display = 'none'; return; }
+        const result = await aiSuggestCategory(desc);
+        if (!result || !result.category) { hintEl.style.display = 'none'; return; }
+        const cats = getEffectiveCategories();
+        const label = cats[result.category]?.label || result.category;
+        hintEl.style.display = 'inline-flex';
+        hintEl.innerHTML = `<i class="fas fa-sparkles"></i> IA sugere: <strong>${label}</strong>${result.essential ? '' : ' · não essencial'} <span style="opacity:0.7">(tocar para aplicar)</span>`;
+        hintEl.onclick = () => {
+            categorySelect.value = result.category;
+            if (essentialInputs && essentialInputs.length) {
+                essentialInputs.forEach(inp => { inp.checked = inp.value === (result.essential ? 'yes' : 'no'); });
+            }
+            hintEl.style.display = 'none';
+        };
+    }, 700);
+}
+
+// ----- Detect duplicates / weird entries in the current month -----
+async function runAiDuplicateCheck() {
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    const btn = document.getElementById('ai-dup-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA a analisar…'; }
+    try {
+        const cats = getEffectiveCategories();
+        const monthExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense);
+        const data = monthExp.map(e => ({
+            id: e.id,
+            data: e.date,
+            desc: (e.description || '').slice(0, 50),
+            valor: Math.round(e.amount * 100) / 100,
+            cat: cats[e.category]?.label || e.category
+        }));
+        if (data.length < 3) { showToast('Sem despesas suficientes para analisar'); return; }
+        const prompt = `Analisa estas despesas de um mês e devolve APENAS um JSON array com entradas suspeitas (duplicados prováveis, valores fora do padrão, categoria provavelmente errada). Formato por item: {"id":"…","motivo":"…","acao":"rever"|"apagar"|"recategorizar"}. Se nada suspeito, devolve []. Máx. 8 itens. Sem markdown.
+Despesas: ${JSON.stringify(data)}`;
+        const raw = await callAIText(prompt);
+        const parsed = extractJsonArray(raw);
+        showAiDuplicatesModal(parsed);
+    } catch (e) {
+        showToast(`IA falhou: ${e?.message || e}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Analisar com IA'; }
+    }
+}
+
+function showAiDuplicatesModal(items) {
+    const container = document.getElementById('ai-dup-results');
+    if (!container) return;
+    if (!items || !items.length) {
+        container.innerHTML = '<p class="empty-state" style="padding:20px">Nenhuma entrada suspeita detetada.</p>';
+        document.getElementById('modal-ai-duplicates')?.classList.add('active');
+        return;
+    }
+    container.innerHTML = items.map(it => {
+        const e = expenses.find(x => x.id === it.id);
+        if (!e) return '';
+        return `<div class="dup-row" style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.description || 'Sem descrição'}</div>
+                <div style="font-size:0.75rem;color:var(--text-light)">${e.date} · ${formatCurrency(e.amount)}</div>
+                <div style="font-size:0.78rem;margin-top:4px;color:#5A3BD8"><i class="fas fa-sparkles"></i> ${it.motivo || ''}</div>
+            </div>
+            <button class="btn btn-sm" onclick="editExpense('${e.id}');document.getElementById('modal-ai-duplicates').classList.remove('active')"><i class="fas fa-pen"></i></button>
+            <button class="btn btn-sm" style="background:#FFEBEE;color:#C62828" onclick="if(confirm('Apagar?')){deleteExpense('${e.id}');this.closest('.dup-row').remove();}"><i class="fas fa-trash"></i></button>
+        </div>`;
+    }).join('');
+    document.getElementById('modal-ai-duplicates')?.classList.add('active');
+}
+
+// ----- Suggest recurring expenses to promote to fixed -----
+async function runAiFixedSuggestion() {
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    const btn = document.getElementById('ai-fixed-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A analisar…'; }
+    try {
+        // Candidates: same description (normalized) appearing on ~monthly cadence
+        // over the last 4 months. Let the AI decide which are genuine fixed.
+        const cats = getEffectiveCategories();
+        const candidates = {};
+        for (let i = 0; i < 4; i++) {
+            const d = new Date(currentDate); d.setDate(1); d.setMonth(d.getMonth() - i);
+            const exp = getEffectiveMonthExpenses(d).filter(e => !e.isFixedExpense);
+            exp.forEach(e => {
+                const key = (e.description || '').toLowerCase().trim().slice(0, 30);
+                if (!key) return;
+                if (!candidates[key]) candidates[key] = { desc: (e.description || '').slice(0, 40), categoria: cats[e.category]?.label || e.category, meses: new Set(), total: 0, n: 0 };
+                candidates[key].meses.add(`${d.getFullYear()}-${d.getMonth()}`);
+                candidates[key].total += e.amount;
+                candidates[key].n += 1;
+            });
+        }
+        const shortlist = Object.values(candidates)
+            .filter(c => c.meses.size >= 2)
+            .map(c => ({ desc: c.desc, categoria: c.categoria, meses_com_entradas: c.meses.size, media: Math.round((c.total / c.n) * 100) / 100, total_ocorrencias: c.n }))
+            .slice(0, 20);
+        if (!shortlist.length) { showToast('Sem padrões suficientes'); return; }
+        const prompt = `Com base nestas despesas recorrentes, devolve APENAS JSON array com candidatos a "despesa fixa" (recorrência mensal estável, mesmo valor ou próximo). Formato: {"desc":"…","media":N,"motivo":"…"}. Ignora compras variáveis (supermercado, restaurantes). Máx. 6. Sem markdown.
+Candidatos: ${JSON.stringify(shortlist)}`;
+        const raw = await callAIText(prompt);
+        const parsed = extractJsonArray(raw);
+        showAiFixedModal(parsed);
+    } catch (e) {
+        showToast(`IA falhou: ${e?.message || e}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Detetar fixas com IA'; }
+    }
+}
+
+function showAiFixedModal(items) {
+    const container = document.getElementById('ai-fixed-results');
+    if (!container) return;
+    if (!items || !items.length) {
+        container.innerHTML = '<p class="empty-state" style="padding:20px">Nenhum candidato a fixa identificado.</p>';
+    } else {
+        container.innerHTML = items.map(it => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="font-weight:600">${it.desc || 'Sem descrição'}</div>
+            <div style="font-size:0.78rem;color:var(--text-light)">~${formatCurrency(it.media || 0)}/mês</div>
+            <div style="font-size:0.78rem;margin-top:4px;color:#5A3BD8"><i class="fas fa-sparkles"></i> ${it.motivo || ''}</div>
+        </div>`).join('');
+    }
+    document.getElementById('modal-ai-fixed')?.classList.add('active');
+}
+
+// ----- Draft a partner/co-parent settlement message -----
+async function aiDraftShareMessage(context) {
+    if (!hasAnyAiKey()) return null;
+    const prompt = `Escreve uma mensagem curta, simpática, em Português de Portugal (tom casual, WhatsApp) para enviar à pessoa. Inclui o valor total, número de despesas, e um resumo breve. Sem emojis excessivos. Máx. 4 linhas. Devolve só o texto.
+Contexto: ${JSON.stringify(context)}`;
+    try { return (await callAIText(prompt)).trim(); } catch { return null; }
+}
+
+// ----- Salary cycle "what if" scenario -----
+async function runAiSalaryScenario() {
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    const ans = document.getElementById('ai-scenario-answer');
+    if (ans) { ans.style.display = 'block'; ans.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A simular…'; }
+    try {
+        const cats = getEffectiveCategories();
+        const monthExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense);
+        const byCat = Object.entries(groupByCategory(monthExp)).sort((a,b) => b[1]-a[1]).slice(0,6)
+            .map(([c,v]) => ({ cat: cats[c]?.label || c, valor: Math.round(v*100)/100 }));
+        const prompt = `Sugere 3 cenários realistas de poupança para o mês, em Português de Portugal. Cada cenário: nome, o que mudar, e quanto poupa (EUR). Devolve APENAS JSON array: [{"nome":"…","acao":"…","poupa_eur":N}]. Sem markdown, máx. 3.
+Categorias do mês: ${JSON.stringify(byCat)}`;
+        const raw = await callAIText(prompt);
+        const parsed = extractJsonArray(raw);
+        if (!ans) return;
+        if (!parsed.length) { ans.textContent = 'Sem sugestões desta vez.'; return; }
+        ans.innerHTML = parsed.map(s => `<div style="padding:8px 0;border-bottom:1px dashed var(--border)">
+            <div style="font-weight:700;color:#5A3BD8">${s.nome || ''}</div>
+            <div style="font-size:0.82rem">${s.acao || ''}</div>
+            <div style="font-size:0.78rem;margin-top:3px;color:var(--success);font-weight:700">Poupa ~${formatCurrency(s.poupa_eur || 0)}</div>
+        </div>`).join('');
+    } catch (e) {
+        if (ans) ans.textContent = `Erro: ${e?.message || e}`;
+    }
 }
 
 function renderCategoryComparison() {
@@ -4746,23 +5112,9 @@ function toggleMixWithPartner() {
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
 }
 
-// Grouped expenses use per-entry withPartner in the grouped-entry modal;
-// showing the whole-expense "Atribuir parte a X" block just invites double
-// attribution, so hide it while "Agrupada" is on.
-function onIsGroupedChange() {
-    const isGrouped = !!document.getElementById('expense-is-grouped')?.checked;
-    const partnerGrp = document.getElementById('mix-personal-partner-group');
-    if (partnerGrp) {
-        if (isGrouped) {
-            partnerGrp.style.display = 'none';
-            const cb = document.getElementById('mix-with-partner');
-            if (cb) cb.checked = false;
-            toggleMixWithPartner();
-        } else {
-            updateMixPartnerUI();
-        }
-    }
-}
+// No-op kept for HTML onchange wiring. Grouped + "Atribuir parte a X" is a
+// valid combination (whole-expense attribution wins over per-entry flags).
+function onIsGroupedChange() {}
 
 function toggleMixPartnerSplit() {
     const cb = document.getElementById('mix-partner-split');
@@ -5107,13 +5459,21 @@ function suggestCategoryFromDescription(desc) {
 }
 
 function onDescriptionInput() {
-    const desc = document.getElementById('expense-desc').value;
+    const descEl = document.getElementById('expense-desc');
     const catSelect = document.getElementById('expense-category');
-    if (!catSelect || catSelect.value) return; // Don't override user choice
-    const suggested = suggestCategoryFromDescription(desc);
-    if (suggested && catSelect.querySelector(`option[value="${suggested}"]`)) {
-        catSelect.value = suggested;
+    if (!descEl || !catSelect) return;
+    const desc = descEl.value;
+    // Cheap local keyword match still runs first — instant and offline.
+    if (!catSelect.value) {
+        const suggested = suggestCategoryFromDescription(desc);
+        if (suggested && catSelect.querySelector(`option[value="${suggested}"]`)) {
+            catSelect.value = suggested;
+        }
     }
+    // AI refinement runs after a pause and offers a chip the user can tap.
+    const hint = document.getElementById('ai-category-suggestion');
+    const essentials = Array.from(document.querySelectorAll('input[name="essential"]'));
+    scheduleAiCategorySuggestion(descEl, catSelect, hint, essentials);
 }
 
 function getKnownPeople() {
@@ -5335,14 +5695,12 @@ function saveExpense(event) {
         mixChildPct: mixWithChild && mixChildPct > 0 && mixChildPct < 100 ? mixChildPct : null,
         mixChildSplitCoParent,
         mixChildPaidByFather,
-        // Mix split between Pessoal and the partner (separated mode). Grouped
-        // expenses use per-entry withPartner instead, so we never persist
-        // whole-expense mix fields on them.
-        mixPartnerPct: (!isGrouped && mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100) ? mixPartnerPct : null,
-        mixPartnerName: (!isGrouped && mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100) ? partnerName : null,
-        mixPartnerSpent: !isGrouped && mixPartnerSpentOn,
-        mixPartnerSplit: !isGrouped && mixPartnerSplitOn,
-        mixPartnerPaid: !isGrouped && mixPartnerPaidOn,
+        // Mix split between Pessoal and the partner (separated mode)
+        mixPartnerPct: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? mixPartnerPct : null,
+        mixPartnerName: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? partnerName : null,
+        mixPartnerSpent: mixPartnerSpentOn,
+        mixPartnerSplit: mixPartnerSplitOn,
+        mixPartnerPaid: mixPartnerPaidOn,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
@@ -5633,7 +5991,7 @@ function shareWithCoParent() { shareWithCoParentById(getActiveChild()?.id); }
 function shareWithCoParentWithAttachments() { shareWithCoParentWithAttachmentsById(getActiveChild()?.id); }
 function exportChildReport() { exportChildReportById(getActiveChild()?.id); }
 
-function shareWithCoParentById(childId) {
+async function shareWithCoParentById(childId) {
     const child = children.find(c => c.id === childId);
     if (!child) return;
     const monthExp = getEffectiveMonthExpenses(currentDate).filter(e => e.type === child.id && e.split);
@@ -5644,11 +6002,25 @@ function shareWithCoParentById(childId) {
     const paid = monthExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
     const pending = coParentShare - paid;
 
-    const text = `Despesas de ${child.name} - ${getMonthLabel(currentDate)}\n\n` +
+    const fallback = `Despesas de ${child.name} - ${getMonthLabel(currentDate)}\n\n` +
         monthExp.map(e => `- ${formatDate(e.date)}: ${e.description} - ${formatCurrency(e.fullAmount || e.amount)}${e.attachment ? ' [fatura anexada]' : ''}`).join('\n') +
         `\n\nTotal: ${formatCurrency(total)}\nA tua parte (${child.splitPct}%): ${formatCurrency(coParentShare)}\n` +
         (paid > 0 ? `Ja pagaste: ${formatCurrency(paid)}\n` : '') +
         (pending > 0 ? `Em falta: ${formatCurrency(pending)}` : 'Tudo pago!');
+
+    // Ask the AI to draft a nicer intro; fall back to the plain breakdown.
+    let text = fallback;
+    const aiIntro = await aiDraftShareMessage({
+        destinatario: child.coParentName || 'co-progenitor',
+        filho: child.name,
+        mes: getMonthLabel(currentDate),
+        total_eur: Math.round(total * 100) / 100,
+        parte_eur: Math.round(coParentShare * 100) / 100,
+        pago_eur: Math.round(paid * 100) / 100,
+        em_falta_eur: Math.round(pending * 100) / 100,
+        n_despesas: monthExp.length
+    });
+    if (aiIntro) text = `${aiIntro}\n\n${fallback}`;
 
     if (navigator.share) {
         navigator.share({ title: `Despesas ${child.name} - ${getMonthLabel(currentDate)}`, text })

@@ -64,6 +64,20 @@
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
+            <!-- AI Monthly Narrative + Ask Your Money -->
+            <div id="ai-insights-card" class="ai-insights-card" style="display:none">
+                <div class="ai-insights-header">
+                    <div class="ai-insights-title"><i class="fas fa-sparkles"></i> IA · Resumo do mês</div>
+                    <button id="ai-refresh-narrative" class="btn-icon" onclick="refreshAiNarrative()" title="Gerar novamente"><i class="fas fa-arrows-rotate"></i></button>
+                </div>
+                <div id="ai-narrative-text" class="ai-insights-body">A analisar o mês…</div>
+                <div class="ai-ask-row">
+                    <input type="text" id="ai-ask-input" placeholder="Pergunta ao teu dinheiro (ex: quanto gastei em cafés?)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();askAiMoney();}">
+                    <button class="btn-icon ai-ask-btn" onclick="askAiMoney()" title="Perguntar"><i class="fas fa-paper-plane"></i></button>
+                </div>
+                <div id="ai-ask-answer" class="ai-ask-answer" style="display:none"></div>
+            </div>
+
             <!-- Salary Cycle Card -->
             <div id="salary-cycle-card" class="salary-cycle-card" style="display:none">
                 <div class="salary-cycle-header">
@@ -109,6 +123,10 @@
                             <span>Top categoria</span>
                             <span id="salary-topcat">—</span>
                         </div>
+                    </div>
+                    <div id="ai-scenario-row" style="margin-top:10px;text-align:center;display:none">
+                        <button onclick="runAiSalaryScenario()" class="btn btn-sm" style="background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.25)"><i class="fas fa-sparkles"></i> Cenários de poupança</button>
+                        <div id="ai-scenario-answer" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.95);color:#2A1F4F;border-radius:10px;text-align:left;font-size:0.82rem"></div>
                     </div>
                 </div>
             </div>
@@ -261,7 +279,10 @@
             <div id="quick-add-bar" style="display:none"></div>
 
             <!-- Compact PDF import chip -->
-            <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                <button id="ai-dup-btn" onclick="runAiDuplicateCheck()" style="padding:6px 12px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;border-radius:20px;cursor:pointer;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+                    <i class="fas fa-wand-magic-sparkles"></i> Analisar com IA
+                </button>
                 <button onclick="document.getElementById('ai-pdf-input-global').click()" style="padding:6px 12px;background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:20px;cursor:pointer;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px">
                     <i class="fas fa-file-pdf"></i> Importar extrato PDF
                 </button>
@@ -509,6 +530,7 @@
                             <option value="presentes">Presentes</option>
                             <option value="outros">Outros</option>
                         </select>
+                        <div id="ai-category-suggestion" class="ai-category-suggestion" style="display:none"></div>
                     </div>
                     <div class="form-group">
                         <label>Tipo</label>
@@ -1103,7 +1125,34 @@
                 <button onclick="showAddFixed()" class="btn btn-primary btn-block">
                     <i class="fas fa-plus"></i> Adicionar Despesa Fixa
                 </button>
+                <button id="ai-fixed-btn" onclick="runAiFixedSuggestion()" class="btn btn-block" style="margin-top:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0">
+                    <i class="fas fa-wand-magic-sparkles"></i> Detetar fixas com IA
+                </button>
                 <div id="fixed-list" class="fixed-list"></div>
+            </div>
+        </div>
+
+        <!-- AI Duplicates/Suspicious Modal -->
+        <div id="modal-ai-duplicates" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-sparkles"></i> Análise IA · Entradas suspeitas</h2>
+                    <button onclick="document.getElementById('modal-ai-duplicates').classList.remove('active')" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="settings-desc">A IA destacou estas entradas porque parecem duplicados, fora do padrão ou com categoria possivelmente errada.</p>
+                <div id="ai-dup-results"></div>
+            </div>
+        </div>
+
+        <!-- AI Fixed-candidate Modal -->
+        <div id="modal-ai-fixed" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-sparkles"></i> Candidatos a despesa fixa</h2>
+                    <button onclick="document.getElementById('modal-ai-fixed').classList.remove('active')" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="settings-desc">Despesas que aparecem mês após mês com valor estável — podes promovê-las a fixas manualmente para melhor cativação.</p>
+                <div id="ai-fixed-results"></div>
             </div>
         </div>
 
