@@ -537,6 +537,26 @@
                             <small class="field-hint">Uma despesa, dividida: `100 − pct %` em Pessoal, o resto no filho (opcionalmente dividido com o co-progenitor). Funciona com a opção "Agrupada".</small>
                         </div>
                     </div>
+                    <div class="form-group" id="mix-personal-partner-group" style="display:none">
+                        <label><input type="checkbox" id="mix-with-partner" onchange="toggleMixWithPartner()"> Dividir entre Pessoal e <span id="mix-partner-header-name">namorado/a</span></label>
+                        <div id="mix-with-partner-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <label style="font-size:0.78rem;margin-top:0">% para <span class="mix-partner-name">namorado/a</span></label>
+                            <input type="number" id="mix-partner-pct" min="1" max="99" value="50">
+                            <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                                <input type="checkbox" id="mix-partner-split" onchange="toggleMixPartnerSplit()">
+                                <span style="font-size:0.85rem">Dividir essa parte com o/a <span class="mix-partner-name">namorado/a</span></span>
+                            </label>
+                            <div id="mix-partner-split-fields" style="display:none;margin-top:4px;padding-left:24px">
+                                <label style="font-size:0.78rem">% que o/a <span class="mix-partner-name">namorado/a</span> paga</label>
+                                <input type="number" id="mix-partner-split-pct" min="1" max="99" value="50">
+                                <label style="margin-top:6px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                                    <input type="checkbox" id="mix-partner-paid">
+                                    <span style="font-size:0.85rem">Já recebi a parte dele/dela</span>
+                                </label>
+                            </div>
+                            <small class="field-hint">Ex: jantar de 80 €, 50% com a namorada (40 €). Se dividirem 50/50, ela fica a dever 20 €. Enquanto estiver "por receber", a despesa conta com os 40 € no rótulo dela.</small>
+                        </div>
+                    </div>
                     <div class="form-group show-when-married" id="spouse-split-group" style="display:none">
                         <label><input type="checkbox" id="split-with-spouse"> Dividir com <span id="spouse-name-label">conjuge</span></label>
                         <div id="spouse-paid-row" style="display:none;margin-top:6px">
@@ -611,17 +631,6 @@
                                 <div class="toggle-card-desc">Junta varias compras numa so entrada (ex: Mercadona, Via Verde, cafes). Podes adicionar entradas ao longo do mes.</div>
                             </div>
                         </label>
-                    </div>
-                    <div class="form-group" id="partner-quick-group" style="display:none">
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                            <input type="checkbox" id="partner-quick-with">
-                            <span id="partner-quick-label" style="font-size:0.88rem">Com <span id="partner-quick-name">Namorado/a</span></span>
-                        </label>
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
-                            <input type="checkbox" id="partner-quick-split" onchange="applyPartnerSplitShortcut()">
-                            <span style="font-size:0.88rem">Dividir esta despesa com o/a namorado/a</span>
-                        </label>
-                        <small class="field-hint">O "Com" junta o nome em "Com quem?" para reporting. O "Dividir" preenche automaticamente uma linha em "Dividir com alguém" com a % configurada.</small>
                     </div>
                     <div class="form-group">
                         <label>Com quem? (opcional)</label>

@@ -1688,10 +1688,58 @@ function expandMixPersonalChild(e) {
     return [personalVirtual, childAdjusted];
 }
 
+// Same idea as expandMixPersonalChild but for a partner (namorado/a) in
+// separated mode. Splits the total into a "personal" virtual and a
+// partner-tagged virtual. If the partner sub-split is enabled, the partner
+// virtual carries a splits[] entry recording how much the partner owes/paid.
+function expandMixPersonalPartner(e) {
+    if (!e.mixPartnerPct || !e.mixPartnerName) return [e];
+    const pct = parseFloat(e.mixPartnerPct);
+    if (!(pct > 0 && pct < 100)) return [e];
+    const total = e.fullAmount || e.amount;
+    const partnerPortion = Math.round(total * (pct / 100) * 100) / 100;
+    const personalPortion = Math.round((total - partnerPortion) * 100) / 100;
+    const base = (extra) => ({
+        ...e,
+        mixPartnerPct: undefined,
+        mixPartnerName: undefined,
+        mixPartnerSplit: undefined,
+        mixPartnerSplitPct: undefined,
+        mixPartnerPaid: undefined,
+        parentExpenseId: e.id,
+        isFromMixPartner: true,
+        ...extra
+    });
+    const personalVirtual = base({
+        id: `${e.id}_mix_pp_personal`,
+        amount: personalPortion,
+        fullAmount: personalPortion,
+        type: 'personal'
+    });
+    const partnerVirtual = base({
+        id: `${e.id}_mix_pp_partner`,
+        amount: partnerPortion,
+        fullAmount: partnerPortion,
+        type: 'personal',
+        withPeople: [...(e.withPeople || []).filter(p => p.toLowerCase() !== e.mixPartnerName.toLowerCase()), e.mixPartnerName]
+    });
+    // Apply partner sub-split if enabled: attach a splits[] entry attributed
+    // to the partner, so the normal adjust-for-splits logic deducts it when
+    // marked paid.
+    if (e.mixPartnerSplit) {
+        const splitPct = parseFloat(e.mixPartnerSplitPct) || 50;
+        const partnerShare = Math.round(partnerPortion * (splitPct / 100) * 100) / 100;
+        partnerVirtual.splits = [{ name: e.mixPartnerName, amount: partnerShare, paid: !!e.mixPartnerPaid }];
+    }
+    const partnerAdjusted = adjustExpenseForCustomSplit(partnerVirtual);
+    return [personalVirtual, partnerAdjusted];
+}
+
 function getEffectiveMonthExpenses(date) {
     const real = getMonthExpenses(date).map(adjustExpenseForCoParent);
-    const withMix = real.flatMap(expandMixPersonalChild);
-    const expanded = withMix.flatMap(expandSplitAcrossChildren);
+    const withChildMix = real.flatMap(expandMixPersonalChild);
+    const withPartnerMix = withChildMix.flatMap(expandMixPersonalPartner);
+    const expanded = withPartnerMix.flatMap(expandSplitAcrossChildren);
     const paidFixed = getPaidFixedAsExpenses(date).flatMap(expandSplitAcrossChildren);
     return [...expanded, ...paidFixed];
 }
@@ -2748,6 +2796,11 @@ function renderExpenseItem(e) {
         const mcName = mc?.name || 'filho';
         mixBadge = `<span class="fixed-status-badge" style="background:#EDE7F6;color:var(--primary);font-size:0.65rem"><i class="fas fa-divide"></i> ${100 - e.mixChildPct}% / ${e.mixChildPct}% ${mcName}</span>`;
     }
+    // Mix Pessoal+namorado/a badge
+    if (e.mixPartnerPct && e.mixPartnerName) {
+        const state = e.mixPartnerSplit ? (e.mixPartnerPaid ? ' · ✓' : ' · 🕐') : '';
+        mixBadge += `<span class="fixed-status-badge" style="background:#FCE4EC;color:#C2185B;font-size:0.65rem;margin-left:${mixBadge ? '4px' : '0'}"><i class="fas fa-heart"></i> ${100 - e.mixPartnerPct}% / ${e.mixPartnerPct}% ${e.mixPartnerName}${state}</span>`;
+    }
 
     // Grouped expense rendering (has entries array)
     const entryTypeLabel = (t) => {
@@ -3131,7 +3184,9 @@ function renderPartnerSpending() {
         if (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower)) return true;
         return false;
     });
-    const totalInvolved = involved.reduce((s, e) => s + (e.amount || 0), 0);
+    // Use fullAmount when present so the "envolvido" total shows the gross
+    // before any partner reimbursement is deducted.
+    const totalInvolved = involved.reduce((s, e) => s + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0), 0);
     const countInvolved = involved.length;
 
     // Partner's share of shared costs (whether already paid back or not).
@@ -4139,50 +4194,52 @@ function toggleMixWithChild() {
     if (cb?.checked) { populateMixChildSelect(); updateMixCoParentLabels(); }
 }
 
-// Show the partner quick-toggle block only in separated mode with a partner
-// name configured. Refreshes the visible name.
-function updatePartnerQuickGroupUI(expense) {
-    const grp = document.getElementById('partner-quick-group');
+// Mix Pessoal + partner UI — mirror of the mix-with-child flow, for a
+// namorado/a in separated mode. Populates partner name in the labels.
+function toggleMixWithPartner() {
+    const cb = document.getElementById('mix-with-partner');
+    const fields = document.getElementById('mix-with-partner-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+
+function toggleMixPartnerSplit() {
+    const cb = document.getElementById('mix-partner-split');
+    const fields = document.getElementById('mix-partner-split-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+    if (!cb?.checked) {
+        const paid = document.getElementById('mix-partner-paid');
+        if (paid) paid.checked = false;
+    }
+}
+
+function updateMixPartnerUI(expense) {
+    const grp = document.getElementById('mix-personal-partner-group');
     if (!grp) return;
     const name = getPartnerName();
     const show = !isMarriedMode() && !!name;
     grp.style.display = show ? 'block' : 'none';
     if (!show) return;
-    const lbl = document.getElementById('partner-quick-name');
-    if (lbl) lbl.textContent = name;
-    // Precompute state from the expense (if editing)
-    const withCb = document.getElementById('partner-quick-with');
-    const splitCb = document.getElementById('partner-quick-split');
-    const isInWith = expense && Array.isArray(expense.withPeople) && expense.withPeople.includes(name);
-    const hasPartnerSplit = expense && Array.isArray(expense.splits)
-        && expense.splits.some(s => (s.name || '').toLowerCase() === name.toLowerCase());
-    if (withCb) withCb.checked = !!isInWith;
-    if (splitCb) splitCb.checked = !!hasPartnerSplit;
+    document.querySelectorAll('.mix-partner-name').forEach(el => { el.textContent = name; });
+    const headerName = document.getElementById('mix-partner-header-name');
+    if (headerName) headerName.textContent = name;
+    // Populate from the expense when editing
+    const cb = document.getElementById('mix-with-partner');
+    const pct = document.getElementById('mix-partner-pct');
+    const splitCb = document.getElementById('mix-partner-split');
+    const splitPct = document.getElementById('mix-partner-split-pct');
+    const paidCb = document.getElementById('mix-partner-paid');
+    const has = !!(expense && expense.mixPartnerPct);
+    if (cb) cb.checked = has;
+    if (pct) pct.value = expense?.mixPartnerPct || 50;
+    if (splitCb) splitCb.checked = !!(expense && expense.mixPartnerSplit);
+    if (splitPct) splitPct.value = expense?.mixPartnerSplitPct || getPartnerPct();
+    if (paidCb) paidCb.checked = !!(expense && expense.mixPartnerPaid);
+    toggleMixWithPartner();
+    toggleMixPartnerSplit();
 }
 
-// When the user ticks "Dividir esta despesa com o/a namorado/a", pre-fill a
-// splits row with the partner's name and share of the current amount.
-function applyPartnerSplitShortcut() {
-    const cb = document.getElementById('partner-quick-split');
-    const name = getPartnerName();
-    if (!cb || !name) return;
-    if (!cb.checked) return;
-    // Enable the main splits section and add a row for the partner.
-    const swOther = document.getElementById('split-with-other');
-    if (swOther && !swOther.checked) { swOther.checked = true; toggleSplitWithOther(); }
-    const pct = getPartnerPct();
-    const total = parseFloat(document.getElementById('expense-amount')?.value) || 0;
-    const amt = Math.round((total * pct / 100) * 100) / 100;
-    // Look for an existing row with the same name; otherwise add one.
-    const rows = document.querySelectorAll('#splits-list .split-row');
-    const existing = [...rows].find(r => (r.querySelector('.split-name')?.value || '').toLowerCase() === name.toLowerCase());
-    if (existing) {
-        const a = existing.querySelector('.split-amount');
-        if (a && (!a.value || parseFloat(a.value) === 0)) a.value = amt.toFixed(2);
-    } else {
-        addSplitRow({ name, amount: amt, paid: false });
-    }
-}
+// Kept as alias so old call sites don't break; unified into updateMixPartnerUI.
+function updatePartnerQuickGroupUI(expense) { updateMixPartnerUI(expense); }
 
 function populateMixChildSelect() {
     const sel = document.getElementById('mix-child-id');
@@ -4610,10 +4667,20 @@ function saveExpense(event) {
 
     const withInput = document.getElementById('expense-with')?.value.trim() || '';
     const withPeople = withInput ? withInput.split(',').map(s => s.trim()).filter(s => s) : [];
-    // Partner quick toggle: add partner name to withPeople (dedup, case-insensitive).
+    // Mix partner (separated mode): when set, the partner name is implicitly
+    // added to withPeople so the partner-spending report picks this expense up.
     const partnerName = getPartnerName();
-    const partnerQuickWith = !isMarriedMode() && partnerName && document.getElementById('partner-quick-with')?.checked;
-    if (partnerQuickWith && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
+    const mixWithPartnerOn = !isMarriedMode() && partnerName
+        && document.getElementById('mix-with-partner')?.checked;
+    const mixPartnerPct = mixWithPartnerOn
+        ? (parseFloat(document.getElementById('mix-partner-pct')?.value) || 0)
+        : 0;
+    const mixPartnerSplitOn = mixWithPartnerOn && !!document.getElementById('mix-partner-split')?.checked;
+    const mixPartnerSplitPct = mixPartnerSplitOn
+        ? (parseFloat(document.getElementById('mix-partner-split-pct')?.value) || 50)
+        : null;
+    const mixPartnerPaidOn = mixPartnerSplitOn && !!document.getElementById('mix-partner-paid')?.checked;
+    if (mixWithPartnerOn && mixPartnerPct > 0 && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
         withPeople.push(partnerName);
     }
     const splitAcross = document.getElementById('split-across-children')?.checked || false;
@@ -4660,6 +4727,12 @@ function saveExpense(event) {
         mixChildPct: mixWithChild && mixChildPct > 0 && mixChildPct < 100 ? mixChildPct : null,
         mixChildSplitCoParent,
         mixChildPaidByFather,
+        // Mix split between Pessoal and the partner (separated mode)
+        mixPartnerPct: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? mixPartnerPct : null,
+        mixPartnerName: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? partnerName : null,
+        mixPartnerSplit: mixPartnerSplitOn,
+        mixPartnerSplitPct: mixPartnerSplitOn ? mixPartnerSplitPct : null,
+        mixPartnerPaid: mixPartnerPaidOn,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
