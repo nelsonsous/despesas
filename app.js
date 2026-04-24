@@ -6807,68 +6807,77 @@ function closeAttachmentViewer() {
 
 // ===== ADD/EDIT EXPENSE =====
 function showAddExpense() {
-    document.getElementById('modal-title').textContent = 'Nova Despesa';
-    document.getElementById('expense-id').value = '';
-    window._editingExpenseId = null;
-    const promoBtn = document.getElementById('promote-to-fixed-btn');
-    if (promoBtn) promoBtn.style.display = 'none';
-    // Prepaid cards: show select only when the user has at least one card.
-    const prepaidGrp = document.getElementById('expense-prepaid-group');
-    if (prepaidGrp) prepaidGrp.style.display = prepaidCards.length ? 'block' : 'none';
-    populatePrepaidSelect();
-    const psel = document.getElementById('expense-prepaid-card');
-    if (psel) psel.value = '';
-    document.getElementById('expense-date').valueAsDate = new Date();
-    document.getElementById('laura-split-group').style.display = 'none';
-    document.getElementById('paid-by-father-group').style.display = 'none';
-    // Don't wipe OCR-injected fiscal fields right before we render them.
-    // prefillExpenseFromReceipt sets pendingReceiptFields and then calls
-    // showAddExpense(); when the user opens manually, reset here.
-    if (pendingReceiptFields?.source !== 'ocr') pendingReceiptFields = null;
-    pendingAttachment = null;
-    document.getElementById('attachment-preview').innerHTML = '';
-    populateExpenseTypeOptions(); // rebuilds radios (resets to personal)
-    document.getElementById('expense-form').reset();
-    document.getElementById('expense-date').valueAsDate = new Date();
-    // Restore last used category
-    const lastCat = JSON.parse(localStorage.getItem(LAST_CAT_KEY) || '{}');
-    const catSelect = document.getElementById('expense-category');
-    if (lastCat.expense && catSelect.querySelector(`option[value="${lastCat.expense}"]`)) {
-        catSelect.value = lastCat.expense;
-    }
-    renderPeopleSuggestions();
-    // Initialize split-across-children UI
-    const splitGrp = document.getElementById('split-children-group');
-    if (splitGrp) {
-        splitGrp.style.display = children.length >= 2 ? 'block' : 'none';
-        if (children.length >= 2) {
-            renderSplitAcrossChildrenList('split-across-children');
-            setupSplitAcrossToggle('split-across-children', 'split-across-children-list');
-            document.getElementById('split-across-children').checked = false;
-            document.getElementById('split-across-children-list').style.display = 'none';
+    // Open the modal up-front so a downstream init failure can't leave the
+    // user staring at an unresponsive FAB. The rest of the setup happens
+    // inside a try/catch so the form is at least visible even if one of
+    // the new optional features (prepaid cards, etc.) blows up.
+    const modal = document.getElementById('modal-add');
+    if (modal) modal.classList.add('active');
+    try {
+        document.getElementById('modal-title').textContent = 'Nova Despesa';
+        document.getElementById('expense-id').value = '';
+        window._editingExpenseId = null;
+        const promoBtn = document.getElementById('promote-to-fixed-btn');
+        if (promoBtn) promoBtn.style.display = 'none';
+        // Prepaid cards: show select only when the user has at least one card.
+        const prepaidGrp = document.getElementById('expense-prepaid-group');
+        if (prepaidGrp) prepaidGrp.style.display = (Array.isArray(prepaidCards) && prepaidCards.length) ? 'block' : 'none';
+        populatePrepaidSelect();
+        const psel = document.getElementById('expense-prepaid-card');
+        if (psel) psel.value = '';
+        document.getElementById('expense-date').valueAsDate = new Date();
+        document.getElementById('laura-split-group').style.display = 'none';
+        document.getElementById('paid-by-father-group').style.display = 'none';
+        // Don't wipe OCR-injected fiscal fields right before we render them.
+        // prefillExpenseFromReceipt sets pendingReceiptFields and then calls
+        // showAddExpense(); when the user opens manually, reset here.
+        if (pendingReceiptFields?.source !== 'ocr') pendingReceiptFields = null;
+        pendingAttachment = null;
+        document.getElementById('attachment-preview').innerHTML = '';
+        populateExpenseTypeOptions(); // rebuilds radios (resets to personal)
+        document.getElementById('expense-form').reset();
+        document.getElementById('expense-date').valueAsDate = new Date();
+        // Restore last used category
+        const lastCat = JSON.parse(localStorage.getItem(LAST_CAT_KEY) || '{}');
+        const catSelect = document.getElementById('expense-category');
+        if (lastCat.expense && catSelect.querySelector(`option[value="${lastCat.expense}"]`)) {
+            catSelect.value = lastCat.expense;
         }
+        renderPeopleSuggestions();
+        // Initialize split-across-children UI
+        const splitGrp = document.getElementById('split-children-group');
+        if (splitGrp) {
+            splitGrp.style.display = children.length >= 2 ? 'block' : 'none';
+            if (children.length >= 2) {
+                renderSplitAcrossChildrenList('split-across-children');
+                setupSplitAcrossToggle('split-across-children', 'split-across-children-list');
+                document.getElementById('split-across-children').checked = false;
+                document.getElementById('split-across-children-list').style.display = 'none';
+            }
+        }
+        // Initialize spouse split UI (married mode)
+        setupSpouseSplitUI(null);
+        // Reset splits section
+        const swOther = document.getElementById('split-with-other');
+        if (swOther) swOther.checked = false;
+        const list = document.getElementById('splits-list');
+        if (list) list.innerHTML = '';
+        toggleSplitWithOther();
+        populateSplitWithNamesList();
+        updatePartnerQuickGroupUI(null);
+        // Reset mix-with-child state (defaults to hidden; setupTypeToggle shows when type=personal)
+        const mixCb = document.getElementById('mix-with-child');
+        if (mixCb) mixCb.checked = false;
+        toggleMixWithChild();
+        const mixGrp = document.getElementById('mix-personal-child-group');
+        if (mixGrp) mixGrp.style.display = children.length >= 1 ? 'block' : 'none';
+        if (children.length >= 1) populateMixChildSelect();
+        document.getElementById('expense-is-grouped').checked = false;
+        onIsGroupedChange();
+        updateFiscalFieldsUI();
+    } catch (err) {
+        console.error('showAddExpense init error:', err);
     }
-    // Initialize spouse split UI (married mode)
-    setupSpouseSplitUI(null);
-    // Reset splits section
-    const swOther = document.getElementById('split-with-other');
-    if (swOther) swOther.checked = false;
-    const list = document.getElementById('splits-list');
-    if (list) list.innerHTML = '';
-    toggleSplitWithOther();
-    populateSplitWithNamesList();
-    updatePartnerQuickGroupUI(null);
-    // Reset mix-with-child state (defaults to hidden; setupTypeToggle shows when type=personal)
-    const mixCb = document.getElementById('mix-with-child');
-    if (mixCb) mixCb.checked = false;
-    toggleMixWithChild();
-    const mixGrp = document.getElementById('mix-personal-child-group');
-    if (mixGrp) mixGrp.style.display = children.length >= 1 ? 'block' : 'none';
-    if (children.length >= 1) populateMixChildSelect();
-    document.getElementById('expense-is-grouped').checked = false;
-    onIsGroupedChange();
-    updateFiscalFieldsUI();
-    document.getElementById('modal-add').classList.add('active');
 }
 
 function toggleMixWithChild() {
