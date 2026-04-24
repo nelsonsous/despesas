@@ -2889,14 +2889,17 @@ function renderIncomeTab() {
             const today2 = new Date();
             const payDate2 = getFixedIncomePaymentDate(fi, today2.getFullYear(), today2.getMonth());
             const waitingForDay = fi.onlyOnDay && !isReceived && today2 < payDate2;
+            const modeLabel = fi.paymentMode === 'last-working-day' ? 'último dia útil'
+                : fi.paymentMode === 'working-day-after' ? `1.º útil após ${fi.dayOfMonth}`
+                : `Dia ${fi.dayOfMonth}`;
             return `
-                <div class="fixed-month-item" style="${waitingForDay ? 'opacity:0.6' : ''}">
+                <div class="fixed-month-item" style="flex-wrap:wrap;${waitingForDay ? 'opacity:0.6;' : ''}">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:#E8F5E9;color:#2E7D32;flex-shrink:0">
                         <i class="fas ${cat.icon || 'fa-coins'}"></i>
                     </div>
-                    <div style="flex:1;min-width:0">
+                    <div style="flex:1 1 60%;min-width:0">
                         <div style="font-size:0.85rem;font-weight:600">${fi.description} ${varBadge}</div>
-                        <div style="font-size:0.72rem;color:var(--text-light)">${fi.paymentMode === 'last-working-day' ? 'último dia útil' : fi.paymentMode === 'working-day-after' ? `1.º dia útil após dia ${fi.dayOfMonth}` : `Dia ${fi.dayOfMonth}`}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda dia' : ''}</div>
+                        <div style="font-size:0.72rem;color:var(--text-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${modeLabel}${fi.isVariable && amount !== fi.amount ? ` · base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' · <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
                     </div>
                     ${varEdit}
                     <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
