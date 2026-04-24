@@ -437,6 +437,12 @@
             <!-- Partner spending (separated mode) -->
             <div class="card" id="partner-spending-card" style="display:none"></div>
 
+            <!-- Receipt insights: warranties, promotions, locations -->
+            <div class="card" id="receipt-insights-card" style="display:none">
+                <h3><i class="fas fa-receipt" style="color:#5A3BD8"></i> Insights de faturas</h3>
+                <div id="receipt-insights-body"></div>
+            </div>
+
             <!-- Product Price Tracker -->
             <div class="card" id="product-prices-card" style="display:none">
                 <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
@@ -751,6 +757,79 @@
                                         <option value="recibo">Recibo simplificado</option>
                                         <option value="nota-credito">Nota de crédito</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">ATCUD</label>
+                                    <input type="text" id="fiscal-atcud" placeholder="XXXXXXXX-NNNNN">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Nº do documento</label>
+                                    <input type="text" id="fiscal-doc-number" placeholder="FT 2024/12345">
+                                </div>
+                                <div style="grid-column:span 2">
+                                    <label style="font-size:0.75rem">Morada do estabelecimento</label>
+                                    <input type="text" id="fiscal-address" placeholder="Rua, nº, código-postal">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Cidade</label>
+                                    <input type="text" id="fiscal-city" placeholder="Lisboa">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Desconto (€)</label>
+                                    <input type="number" id="fiscal-discount" step="0.01" placeholder="ex: 2,50">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Programa fidelidade</label>
+                                    <input type="text" id="fiscal-loyalty-program" placeholder="Cartão Continente, Lidl Plus…">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Pontos ganhos</label>
+                                    <input type="number" id="fiscal-loyalty-points" step="1" placeholder="ex: 15">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Tipo de serviço</label>
+                                    <select id="fiscal-service-type">
+                                        <option value="">—</option>
+                                        <option value="mesa">Mesa</option>
+                                        <option value="take-away">Take-away</option>
+                                        <option value="esplanada">Esplanada</option>
+                                        <option value="balcao">Ao balcão</option>
+                                        <option value="delivery">Delivery</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Gorjeta (€)</label>
+                                    <input type="number" id="fiscal-tip" step="0.01" placeholder="ex: 2,00">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Garantia até</label>
+                                    <input type="date" id="fiscal-warranty">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Canal de compra</label>
+                                    <select id="fiscal-channel">
+                                        <option value="">—</option>
+                                        <option value="fisico">Loja física</option>
+                                        <option value="online">Online</option>
+                                        <option value="telefone">Telefone</option>
+                                        <option value="recorrente">Recorrente</option>
+                                    </select>
+                                </div>
+                                <div style="grid-column:span 2">
+                                    <label style="font-size:0.75rem">Contexto</label>
+                                    <select id="fiscal-context-tag">
+                                        <option value="">—</option>
+                                        <option value="planeado">Planeado</option>
+                                        <option value="urgencia">Urgência</option>
+                                        <option value="stress">Stress-buying</option>
+                                        <option value="premio">Prémio pessoal</option>
+                                        <option value="obrigacao">Obrigação</option>
+                                    </select>
+                                </div>
+                                <div style="grid-column:span 2">
+                                    <button type="button" id="fiscal-location-btn" class="btn btn-block" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);font-size:0.8rem;padding:8px">
+                                        <i class="fas fa-location-crosshairs"></i> Guardar localização atual
+                                    </button>
                                 </div>
                             </div>
                             <small class="field-hint" style="margin-top:6px">Se o NIF na factura for o teu, entra no Tracker IRS nos Relatórios. Só os tipos "Fatura" e "Fatura-Recibo" dão dedução.</small>

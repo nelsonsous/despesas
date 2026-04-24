@@ -1419,7 +1419,7 @@ function ensureLockOverlay() {
         <div class="app-lock-inner">
             <div class="app-lock-icon"><i class="fas fa-lock"></i></div>
             <div class="app-lock-title">App bloqueada</div>
-            <div class="app-lock-sub">Desbloqueia para continuar</div>
+            <div class="app-lock-sub">Toca em qualquer sítio para desbloquear</div>
             <button id="app-lock-bio" class="btn btn-primary btn-block"><i class="fas fa-fingerprint"></i> Desbloquear</button>
             <div id="app-lock-pin-row" style="margin-top:12px;display:none">
                 <input type="password" id="app-lock-pin" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="PIN" autocomplete="off">
@@ -1430,11 +1430,18 @@ function ensureLockOverlay() {
         </div>
     `;
     document.body.appendChild(overlay);
-    overlay.querySelector('#app-lock-bio').onclick = async () => {
+    // Any tap on the overlay (outside the PIN input or "use PIN" link)
+    // counts as a gesture and triggers biometric. Removes the need to aim
+    // at the small button on iOS where the cold-start gesture lock forces
+    // one initial tap anyway.
+    overlay.addEventListener('click', async (ev) => {
+        if (ev.target.closest('#app-lock-pin-row') || ev.target.closest('#app-lock-use-pin')) return;
+        const cfg = getLockCfg();
+        if (!cfg.biometricId) return;
         const ok = await verifyBiometric();
         if (ok) unlockApp();
         else overlay.querySelector('#app-lock-status').textContent = 'Não foi possível verificar';
-    };
+    });
     overlay.querySelector('#app-lock-use-pin').onclick = () => {
         overlay.querySelector('#app-lock-pin-row').style.display = 'block';
         overlay.querySelector('#app-lock-pin').focus();
@@ -1464,6 +1471,19 @@ function showLockScreen() {
     if (!cfg.biometricId && cfg.pinHash) {
         overlay.querySelector('#app-lock-pin-row').style.display = 'block';
         setTimeout(() => overlay.querySelector('#app-lock-pin').focus(), 100);
+    }
+
+    // Try an immediate biometric prompt. iOS Safari usually blocks WebAuthn
+    // without a gesture on cold start (throws NotAllowedError) — we swallow
+    // the error silently and let the "tap anywhere to unlock" fallback kick
+    // in. On Android / returns-from-background it sometimes works right away.
+    if (cfg.biometricId) {
+        setTimeout(async () => {
+            try {
+                const ok = await verifyBiometric();
+                if (ok) unlockApp();
+            } catch { /* needs user gesture — will fire on first tap */ }
+        }, 50);
     }
 }
 
@@ -3733,6 +3753,7 @@ function renderReports() {
     renderSalaryCycleReport();
     renderPartnerSpending();
     renderIrsTracker();
+    renderReceiptInsights();
     renderProductPrices();
     renderSavingsAnalysis();
     renderCategoryComparison();
@@ -5523,6 +5544,15 @@ async function onReceiptImageSelected(input) {
   "metodoPagamento": "cartao" | "mbway" | "dinheiro" | "transferencia" | "cheque" | "outro" | null,
   "cartaoUltimos4": "4 dígitos" | null,
   "tipoDocumento": "fatura" | "fatura-recibo" | "recibo" | "nota-credito" | null,
+  "atcud": "código ATCUD (formato XXXXXXXX-NNNNN)" | null,
+  "numeroDocumento": "nº do documento como aparece" | null,
+  "moradaVendedor": "morada completa do estabelecimento" | null,
+  "cidadeVendedor": "cidade extraída da morada" | null,
+  "desconto": N | null,
+  "programaFidelidade": "nome do programa (ex: Cartão Continente, Lidl Plus)" | null,
+  "pontosFidelidade": N | null,
+  "tipoServico": "mesa" | "take-away" | "esplanada" | "balcao" | "delivery" | null,
+  "gorjeta": N | null,
   "itens": [{ "nome": "produto/prato normalizado", "qtd": N, "unidade": "un|kg|L|g|ml|dose" | null, "precoUnitario": N | null, "total": N, "iva": 6|13|23 | null }] | null
 }
 Para "itens": extrai cada linha da factura que represente um produto ou prato. Normaliza o nome (ex: "LEITE MIMOSA M.G. 1L" → "Leite Mimosa 1L"; "Prato do dia carne" → "Prato do dia"). Se a factura só tem o total agregado (ex: recibo de restauração sem linhas), devolve null ou []. Máximo 30 itens.
@@ -5552,16 +5582,25 @@ function prefillExpenseFromReceipt(obj) {
     // Stash the fiscal fields on the modal form so saveExpense() picks them
     // up when the user confirms. Cleared by showAddExpense() on next open.
     pendingReceiptFields = {
-        sellerNif:    cleanNif(obj.nifVendedor),
-        buyerNif:     cleanNif(obj.nifCliente),
-        vatBase:      toNumberOrNull(obj.ivaBase),
-        vatAmount:    toNumberOrNull(obj.ivaValor),
-        vatRate:      [6, 13, 23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
-        paymentMethod: ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
-        cardLast4:    /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
-        purchaseTime: /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
-        documentType: ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
-        lineItems:    sanitizeLineItems(obj.itens),
+        sellerNif:      cleanNif(obj.nifVendedor),
+        buyerNif:       cleanNif(obj.nifCliente),
+        vatBase:        toNumberOrNull(obj.ivaBase),
+        vatAmount:      toNumberOrNull(obj.ivaValor),
+        vatRate:        [6, 13, 23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
+        paymentMethod:  ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
+        cardLast4:      /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
+        purchaseTime:   /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
+        documentType:   ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
+        atcud:          typeof obj.atcud === 'string' ? obj.atcud.trim().slice(0, 40) : null,
+        docNumber:      typeof obj.numeroDocumento === 'string' ? obj.numeroDocumento.trim().slice(0, 40) : null,
+        sellerAddress:  typeof obj.moradaVendedor === 'string' ? obj.moradaVendedor.trim().slice(0, 120) : null,
+        sellerCity:     typeof obj.cidadeVendedor === 'string' ? obj.cidadeVendedor.trim().slice(0, 60) : null,
+        discount:       toNumberOrNull(obj.desconto),
+        loyaltyProgram: typeof obj.programaFidelidade === 'string' ? obj.programaFidelidade.trim().slice(0, 40) : null,
+        loyaltyPoints:  toNumberOrNull(obj.pontosFidelidade),
+        serviceType:    ['mesa','take-away','esplanada','balcao','delivery'].includes(obj.tipoServico) ? obj.tipoServico : null,
+        tip:            toNumberOrNull(obj.gorjeta),
+        lineItems:      sanitizeLineItems(obj.itens),
         source: 'ocr'
     };
     showAddExpense();
@@ -5651,10 +5690,36 @@ function updateFiscalFieldsUI() {
     set('fiscal-card-last4', p.cardLast4);
     set('fiscal-time', p.purchaseTime);
     set('fiscal-doc-type', p.documentType || '');
+    set('fiscal-atcud', p.atcud);
+    set('fiscal-doc-number', p.docNumber);
+    set('fiscal-address', p.sellerAddress);
+    set('fiscal-city', p.sellerCity);
+    set('fiscal-discount', p.discount);
+    set('fiscal-loyalty-program', p.loyaltyProgram);
+    set('fiscal-loyalty-points', p.loyaltyPoints);
+    set('fiscal-service-type', p.serviceType || '');
+    set('fiscal-tip', p.tip);
+    set('fiscal-warranty', p.warrantyUntil);
+    set('fiscal-channel', p.purchaseChannel || '');
+    set('fiscal-context-tag', p.contextTag || '');
+    // Location chip
+    const locBtn = document.getElementById('fiscal-location-btn');
+    if (locBtn) {
+        if (p.location && p.location.lat != null) {
+            locBtn.innerHTML = `<i class="fas fa-map-marker-alt"></i> Localização guardada <span style="opacity:0.7">(toca para remover)</span>`;
+            locBtn.onclick = () => { if (pendingReceiptFields) pendingReceiptFields.location = null; updateFiscalFieldsUI(); };
+        } else {
+            locBtn.innerHTML = `<i class="fas fa-location-crosshairs"></i> Guardar localização atual`;
+            locBtn.onclick = captureCurrentLocation;
+        }
+    }
     // Show the block collapsed by default unless something came from OCR.
     const body = document.getElementById('fiscal-details-body');
     const toggleIcon = document.getElementById('fiscal-details-toggle');
-    const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType || (p.lineItems && p.lineItems.length);
+    const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType
+                || p.atcud || p.sellerCity || p.discount || p.loyaltyProgram || p.serviceType || p.tip
+                || p.warrantyUntil || p.purchaseChannel || p.contextTag || p.location
+                || (p.lineItems && p.lineItems.length);
     if (body && toggleIcon) {
         body.style.display = hasAny ? 'block' : 'none';
         toggleIcon.className = hasAny ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
@@ -5675,6 +5740,29 @@ function updateFiscalFieldsUI() {
             itemsBox.innerHTML = '';
         }
     }
+}
+
+function captureCurrentLocation() {
+    if (!navigator.geolocation) { showToast('GPS não disponível'); return; }
+    const btn = document.getElementById('fiscal-location-btn');
+    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A localizar…';
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            if (!pendingReceiptFields) pendingReceiptFields = { source: 'manual' };
+            pendingReceiptFields.location = {
+                lat: Math.round(pos.coords.latitude * 1e6) / 1e6,
+                lng: Math.round(pos.coords.longitude * 1e6) / 1e6,
+                accuracy: Math.round(pos.coords.accuracy)
+            };
+            showToast('Localização guardada');
+            updateFiscalFieldsUI();
+        },
+        err => {
+            showToast(`GPS: ${err.message}`);
+            updateFiscalFieldsUI();
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
 }
 
 function removeLineItem(idx) {
@@ -5705,7 +5793,19 @@ function collectFiscalFieldsFromForm() {
         paymentMethod: val('fiscal-payment-method') || null,
         cardLast4: /^\d{4}$/.test(val('fiscal-card-last4') || '') ? val('fiscal-card-last4') : null,
         purchaseTime: /^\d{2}:\d{2}$/.test(val('fiscal-time') || '') ? val('fiscal-time') : null,
-        documentType: val('fiscal-doc-type') || null
+        documentType: val('fiscal-doc-type') || null,
+        atcud: val('fiscal-atcud') || null,
+        docNumber: val('fiscal-doc-number') || null,
+        sellerAddress: val('fiscal-address') || null,
+        sellerCity: val('fiscal-city') || null,
+        discount: toNumberOrNull(val('fiscal-discount')),
+        loyaltyProgram: val('fiscal-loyalty-program') || null,
+        loyaltyPoints: toNumberOrNull(val('fiscal-loyalty-points')),
+        serviceType: val('fiscal-service-type') || null,
+        tip: toNumberOrNull(val('fiscal-tip')),
+        warrantyUntil: val('fiscal-warranty') || null,
+        purchaseChannel: val('fiscal-channel') || null,
+        contextTag: val('fiscal-context-tag') || null
     };
 }
 
@@ -5848,6 +5948,122 @@ function renderIrsTracker() {
         <div style="font-size:1.8rem;font-weight:700;color:#2A1F4F;margin-top:2px">${formatCurrency(grandDeductible)}</div>
         <div style="font-size:0.72rem;color:var(--text-light)">Com ${eligibleExp.length} facturas elegíveis em ${year}</div>
     </div>${rows}`;
+}
+
+// ===== RECEIPT INSIGHTS =====
+// Hub card for the data unlocked by the new receipt fields: warranties
+// about to expire, yearly discount savings, spending by location, and
+// loyalty-points totals. Hidden when there's nothing to show.
+function renderReceiptInsights() {
+    const card = document.getElementById('receipt-insights-card');
+    const body = document.getElementById('receipt-insights-body');
+    if (!card || !body) return;
+
+    const now = new Date();
+    const nowStr = now.toISOString().slice(0, 10);
+    const year = now.getFullYear();
+
+    // Warranties expiring in the next 60 days (or already lapsed in last 30).
+    const soon = new Date(now); soon.setDate(now.getDate() + 60);
+    const past = new Date(now); past.setDate(now.getDate() - 30);
+    const warranties = expenses
+        .filter(e => e.warrantyUntil && e.warrantyUntil >= past.toISOString().slice(0,10) && e.warrantyUntil <= soon.toISOString().slice(0,10))
+        .sort((a, b) => a.warrantyUntil.localeCompare(b.warrantyUntil));
+
+    // Promotional savings for the current year
+    const yearExp = expenses.filter(e => e.date && e.date.startsWith(String(year)));
+    const promoTotal = yearExp.reduce((s, e) => s + (e.discount || 0), 0);
+    const promoCount = yearExp.filter(e => (e.discount || 0) > 0).length;
+
+    // Spending by city (year)
+    const byCity = {};
+    yearExp.forEach(e => {
+        const c = (e.sellerCity || '').trim();
+        if (!c) return;
+        byCity[c] = (byCity[c] || 0) + e.amount;
+    });
+    const topCities = Object.entries(byCity).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    // Loyalty: total points per programa (year)
+    const byLoyalty = {};
+    yearExp.forEach(e => {
+        if (!e.loyaltyProgram || !e.loyaltyPoints) return;
+        const k = e.loyaltyProgram;
+        byLoyalty[k] = (byLoyalty[k] || 0) + e.loyaltyPoints;
+    });
+    const loyaltyList = Object.entries(byLoyalty).sort((a, b) => b[1] - a[1]);
+
+    // Spending by service type (restaurantes)
+    const byService = {};
+    yearExp.forEach(e => {
+        if (!e.serviceType) return;
+        byService[e.serviceType] = (byService[e.serviceType] || 0) + e.amount;
+    });
+    const serviceList = Object.entries(byService).sort((a, b) => b[1] - a[1]);
+
+    const sections = [];
+
+    if (warranties.length) {
+        sections.push(`<div class="ri-section">
+            <div class="ri-title"><i class="fas fa-shield-halved" style="color:#E65100"></i> Garantias</div>
+            ${warranties.map(e => {
+                const daysTo = Math.round((new Date(e.warrantyUntil) - now) / 86400000);
+                const label = daysTo < 0 ? `expirou há ${Math.abs(daysTo)} dias` : daysTo === 0 ? 'expira hoje' : `faltam ${daysTo} dias`;
+                const color = daysTo < 0 ? 'var(--text-light)' : daysTo <= 14 ? 'var(--danger)' : 'var(--warning)';
+                return `<div class="ri-row">
+                    <div><div style="font-weight:600">${e.description || 'Sem descrição'}</div><div style="font-size:0.7rem;color:var(--text-light)">Até ${formatDate(e.warrantyUntil)} · ${formatCurrency(e.amount)}</div></div>
+                    <div style="text-align:right;font-size:0.72rem;color:${color};font-weight:600">${label}</div>
+                </div>`;
+            }).join('')}
+        </div>`);
+    }
+
+    if (promoTotal > 0) {
+        const totalYearSpend = yearExp.reduce((s, e) => s + e.amount, 0);
+        const rate = totalYearSpend > 0 ? (promoTotal / (totalYearSpend + promoTotal) * 100).toFixed(1) : 0;
+        sections.push(`<div class="ri-section">
+            <div class="ri-title"><i class="fas fa-tag" style="color:var(--success)"></i> Poupança em promoções em ${year}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
+                <div><div style="font-weight:700;color:var(--success);font-size:1.1rem">${formatCurrency(promoTotal)}</div><div style="font-size:0.72rem;color:var(--text-light)">em ${promoCount} ${promoCount === 1 ? 'factura' : 'facturas'} · ~${rate}% de taxa de desconto</div></div>
+            </div>
+        </div>`);
+    }
+
+    if (topCities.length) {
+        const maxVal = topCities[0][1];
+        sections.push(`<div class="ri-section">
+            <div class="ri-title"><i class="fas fa-location-dot" style="color:var(--primary)"></i> Gastos por cidade em ${year}</div>
+            ${topCities.map(([c, v]) => `<div style="padding:4px 0">
+                <div style="display:flex;justify-content:space-between;font-size:0.82rem"><span>${c}</span><span style="font-weight:600">${formatCurrency(v)}</span></div>
+                <div style="height:4px;background:#EEE7FF;border-radius:2px;margin-top:2px"><div style="height:100%;width:${Math.round(v/maxVal*100)}%;background:var(--primary);border-radius:2px"></div></div>
+            </div>`).join('')}
+        </div>`);
+    }
+
+    if (loyaltyList.length) {
+        sections.push(`<div class="ri-section">
+            <div class="ri-title"><i class="fas fa-star" style="color:#FDCB6E"></i> Pontos de fidelização em ${year}</div>
+            ${loyaltyList.map(([p, pts]) => `<div class="ri-row">
+                <div style="font-weight:600">${p}</div>
+                <div style="font-weight:700;color:#5A3BD8">${Math.round(pts)} pts</div>
+            </div>`).join('')}
+        </div>`);
+    }
+
+    if (serviceList.length >= 2) {
+        const totS = serviceList.reduce((s, [_, v]) => s + v, 0);
+        sections.push(`<div class="ri-section">
+            <div class="ri-title"><i class="fas fa-utensils" style="color:#E65100"></i> Restauração por tipo de serviço em ${year}</div>
+            ${serviceList.map(([t, v]) => `<div class="ri-row">
+                <div>${t === 'take-away' ? 'Take-away' : t.charAt(0).toUpperCase() + t.slice(1)}</div>
+                <div style="font-weight:600">${formatCurrency(v)} <span style="font-size:0.72rem;color:var(--text-light);font-weight:400">(${Math.round(v/totS*100)}%)</span></div>
+            </div>`).join('')}
+        </div>`);
+    }
+
+    if (!sections.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    body.innerHTML = sections.join('');
 }
 
 // ===== PRODUCT PRICE TRACKER =====
@@ -6656,6 +6872,19 @@ function editExpense(id) {
         cardLast4: e.cardLast4 || null,
         purchaseTime: e.purchaseTime || null,
         documentType: e.documentType || null,
+        atcud: e.atcud || null,
+        docNumber: e.docNumber || null,
+        sellerAddress: e.sellerAddress || null,
+        sellerCity: e.sellerCity || null,
+        discount: e.discount ?? null,
+        loyaltyProgram: e.loyaltyProgram || null,
+        loyaltyPoints: e.loyaltyPoints ?? null,
+        serviceType: e.serviceType || null,
+        tip: e.tip ?? null,
+        warrantyUntil: e.warrantyUntil || null,
+        purchaseChannel: e.purchaseChannel || null,
+        contextTag: e.contextTag || null,
+        location: e.location || null,
         lineItems: Array.isArray(e.lineItems) ? e.lineItems : null,
         source: 'edit'
     };
@@ -6789,16 +7018,29 @@ function saveExpense(event) {
         isGrouped,
         attachment: pendingAttachment || null,
         // Fiscal / receipt detail fields (optional — from OCR or manual entry)
-        sellerNif:     fiscal.sellerNif,
-        buyerNif:      fiscal.buyerNif,
-        vatBase:       fiscal.vatBase,
-        vatAmount:     fiscal.vatAmount,
-        vatRate:       fiscal.vatRate,
-        paymentMethod: fiscal.paymentMethod,
-        cardLast4:     fiscal.cardLast4,
-        purchaseTime:  fiscal.purchaseTime,
-        documentType:  fiscal.documentType,
-        lineItems:     pendingReceiptFields?.lineItems || null,
+        sellerNif:       fiscal.sellerNif,
+        buyerNif:        fiscal.buyerNif,
+        vatBase:         fiscal.vatBase,
+        vatAmount:       fiscal.vatAmount,
+        vatRate:         fiscal.vatRate,
+        paymentMethod:   fiscal.paymentMethod,
+        cardLast4:       fiscal.cardLast4,
+        purchaseTime:    fiscal.purchaseTime,
+        documentType:    fiscal.documentType,
+        atcud:           fiscal.atcud,
+        docNumber:       fiscal.docNumber,
+        sellerAddress:   fiscal.sellerAddress,
+        sellerCity:      fiscal.sellerCity,
+        discount:        fiscal.discount,
+        loyaltyProgram:  fiscal.loyaltyProgram,
+        loyaltyPoints:   fiscal.loyaltyPoints,
+        serviceType:     fiscal.serviceType,
+        tip:             fiscal.tip,
+        warrantyUntil:   fiscal.warrantyUntil,
+        purchaseChannel: fiscal.purchaseChannel,
+        contextTag:      fiscal.contextTag,
+        location:        pendingReceiptFields?.location || null,
+        lineItems:       pendingReceiptFields?.lineItems || null,
         updatedAt: new Date().toISOString()
     };
 
