@@ -1719,6 +1719,21 @@ function loadData() {
     prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
+    // Migrate legacy savedSoFar (single number) to a transactions ledger so
+    // the new add/remove/history flow has something to work with.
+    savingsGoals.forEach(g => {
+        if (!Array.isArray(g.transactions)) {
+            g.transactions = [];
+            if (typeof g.savedSoFar === 'number' && g.savedSoFar > 0) {
+                g.transactions.push({
+                    id: generateId(), type: 'add', amount: g.savedSoFar,
+                    date: (g.createdAt || new Date().toISOString()).slice(0, 10),
+                    note: 'Saldo inicial (migrado)'
+                });
+            }
+            delete g.savedSoFar;
+        }
+    });
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
@@ -2492,8 +2507,10 @@ function updateDashboard() {
     renderSavingsGoals();
     renderNetWorth();
     renderBudgetAlerts();
+    // Prepaid cards card always visible so the user can find the entry point
+    // and create their first card without going hunting through menus.
     const prepaidCard = document.getElementById('prepaid-cards-card');
-    if (prepaidCard) prepaidCard.style.display = prepaidCards.length ? 'block' : 'none';
+    if (prepaidCard) prepaidCard.style.display = 'block';
     renderPrepaidCards();
 }
 
@@ -3379,7 +3396,10 @@ function duplicateExpense(id) {
     if (!orig) return;
     const hasCopyTag = /^\(copia\)\s/i.test(orig.description);
     const newDesc = hasCopyTag ? orig.description : `(copia) ${orig.description}`;
-    const dup = { ...orig, id: generateId(), description: newDesc, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    // Keep the original date so duplicating an expense from May lands in
+    // May, not in whatever month "today" happens to be. The user can still
+    // edit afterwards if they actually want a different date.
+    const dup = { ...orig, id: generateId(), description: newDesc, date: orig.date, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     delete dup.attachment;
     expenses.push(dup);
     saveData();
@@ -3392,7 +3412,7 @@ function duplicateIncome(id) {
     if (!orig) return;
     const hasCopyTag = /^\(copia\)\s/i.test(orig.description);
     const newDesc = hasCopyTag ? orig.description : `(copia) ${orig.description}`;
-    const dup = { ...orig, id: generateId(), description: newDesc, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const dup = { ...orig, id: generateId(), description: newDesc, date: orig.date, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     delete dup.attachment;
     incomes.push(dup);
     saveData();
@@ -7888,96 +7908,176 @@ function promoteExpenseToFixed(id) {
 // to their savings account. We compute "monthly required" and surface
 // it on the dashboard along with progress vs the user's typical savings
 // rate so they know if the goal is realistic.
+// Savings goals are now ledger-backed: savedSoFar is derived from a list
+// of {type:'add'|'remove', amount, date, note} so transitions across
+// months (and across goals) are visible, auditable, and reversible.
+function getGoalBalance(goal) {
+    return (goal?.transactions || []).reduce(
+        (s, t) => s + (t.type === 'add' ? t.amount : -t.amount), 0
+    );
+}
+
+// Sums net additions across all goals in the given month — used to show
+// the user how much they actually moved into savings each month.
+function getGoalsMonthlyContribution(yyyymm) {
+    let total = 0;
+    savingsGoals.forEach(g => (g.transactions || []).forEach(t => {
+        if ((t.date || '').startsWith(yyyymm)) total += (t.type === 'add' ? t.amount : -t.amount);
+    }));
+    return total;
+}
+
 function showAddGoalPrompt() {
     const name = prompt('Nome do objetivo (ex: Férias 2026):');
     if (!name || !name.trim()) return;
     const target = parseFloat((prompt('Valor a poupar (EUR):') || '').replace(',', '.'));
     if (!isFinite(target) || target <= 0) { showToast('Valor inválido'); return; }
     const deadline = prompt('Data limite (YYYY-MM-DD, opcional):');
+    const monthlyTarget = parseFloat((prompt('Objetivo de contribuição mensal (EUR, opcional):') || '').replace(',', '.'));
+    const initial = parseFloat((prompt('Valor inicial já guardado (EUR, opcional):') || '').replace(',', '.'));
     const goal = {
         id: generateId(),
         name: name.trim(),
         target,
         deadline: deadline && /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : null,
-        savedSoFar: 0,
+        monthlyTarget: isFinite(monthlyTarget) && monthlyTarget > 0 ? monthlyTarget : null,
+        transactions: [],
         color: '#5A3BD8',
         createdAt: new Date().toISOString()
     };
+    if (isFinite(initial) && initial > 0) {
+        goal.transactions.push({
+            id: generateId(), type: 'add', amount: initial,
+            date: new Date().toISOString().slice(0, 10),
+            note: 'Saldo inicial'
+        });
+    }
     savingsGoals.push(goal);
     saveData();
     renderSavingsGoals();
     showToast('Objetivo criado');
 }
 
-function updateGoalSaved(id) {
+function addToGoal(id) {
     const g = savingsGoals.find(x => x.id === id);
     if (!g) return;
-    const v = prompt(`Quanto tens guardado para "${g.name}"? (atual: ${formatCurrency(g.savedSoFar)})`);
+    const v = prompt(`Adicionar à poupança "${g.name}" (atual ${formatCurrency(getGoalBalance(g))}):`);
     if (v == null) return;
     const n = parseFloat(v.replace(',', '.'));
-    if (!isFinite(n) || n < 0) { showToast('Valor inválido'); return; }
-    g.savedSoFar = n;
+    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
+    const note = prompt('Nota (opcional):') || '';
+    g.transactions = g.transactions || [];
+    g.transactions.push({
+        id: generateId(), type: 'add', amount: n,
+        date: new Date().toISOString().slice(0, 10), note
+    });
     saveData();
     renderSavingsGoals();
-    if (n >= g.target) showToast(`🎉 Objetivo "${g.name}" atingido!`);
+    if (getGoalBalance(g) >= g.target) showToast(`🎉 Objetivo "${g.name}" atingido!`);
+}
+
+function removeFromGoal(id) {
+    const g = savingsGoals.find(x => x.id === id);
+    if (!g) return;
+    const cur = getGoalBalance(g);
+    const v = prompt(`Retirar da poupança "${g.name}" (atual ${formatCurrency(cur)}):`);
+    if (v == null) return;
+    const n = parseFloat(v.replace(',', '.'));
+    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
+    if (n > cur && !confirm('O valor a retirar excede o saldo. Continuar?')) return;
+    const note = prompt('Nota (opcional):') || '';
+    g.transactions = g.transactions || [];
+    g.transactions.push({
+        id: generateId(), type: 'remove', amount: n,
+        date: new Date().toISOString().slice(0, 10), note
+    });
+    saveData();
+    renderSavingsGoals();
 }
 
 function deleteGoal(id) {
     const g = savingsGoals.find(x => x.id === id);
     if (!g) return;
-    if (!confirm(`Apagar objetivo "${g.name}"?`)) return;
+    if (!confirm(`Apagar objetivo "${g.name}"? Histórico de transações perdido.`)) return;
     savingsGoals = savingsGoals.filter(x => x.id !== id);
     saveData();
     renderSavingsGoals();
+}
+
+function showGoalHistory(id) {
+    const g = savingsGoals.find(x => x.id === id);
+    if (!g) return;
+    const txs = [...(g.transactions || [])].sort((a, b) => b.date.localeCompare(a.date));
+    if (!txs.length) { showToast('Sem transações ainda'); return; }
+    const lines = txs.map(t => `${t.date} ${t.type === 'add' ? '+' : '-'}${formatCurrency(t.amount)}${t.note ? ' · ' + t.note : ''}`).join('\n');
+    alert(`Histórico de "${g.name}":\n\n${lines}`);
 }
 
 function renderSavingsGoals() {
     const card = document.getElementById('savings-goals-card');
     const list = document.getElementById('savings-goals-list');
     if (!card || !list) return;
-    // Always-visible card so the user can create the first goal even if
-    // none exist yet.
     card.style.display = 'block';
     if (!savingsGoals.length) {
-        list.innerHTML = '<p class="empty-state" style="padding:10px 0">Sem objetivos ainda. Cria um para começar a poupar com propósito.</p>';
+        list.innerHTML = '<p class="empty-state" style="padding:10px 0">Sem objetivos ainda. Cria um para começar a poupar com propósito (férias, fundo de emergência, …).</p>';
         return;
     }
 
-    // Use the consumption profile's monthly savings to score each goal.
     const profile = getUserProfile();
     const avgMonthlySaving = profile?.media_mensal?.poupanca || 0;
+    const thisMonth = new Date().toISOString().slice(0, 7);
 
     list.innerHTML = savingsGoals.map(g => {
-        const pct = Math.min(100, (g.savedSoFar / g.target) * 100);
-        const remaining = Math.max(0, g.target - g.savedSoFar);
+        const balance = getGoalBalance(g);
+        const pct = Math.min(100, Math.max(0, (balance / g.target) * 100));
+        const remaining = Math.max(0, g.target - balance);
+        // This-month contribution for this goal (for the per-goal "este mês")
+        const thisMonthForGoal = (g.transactions || [])
+            .filter(t => (t.date || '').startsWith(thisMonth))
+            .reduce((s, t) => s + (t.type === 'add' ? t.amount : -t.amount), 0);
         let timeLabel = '';
         let warn = false;
         if (g.deadline) {
             const days = Math.round((new Date(g.deadline) - new Date()) / 86400000);
             const months = Math.max(1, Math.round(days / 30));
-            const monthly = remaining / months;
-            timeLabel = days < 0 ? `prazo passou há ${Math.abs(days)} dias` : `${days} dias · poupar ${formatCurrency(monthly)}/mês`;
-            warn = avgMonthlySaving > 0 && monthly > avgMonthlySaving * 1.2;
+            const requiredMonthly = remaining / months;
+            timeLabel = days < 0 ? `prazo passou há ${Math.abs(days)} dias` : `${days} dias · ${formatCurrency(requiredMonthly)}/mês`;
+            warn = avgMonthlySaving > 0 && requiredMonthly > avgMonthlySaving * 1.2;
+        } else if (g.monthlyTarget) {
+            const months = Math.ceil(remaining / g.monthlyTarget);
+            timeLabel = `ao ritmo de ${formatCurrency(g.monthlyTarget)}/mês: ${months} ${months === 1 ? 'mês' : 'meses'}`;
         } else if (avgMonthlySaving > 0 && remaining > 0) {
             const months = Math.ceil(remaining / avgMonthlySaving);
-            timeLabel = `ao teu ritmo: ${months} ${months === 1 ? 'mês' : 'meses'}`;
+            timeLabel = `ao teu ritmo histórico: ${months} ${months === 1 ? 'mês' : 'meses'}`;
         }
         const barColor = pct >= 100 ? 'var(--success)' : warn ? 'var(--danger)' : 'var(--primary)';
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
                 <div style="font-weight:600;font-size:0.92rem">${g.name}</div>
-                <div style="font-size:0.78rem;color:var(--text-light)">${formatCurrency(g.savedSoFar)} / ${formatCurrency(g.target)}</div>
+                <div style="font-size:0.78rem;color:var(--text-light)">${formatCurrency(balance)} / ${formatCurrency(g.target)}</div>
             </div>
             <div style="height:8px;background:#EEE7FF;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};transition:width 0.3s"></div></div>
-            <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:0.72rem;color:var(--text-light);align-items:center">
-                <span>${timeLabel}${warn ? ' · <span style="color:var(--danger);font-weight:600">acima do teu ritmo</span>' : ''}</span>
+            <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:0.72rem;color:var(--text-light);align-items:center;gap:6px;flex-wrap:wrap">
+                <span style="flex:1;min-width:0">${timeLabel}${warn ? ' · <span style="color:var(--danger);font-weight:600">acima do teu ritmo</span>' : ''}${thisMonthForGoal !== 0 ? ` · este mês <strong style="color:${thisMonthForGoal > 0 ? 'var(--success)' : 'var(--danger)'}">${thisMonthForGoal > 0 ? '+' : ''}${formatCurrency(thisMonthForGoal)}</strong>` : ''}</span>
                 <div style="display:flex;gap:4px">
-                    <button onclick="updateGoalSaved('${g.id}')" class="btn btn-sm" style="font-size:0.7rem;padding:3px 8px;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-pen"></i></button>
-                    <button onclick="deleteGoal('${g.id}')" class="btn btn-sm" style="font-size:0.7rem;padding:3px 8px;background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
+                    <button onclick="addToGoal('${g.id}')" class="btn btn-sm" title="Adicionar" style="font-size:0.75rem;padding:4px 9px;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i></button>
+                    <button onclick="removeFromGoal('${g.id}')" class="btn btn-sm" title="Retirar" style="font-size:0.75rem;padding:4px 9px;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80"><i class="fas fa-minus"></i></button>
+                    <button onclick="showGoalHistory('${g.id}')" class="btn btn-sm" title="Histórico" style="font-size:0.7rem;padding:4px 8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-clock-rotate-left"></i></button>
+                    <button onclick="deleteGoal('${g.id}')" class="btn btn-sm" title="Apagar" style="font-size:0.7rem;padding:4px 8px;background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
         </div>`;
-    }).join('') + (hasAnyAiKey() ? `<button onclick="runAiGoalCoach()" id="ai-goal-coach-btn" class="btn btn-block" style="margin-top:10px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-sparkles"></i> Coach IA · ações para acelerar</button>
+    }).join('') + (() => {
+        const totalSaved = savingsGoals.reduce((s, g) => s + getGoalBalance(g), 0);
+        const totalTarget = savingsGoals.reduce((s, g) => s + g.target, 0);
+        const monthly = getGoalsMonthlyContribution(thisMonth);
+        return `<div style="margin-top:10px;padding:10px;background:#F3EFFF;border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div><div style="font-size:0.7rem;color:#5A3BD8;font-weight:700">TOTAL POUPADO</div>
+            <div style="font-weight:700;font-size:1rem;color:#2A1F4F">${formatCurrency(totalSaved)} / ${formatCurrency(totalTarget)}</div></div>
+            <div style="text-align:right"><div style="font-size:0.7rem;color:var(--text-light)">Este mês</div>
+            <div style="font-weight:700;color:${monthly > 0 ? 'var(--success)' : monthly < 0 ? 'var(--danger)' : 'var(--text-light)'}">${monthly > 0 ? '+' : ''}${formatCurrency(monthly)}</div></div>
+        </div>`;
+    })() + (hasAnyAiKey() ? `<button onclick="runAiGoalCoach()" id="ai-goal-coach-btn" class="btn btn-block" style="margin-top:10px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-sparkles"></i> Coach IA · ações para acelerar</button>
         <div id="ai-goal-coach-output" style="display:none;margin-top:8px;padding:10px;background:#F3EFFF;border-radius:10px;font-size:0.85rem;line-height:1.5"></div>` : '');
 }
 
@@ -7988,13 +8088,17 @@ async function runAiGoalCoach() {
     out.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA a desenhar um plano…';
     try {
         const profile = getUserProfile();
-        const goalsCompact = savingsGoals.map(g => ({
-            objetivo: g.name,
-            alvo: g.target,
-            poupado: g.savedSoFar,
-            falta: Math.max(0, g.target - g.savedSoFar),
-            prazo: g.deadline || 'sem prazo'
-        }));
+        const goalsCompact = savingsGoals.map(g => {
+            const balance = getGoalBalance(g);
+            return {
+                objetivo: g.name,
+                alvo: g.target,
+                poupado: balance,
+                falta: Math.max(0, g.target - balance),
+                prazo: g.deadline || 'sem prazo',
+                contribuicao_mensal_alvo: g.monthlyTarget || null
+            };
+        });
         const prompt = `${AI_SYSTEM_PROMPT}
 És um coach financeiro. Para cada objetivo abaixo, propõe 1-3 ações concretas baseadas no perfil do utilizador (cortar X EUR em Y, reduzir frequência de Z, etc.). Devolve APENAS JSON array: [{"objetivo":"…","plano":"texto curto com ações concretas e valores em EUR"}]. Máx. ${goalsCompact.length} objetivos.
 
@@ -8144,54 +8248,99 @@ function renderNetWorth() {
     const assets = (netWorth.assets || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
     const liabilities = (netWorth.liabilities || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
     const total = assets - liabilities;
+    card.style.display = 'block';
     if (assets === 0 && liabilities === 0) {
-        card.style.display = 'block';
-        body.innerHTML = `<p class="empty-state" style="padding:10px 0">Sem ativos/passivos ainda. Adiciona para teres uma visão patrimonial além do mensal.</p>
-            <button onclick="editNetWorth()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Configurar</button>`;
+        body.innerHTML = `<p class="empty-state" style="padding:10px 0">O património é uma fotografia rápida de tudo o que tens (depósitos, investimentos, casa, carro) menos tudo o que deves (créditos, cartão de crédito por pagar). Útil para veres a evolução além do mês.</p>
+            <button onclick="openNetWorthModal()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Configurar património</button>`;
         return;
     }
-    card.style.display = 'block';
     const updated = netWorth.updatedAt ? new Date(netWorth.updatedAt).toLocaleDateString('pt-PT') : '—';
     body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património</div>
+        <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património líquido</div>
         <div style="font-size:1.6rem;font-weight:700;color:${total >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(total)}</div></div>
-        <button onclick="editNetWorth()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-pen"></i></button>
+        <button onclick="openNetWorthModal()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-pen"></i></button>
     </div>
     <div style="display:flex;gap:10px">
-        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">Ativos</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div></div>
-        <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px"><div style="font-size:0.72rem;color:#C62828">Passivos</div><div style="font-weight:700;color:#C62828">${formatCurrency(liabilities)}</div></div>
+        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">Ativos · ${(netWorth.assets || []).length}</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div></div>
+        <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px"><div style="font-size:0.72rem;color:#C62828">Passivos · ${(netWorth.liabilities || []).length}</div><div style="font-weight:700;color:#C62828">${formatCurrency(liabilities)}</div></div>
     </div>
     <div style="font-size:0.68rem;color:var(--text-light);text-align:right;margin-top:6px">Atualizado em ${updated}</div>`;
 }
 
-function editNetWorth() {
-    const lines = [];
-    lines.push('Edita os ativos e passivos. Formato: nome=valor por linha. Linhas vazias separam ativos (em cima) de passivos (em baixo).');
-    lines.push('');
-    lines.push('=== ATIVOS ===');
-    (netWorth.assets || []).forEach(a => lines.push(`${a.name}=${a.amount}`));
-    lines.push('');
-    lines.push('=== PASSIVOS ===');
-    (netWorth.liabilities || []).forEach(l => lines.push(`${l.name}=${l.amount}`));
-    const out = prompt(lines.join('\n'), [
-        ...(netWorth.assets || []).map(a => `${a.name}=${a.amount}`),
-        '---',
-        ...(netWorth.liabilities || []).map(a => `${a.name}=${a.amount}`)
-    ].join('\n'));
-    if (!out) return;
-    const sections = out.split(/^---\s*$/m);
-    const parseSection = section => (section || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-        const [name, val] = l.split('=');
-        const n = parseFloat((val || '').replace(',', '.'));
-        return name && isFinite(n) ? { name: name.trim(), amount: n } : null;
-    }).filter(Boolean);
-    netWorth = {
-        assets: parseSection(sections[0]),
-        liabilities: parseSection(sections[1] || ''),
-        updatedAt: new Date().toISOString()
-    };
+// Proper modal-based editor: each line is a row with name + amount inputs
+// and a delete button. No more parsing free-form text.
+function openNetWorthModal() {
+    const modal = document.getElementById('modal-net-worth');
+    if (!modal) return;
+    renderNetWorthEditor();
+    modal.classList.add('active');
+}
+
+function closeNetWorthModal() {
+    const modal = document.getElementById('modal-net-worth');
+    if (modal) modal.classList.remove('active');
+}
+
+function renderNetWorthEditor() {
+    const renderList = (arr, kind) => arr.map((it, idx) => `<div style="display:flex;gap:6px;margin-bottom:6px">
+        <input type="text" data-nw-kind="${kind}" data-nw-idx="${idx}" data-nw-field="name" value="${(it.name || '').replace(/"/g, '&quot;')}" placeholder="${kind === 'asset' ? 'Ex: Conta Activobank' : 'Ex: Crédito casa'}" style="flex:1">
+        <input type="number" step="0.01" data-nw-kind="${kind}" data-nw-idx="${idx}" data-nw-field="amount" value="${it.amount || ''}" placeholder="0,00" style="width:110px">
+        <button type="button" onclick="removeNwRow('${kind}', ${idx})" class="btn btn-icon" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2;width:38px"><i class="fas fa-times"></i></button>
+    </div>`).join('');
+    const container = document.getElementById('net-worth-editor');
+    if (!container) return;
+    container.innerHTML = `
+        <div style="margin-bottom:14px">
+            <h4 style="margin:0 0 6px;color:#2E7D32"><i class="fas fa-arrow-up"></i> Ativos (o que tens)</h4>
+            <small style="color:var(--text-light);font-size:0.78rem;display:block;margin-bottom:6px">Conta-poupança, ações/ETFs, criptomoedas, casa, carro, certificados de aforro, etc.</small>
+            <div id="nw-assets">${renderList(netWorth.assets || [], 'asset') || '<p class="empty-state" style="padding:6px 0;font-size:0.85rem">Sem ativos</p>'}</div>
+            <button type="button" onclick="addNwRow('asset')" class="btn btn-sm btn-block" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;margin-top:6px"><i class="fas fa-plus"></i> Adicionar ativo</button>
+        </div>
+        <div style="margin-bottom:14px">
+            <h4 style="margin:0 0 6px;color:#C62828"><i class="fas fa-arrow-down"></i> Passivos (o que deves)</h4>
+            <small style="color:var(--text-light);font-size:0.78rem;display:block;margin-bottom:6px">Crédito habitação por liquidar, crédito automóvel, cartão de crédito por pagar, empréstimos.</small>
+            <div id="nw-liabs">${renderList(netWorth.liabilities || [], 'liability') || '<p class="empty-state" style="padding:6px 0;font-size:0.85rem">Sem passivos</p>'}</div>
+            <button type="button" onclick="addNwRow('liability')" class="btn btn-sm btn-block" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2;margin-top:6px"><i class="fas fa-plus"></i> Adicionar passivo</button>
+        </div>
+    `;
+}
+
+function addNwRow(kind) {
+    saveNwInputsToState();
+    if (kind === 'asset') (netWorth.assets = netWorth.assets || []).push({ name: '', amount: 0 });
+    else (netWorth.liabilities = netWorth.liabilities || []).push({ name: '', amount: 0 });
+    renderNetWorthEditor();
+}
+
+function removeNwRow(kind, idx) {
+    saveNwInputsToState();
+    const arr = kind === 'asset' ? netWorth.assets : netWorth.liabilities;
+    if (arr) arr.splice(idx, 1);
+    renderNetWorthEditor();
+}
+
+function saveNwInputsToState() {
+    document.querySelectorAll('[data-nw-kind]').forEach(el => {
+        const kind = el.dataset.nwKind;
+        const idx = parseInt(el.dataset.nwIdx);
+        const field = el.dataset.nwField;
+        const arr = kind === 'asset' ? (netWorth.assets || []) : (netWorth.liabilities || []);
+        if (!arr[idx]) return;
+        if (field === 'name') arr[idx].name = el.value.trim();
+        else if (field === 'amount') arr[idx].amount = parseFloat((el.value || '0').replace(',', '.')) || 0;
+    });
+}
+
+function saveNetWorth() {
+    saveNwInputsToState();
+    // Drop empty rows so the user can leave half-filled forms without
+    // polluting the data.
+    netWorth.assets = (netWorth.assets || []).filter(x => x.name && x.amount);
+    netWorth.liabilities = (netWorth.liabilities || []).filter(x => x.name && x.amount);
+    netWorth.updatedAt = new Date().toISOString();
     saveData();
     renderNetWorth();
+    closeNetWorthModal();
     showToast('Património atualizado');
 }
 
@@ -8293,7 +8442,8 @@ function renderPrepaidCards() {
     const container = document.getElementById('prepaid-cards-list');
     if (!container) return;
     if (!prepaidCards.length) {
-        container.innerHTML = '<p class="empty-state" style="padding:16px 0">Sem cartões. Cria um para começar a registar carregamentos e consumos.</p>';
+        container.innerHTML = `<p class="empty-state" style="padding:10px 0">Sem cartões ainda. Útil para Lidl Plus, Via Verde, Bolt, gift cards: carregas uma vez e cada compra desconta automaticamente o saldo.</p>
+            <button onclick="showAddPrepaidPrompt()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Criar primeiro cartão</button>`;
         return;
     }
     container.innerHTML = prepaidCards.map(card => {
