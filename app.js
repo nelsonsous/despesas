@@ -1409,10 +1409,10 @@ function getEffectiveFixedAmount(f, date) {
         const deduction = splits.reduce((sum, s, i) => paidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
         effective = Math.max(0, effective - deduction);
     }
-    // Mix-partner: when she reimburses this month, deduct her full attributed
-    // share from the effective amount. New semantics: one % means both her
-    // portion and what she pays back.
-    if (f.mixPartnerPct && f.mixPartnerName && f.mixPartnerSplit && st?.mixPartnerPaid) {
+    // Mix-partner: attribution implies she pays back the attributed share;
+    // deduct it from the month's effective amount once the monthly toggle
+    // flips to "recebido".
+    if (f.mixPartnerPct && f.mixPartnerName && st?.mixPartnerPaid) {
         const pct = parseFloat(f.mixPartnerPct) || 0;
         const deduction = base * (pct / 100);
         effective = Math.max(0, effective - deduction);
@@ -1424,7 +1424,7 @@ function getEffectiveFixedAmount(f, date) {
 // expense, stored on the fixedStatus record.
 function toggleFixedMixPartnerPaid(fixedId, date) {
     const f = fixedExpenses.find(x => x.id === fixedId);
-    if (!f || !f.mixPartnerSplit) return;
+    if (!f || !f.mixPartnerPct) return;
     const monthKey = getFixedMonthKey(date);
     let st = fixedStatus.find(s => s.fixedId === fixedId && s.month === monthKey);
     if (!st) {
@@ -1752,11 +1752,10 @@ function expandMixPersonalPartner(e) {
     // Apply partner sub-split if enabled: attach a splits[] entry attributed
     // to the partner, so the normal adjust-for-splits logic deducts it when
     // marked paid.
-    if (e.mixPartnerSplit) {
-        // New semantics: attribution IS what she pays back — no further division.
-        const partnerShare = Math.round(partnerPortion * 100) / 100;
-        partnerVirtual.splits = [{ name: e.mixPartnerName, amount: partnerShare, paid: !!e.mixPartnerPaid }];
-    }
+    // Attribution implies she owes the attributed amount — always record the
+    // split entry (paid status controls whether it flows to "pago" or "owed").
+    const partnerShare = Math.round(partnerPortion * 100) / 100;
+    partnerVirtual.splits = [{ name: e.mixPartnerName, amount: partnerShare, paid: !!e.mixPartnerPaid }];
     const partnerAdjusted = adjustExpenseForCustomSplit(partnerVirtual);
     return [personalVirtual, partnerAdjusted];
 }
@@ -2083,52 +2082,49 @@ function getPartnerInvolvement(e, nameLower) {
     const out = { involved: 0, attributed: 0, owed: 0, paid: 0 };
     const gross = e.fullAmount != null ? e.fullAmount : (e.amount || 0);
 
-    // Grouped expense with per-entry partner flag
+    // Grouped expense with per-entry partner flag — the tagged entries are
+    // considered 100 % hers.
     if (e.isGrouped && Array.isArray(e.entries)) {
         const sumPartnerEntries = e.entries
             .filter(en => en.withPartner)
             .reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
         if (sumPartnerEntries > 0) {
-            out.involved += sumPartnerEntries;
             out.attributed += sumPartnerEntries;
         }
     }
 
-    // Mix Pessoal+partner on this expense
+    // Mix Pessoal+partner on this expense — only the attributed portion counts
+    // as "envolvido com ela", and attribution always implies she owes it.
     if (e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower && e.mixPartnerPct) {
         const pct = parseFloat(e.mixPartnerPct) || 0;
         const attrAmt = gross * pct / 100;
-        // Avoid double-counting when grouped entries also contributed
-        if (out.involved === 0) out.involved += gross;
         out.attributed += attrAmt;
-        if (e.mixPartnerSplit) {
-            // New semantics: attribution % IS what she pays back — no second knob.
-            const share = attrAmt;
-            if (e.mixPartnerPaid) out.paid += share; else out.owed += share;
-        }
+        if (e.mixPartnerPaid) out.paid += attrAmt; else out.owed += attrAmt;
     }
 
-    // Splits array where partner is one of the people
+    // Splits array where partner is one of the people — the split entry amount
+    // is her share.
     if (Array.isArray(e.splits)) {
         const partnerSplits = e.splits.filter(s => (s.name || '').toLowerCase() === nameLower);
-        if (partnerSplits.length) {
-            if (out.involved === 0) out.involved += gross;
-            partnerSplits.forEach(s => {
-                const a = parseFloat(s.amount) || 0;
-                // Only count split amount as attributed when not already captured by mix
-                if (!(e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower)) {
-                    out.attributed += a;
-                }
-                if (s.paid) out.paid += a; else out.owed += a;
-            });
-        }
+        partnerSplits.forEach(s => {
+            const a = parseFloat(s.amount) || 0;
+            // Only count as attributed when not already captured by mix above
+            if (!(e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower)) {
+                out.attributed += a;
+            }
+            if (s.paid) out.paid += a; else out.owed += a;
+        });
     }
 
-    // Name in withPeople (legacy/manual tagging)
-    if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) {
-        if (out.involved === 0) out.involved += gross;
+    // Legacy fallback: if the expense has the partner name in withPeople
+    // without any mix/split info, treat the full expense as attributed.
+    if (out.attributed === 0 && (e.withPeople || []).some(p => p.toLowerCase() === nameLower)) {
+        out.attributed += gross;
     }
 
+    // "Involved" = "attributed" now. We kept both keys for backwards compat
+    // but they carry the same value — callers can use either.
+    out.involved = out.attributed;
     return out;
 }
 
@@ -2162,13 +2158,13 @@ function getPartnerMonthStats(date, name) {
         const pct = parseFloat(f.mixPartnerPct) || 0;
         if (!(pct > 0 && pct < 100)) return;
         const attributed = base * pct / 100;
+        // Attribution implies the partner owes the attributed amount each
+        // month until flagged paid via the monthly toggle.
         let owed = 0, paid = 0;
-        if (f.mixPartnerSplit) {
-            // Attribution = what she pays back (new semantics).
-            const share = attributed;
-            if (st?.mixPartnerPaid) paid = share; else owed = share;
-        }
-        totals.involved += base;
+        if (st?.mixPartnerPaid) paid = attributed; else owed = attributed;
+        // "Envolvido" in the report is the attributed share, not the full base —
+        // fixed expenses with 10 % attributed only count 10 % as hers.
+        totals.involved += attributed;
         totals.attributed += attributed;
         totals.owed += owed;
         totals.paid += paid;
@@ -2193,7 +2189,8 @@ function getPartnerMonthStats(date, name) {
                 mixPartnerPaid: !!st?.mixPartnerPaid,
                 isFixedExpense: true
             },
-            involved: base,
+            // Detail row should show what's hers, not the fixed's gross.
+            involved: attributed,
             attributed,
             owed,
             paid
@@ -2718,16 +2715,14 @@ function renderExpenses() {
             let fixedMixPartnerBadge = '';
             if (f.mixPartnerPct && f.mixPartnerName) {
                 const mpPaid = !!st?.mixPartnerPaid;
-                const hasSubSplit = !!f.mixPartnerSplit;
-                const clickAttr = hasSubSplit
-                    ? ` onclick="event.stopPropagation();toggleFixedMixPartnerPaid('${f.id}', currentDate)" style="cursor:pointer;"`
-                    : ' style="cursor:default;"';
-                const cls = hasSubSplit ? (mpPaid ? 'status-pago' : 'status-pendente') : '';
-                const stateIcon = hasSubSplit ? (mpPaid ? '<i class="fas fa-check"></i> ' : '<i class="fas fa-clock"></i> ') : '';
-                fixedMixPartnerBadge = `<span${clickAttr} class="fixed-status-badge ${cls}" ${clickAttr.includes('onclick') ? 'role="button"' : ''} style="${clickAttr.includes('cursor') ? '' : ''}background:${mpPaid && hasSubSplit ? '#E8F5E9' : '#FCE4EC'};color:${mpPaid && hasSubSplit ? '#2E7D32' : '#C2185B'};font-size:0.65rem"><i class="fas fa-heart"></i> ${stateIcon}${f.mixPartnerName} ${f.mixPartnerPct}%</span>`;
+                const stateIcon = mpPaid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>';
+                const cls = mpPaid ? 'status-pago' : 'status-pendente';
+                const bg = mpPaid ? '#E8F5E9' : '#FCE4EC';
+                const color = mpPaid ? '#2E7D32' : '#C2185B';
+                fixedMixPartnerBadge = `<span onclick="event.stopPropagation();toggleFixedMixPartnerPaid('${f.id}', currentDate)" class="fixed-status-badge ${cls}" role="button" style="background:${bg};color:${color};font-size:0.65rem;cursor:pointer"><i class="fas fa-heart"></i> ${stateIcon} ${f.mixPartnerName} ${f.mixPartnerPct}%</span>`;
             }
             let totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
-            if (f.mixPartnerPct && f.mixPartnerSplit && st?.mixPartnerPaid) {
+            if (f.mixPartnerPct && st?.mixPartnerPaid) {
                 const base = st?.amount || f.amount;
                 totalSplitsDeduction += base * (parseFloat(f.mixPartnerPct) / 100);
             }
@@ -3037,17 +3032,14 @@ function renderExpenseItem(e) {
         const mcName = mc?.name || 'filho';
         mixBadge = `<span class="fixed-status-badge" style="background:#EDE7F6;color:var(--primary);font-size:0.65rem"><i class="fas fa-divide"></i> ${100 - e.mixChildPct}% / ${e.mixChildPct}% ${mcName}</span>`;
     }
-    // Mix Pessoal+namorado/a badge
+    // Mix Pessoal+namorado/a badge — attribution always implies she owes,
+    // so the chip is always clickable to toggle "recebido".
     if (e.mixPartnerPct && e.mixPartnerName) {
-        const hasSubSplit = !!e.mixPartnerSplit;
-        const state = hasSubSplit ? (e.mixPartnerPaid ? ' ✓' : ' 🕐') : '';
-        const color = hasSubSplit ? (e.mixPartnerPaid ? '#2E7D32' : '#C2185B') : '#C2185B';
-        const bg = hasSubSplit ? (e.mixPartnerPaid ? '#E8F5E9' : '#FCE4EC') : '#FCE4EC';
-        const clickAttr = hasSubSplit
-            ? ` onclick="event.stopPropagation();toggleMixPartnerPaid('${e.id}')" title="Tocar para alternar pago/por receber" role="button"`
-            : '';
-        const cursor = hasSubSplit ? 'cursor:pointer;' : '';
-        mixBadge += `<span${clickAttr} class="fixed-status-badge" style="background:${bg};color:${color};font-size:0.65rem;margin-left:${mixBadge ? '4px' : '0'};${cursor}"><i class="fas fa-heart"></i> ${100 - e.mixPartnerPct}% / ${e.mixPartnerPct}% ${e.mixPartnerName}${state}</span>`;
+        const paid = !!e.mixPartnerPaid;
+        const state = paid ? ' ✓' : ' 🕐';
+        const color = paid ? '#2E7D32' : '#C2185B';
+        const bg = paid ? '#E8F5E9' : '#FCE4EC';
+        mixBadge += `<span onclick="event.stopPropagation();toggleMixPartnerPaid('${e.id}')" title="Tocar para alternar pago/por receber" role="button" class="fixed-status-badge" style="background:${bg};color:${color};font-size:0.65rem;margin-left:${mixBadge ? '4px' : '0'};cursor:pointer"><i class="fas fa-heart"></i> ${e.mixPartnerPct}% ${e.mixPartnerName}${state}</span>`;
     }
 
     // Grouped expense rendering (has entries array)
@@ -3476,7 +3468,7 @@ function renderPartnerSpending() {
                     ? (partnerSplitEntry.paid
                         ? `<span style="color:var(--success);font-weight:600">✓ ${formatCurrency(partnerSplitEntry.amount)} pago</span>`
                         : `<span style="color:var(--danger);font-weight:600">🕐 ${formatCurrency(partnerSplitEntry.amount)} por receber</span>`)
-                    : (e.mixPartnerSplit
+                    : (e.mixPartnerPct
                         ? (e.mixPartnerPaid
                             ? `<span style="color:var(--success);font-weight:600">✓ parte recebida</span>`
                             : `<span style="color:var(--danger);font-weight:600">🕐 parte por receber</span>`)
@@ -4758,14 +4750,13 @@ function populateFixedSplitsUI(f) {
     splits.forEach(s => addFixedSplitRow(s));
 }
 
-// Flips mixPartnerPaid so the user can settle the partner's sub-split straight
-// from the expense row, without opening the modal. Only meaningful when the
-// sub-split is enabled.
+// Flips mixPartnerPaid so the user can settle the partner's share straight
+// from the expense row, without opening the modal.
 function toggleMixPartnerPaid(expenseId) {
     const idx = expenses.findIndex(e => e.id === expenseId);
     if (idx < 0) return;
     const e = expenses[idx];
-    if (!e.mixPartnerSplit) return;
+    if (!e.mixPartnerPct) return;
     e.mixPartnerPaid = !e.mixPartnerPaid;
     e.updatedAt = new Date().toISOString();
     saveData();
@@ -4988,10 +4979,10 @@ function saveExpense(event) {
     const mixPartnerPct = mixWithPartnerOn
         ? (parseFloat(document.getElementById('mix-partner-pct')?.value) || 0)
         : 0;
-    const mixPartnerSplitOn = mixWithPartnerOn && !!document.getElementById('mix-partner-split')?.checked;
-    // The same attribution % is what the partner owes — no second field.
-    const mixPartnerSplitPct = mixPartnerSplitOn ? 100 : null;
-    const mixPartnerPaidOn = mixPartnerSplitOn && !!document.getElementById('mix-partner-paid')?.checked;
+    // Attribution implies she owes that amount — no separate toggle.
+    const mixPartnerSplitOn = mixWithPartnerOn;
+    const mixPartnerSplitPct = mixWithPartnerOn ? 100 : null;
+    const mixPartnerPaidOn = mixWithPartnerOn && !!document.getElementById('mix-partner-paid')?.checked;
     if (mixWithPartnerOn && mixPartnerPct > 0 && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
         withPeople.push(partnerName);
     }
@@ -5986,9 +5977,10 @@ function saveFixed(event) {
     const mixPartnerPct = mixPartnerOn
         ? (parseFloat(document.getElementById('fixed-mix-partner-pct')?.value) || 0)
         : 0;
-    const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
-    // Same % as the attribution — the partner owes her full attributed portion.
-    const mixPartnerSplitPct = mixPartnerSplitOn ? 100 : null;
+    // Attribution always implies she owes that monthly portion; "recebido" is
+    // tracked per-month on fixedStatus.
+    const mixPartnerSplitOn = mixPartnerOn;
+    const mixPartnerSplitPct = mixPartnerOn ? 100 : null;
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
