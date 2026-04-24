@@ -2037,6 +2037,69 @@ function updateDashboard() {
     renderTopExpenses(monthExp);
     renderCategoryDonut();
     renderSalaryCycle();
+    renderPartnerSummary();
+}
+
+// Compact partner summary on the dashboard. Shows the month's partner-involved
+// total, the partner's share and how much of it is still by-receive, plus a
+// tiny breakdown by category. Hidden when no partner is configured or in
+// married mode.
+function renderPartnerSummary() {
+    const card = document.getElementById('partner-summary-card');
+    if (!card) return;
+    const name = getPartnerName();
+    if (isMarriedMode() || !name) { card.style.display = 'none'; return; }
+    const nameLower = name.toLowerCase();
+
+    const monthExp = getEffectiveMonthExpenses(currentDate);
+    const involved = monthExp.filter(e =>
+        (e.withPeople || []).some(p => p.toLowerCase() === nameLower)
+        || (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower))
+    );
+    if (involved.length === 0) { card.style.display = 'none'; return; }
+    const totalInvolved = involved.reduce((s, e) => s + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0), 0);
+    let partnerOwes = 0, partnerPaid = 0;
+    involved.forEach(e => {
+        if (!Array.isArray(e.splits)) return;
+        e.splits.forEach(s => {
+            if ((s.name || '').toLowerCase() !== nameLower) return;
+            const a = parseFloat(s.amount) || 0;
+            if (s.paid) partnerPaid += a; else partnerOwes += a;
+        });
+    });
+    const cats = getEffectiveCategories();
+    // Top 3 categories involved
+    const byCat = {};
+    involved.forEach(e => {
+        const k = e.category || 'outros';
+        byCat[k] = (byCat[k] || 0) + ((e.fullAmount != null ? e.fullAmount : e.amount) || 0);
+    });
+    const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+    card.style.display = 'block';
+    card.innerHTML = `
+        <h3 style="color:#C2185B"><i class="fas fa-heart"></i> Gasto com ${name}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div style="padding:10px;background:#FCE4EC;border-radius:10px">
+                <div style="font-size:0.7rem;color:#880E4F">Total envolvido</div>
+                <div style="font-size:1.15rem;font-weight:800;color:#C2185B">${formatCurrency(totalInvolved)}</div>
+                <div style="font-size:0.65rem;color:#AD1457">${involved.length} ${involved.length === 1 ? 'despesa' : 'despesas'}</div>
+            </div>
+            <div style="padding:10px;background:var(--surface);border-radius:10px">
+                <div style="font-size:0.7rem;color:var(--text-light)">Parte de ${name}</div>
+                <div style="font-size:0.95rem;font-weight:700">${formatCurrency(partnerOwes + partnerPaid)}</div>
+                <div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(partnerPaid)} pagos · <span style="color:var(--danger)">${formatCurrency(partnerOwes)} por receber</span></div>
+            </div>
+        </div>
+        ${topCats.length ? `
+        <div style="font-size:0.68rem;color:var(--text-light);margin-bottom:4px">Onde mais gastaram</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${topCats.map(([catKey, val]) => {
+                const c = cats[catKey] || cats.outros;
+                return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#F5F3FF;color:var(--text);border-radius:10px;font-size:0.72rem"><i class="fas ${c.icon}" style="color:${c.color}"></i> ${c.label} ${formatCurrency(val)}</span>`;
+            }).join('')}
+        </div>` : ''}
+    `;
 }
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
@@ -2848,6 +2911,7 @@ function renderExpenseItem(e) {
         : '';
 
     const catColor = cat.color || '#6C5CE7';
+    const badgesRow = `${mixBadge}${splitWithBadge}${coParentBadge}`;
     return `
         <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}" style="border-left:3px solid ${catColor}">
             <div class="expense-icon cat-${e.category}">
@@ -2858,8 +2922,8 @@ function renderExpenseItem(e) {
                     <div class="expense-desc">${e.description} ${essentialIcon} ${attachIcon} ${isFixedVirtual ? '<i class="fas fa-repeat" style="font-size:0.6rem;color:var(--text-light)" title="Despesa fixa"></i>' : ''}</div>
                     <div class="expense-amount" style="flex-shrink:0;${hasDeduction ? 'color:var(--success)' : ''}">${amountDisplay}</div>
                 </div>
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-                    <div class="expense-meta">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px">
+                    <div class="expense-meta" style="min-width:0;flex:1">
                         <span>${formatDate(e.date)}</span>
                         <span class="expense-tag ${tagClass}">${tagLabel}</span>
                         ${groupedInfo}
@@ -2868,20 +2932,16 @@ function renderExpenseItem(e) {
                         ${e.splitSpouse && isMarriedMode() ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${getSpousePct()}/${100-getSpousePct()}</span>` : ''}
                         ${(e.withPeople && e.withPeople.length > 0) ? `<span style="color:var(--primary)"><i class="fas fa-user-group" style="font-size:0.65rem"></i> ${e.withPeople.slice(0,2).join(', ')}${e.withPeople.length > 2 ? ` +${e.withPeople.length-2}` : ''}</span>` : ''}
                     </div>
-                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">
-                        ${mixBadge}
-                        ${splitWithBadge}
-                        ${coParentBadge}
-                        <div class="expense-actions">
-                            ${e.isGrouped && !isFixedVirtual ? `<button onclick="event.stopPropagation();addGroupedEntry('${e.id}')" title="Adicionar entrada" class="btn-grouped-add"><i class="fas fa-plus"></i></button>` : ''}
-                            ${e.isGrouped && !isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();toggleGroupedExpand('${e.id}')" title="Ver entradas" style="color:var(--primary)"><i class="fas fa-chevron-down"></i></button>` : ''}
-                            ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button>` : ''}
-                            ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();saveAsTemplate('${e.id}')" title="Guardar como frequente"><i class="fas fa-star"></i></button>` : ''}
-                            ${!isFixedVirtual && !e.isGrouped ? `<button class="btn-icon" onclick="event.stopPropagation();duplicateExpense('${e.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>` : ''}
-                            ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();confirmDelete('${e.id}')" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
-                        </div>
+                    <div class="expense-actions" style="flex-shrink:0">
+                        ${e.isGrouped && !isFixedVirtual ? `<button onclick="event.stopPropagation();addGroupedEntry('${e.id}')" title="Adicionar entrada" class="btn-grouped-add"><i class="fas fa-plus"></i></button>` : ''}
+                        ${e.isGrouped && !isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();toggleGroupedExpand('${e.id}')" title="Ver entradas" style="color:var(--primary)"><i class="fas fa-chevron-down"></i></button>` : ''}
+                        ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button>` : ''}
+                        ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();saveAsTemplate('${e.id}')" title="Guardar como frequente"><i class="fas fa-star"></i></button>` : ''}
+                        ${!isFixedVirtual && !e.isGrouped ? `<button class="btn-icon" onclick="event.stopPropagation();duplicateExpense('${e.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>` : ''}
+                        ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();confirmDelete('${e.id}')" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
                     </div>
                 </div>
+                ${badgesRow ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${badgesRow}</div>` : ''}
                 ${groupedEntriesHtml}
             </div>
         </div>
@@ -3217,6 +3277,10 @@ function renderPartnerSpending() {
     const monthsShort = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
     container.style.display = 'block';
+    const cats = getEffectiveCategories();
+    // Build a list of the concrete partner-involved entries for this month with
+    // the attributed share clearly shown.
+    const detailEntries = involved.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-10).reverse();
     container.innerHTML = `
         <h3><i class="fas fa-heart" style="color:#E91E63"></i> Gasto com ${name}</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -3232,7 +3296,7 @@ function renderPartnerSpending() {
             </div>
         </div>
         <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Últimos 6 meses</div>
-        <div style="display:flex;gap:4px;align-items:flex-end;height:60px">
+        <div style="display:flex;gap:4px;align-items:flex-end;height:60px;margin-bottom:12px">
             ${series.map(s => {
                 const h = Math.max(4, Math.round((s.total / maxSeries) * 54));
                 const isCurrent = s.date.getMonth() === now.getMonth() && s.date.getFullYear() === now.getFullYear();
@@ -3242,6 +3306,36 @@ function renderPartnerSpending() {
                 </div>`;
             }).join('')}
         </div>
+        ${detailEntries.length ? `
+        <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Despesas com ${name} este mês</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+            ${detailEntries.map(e => {
+                const cat = cats[e.category] || cats.outros;
+                const partnerSplitEntry = Array.isArray(e.splits) ? e.splits.find(s => (s.name||'').toLowerCase() === nameLower) : null;
+                const gross = e.fullAmount != null ? e.fullAmount : e.amount;
+                // Reconstruct the % this entry represents of the original expense (pre-expansion).
+                // Child/partner virtuals carry parentExpenseId + isFromMixPartner/isFromMixSplit.
+                let pctLabel = '';
+                if (e.isFromMixPartner) {
+                    // Look up the original to get mixPartnerPct
+                    const orig = expenses.find(x => x.id === e.parentExpenseId);
+                    if (orig && orig.mixPartnerPct) pctLabel = ` · ${orig.mixPartnerPct}% atribuído`;
+                }
+                const settleLabel = partnerSplitEntry
+                    ? (partnerSplitEntry.paid
+                        ? `<span style="color:var(--success);font-weight:600">✓ ${formatCurrency(partnerSplitEntry.amount)} pago</span>`
+                        : `<span style="color:var(--danger);font-weight:600">🕐 ${formatCurrency(partnerSplitEntry.amount)} por receber</span>`)
+                    : '';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid var(--border);border-radius:8px">
+                    <div style="width:26px;height:26px;border-radius:6px;background:${cat.color}22;color:${cat.color};display:flex;align-items:center;justify-content:center;font-size:0.75rem;flex-shrink:0"><i class="fas ${cat.icon}"></i></div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:0.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(e.description || '').replace(/\(.+?\)$/, '').trim()}</div>
+                        <div style="font-size:0.65rem;color:var(--text-light)">${formatDate(e.date)}${pctLabel} ${settleLabel ? '· ' + settleLabel : ''}</div>
+                    </div>
+                    <div style="font-size:0.8rem;font-weight:700;color:#C2185B;white-space:nowrap">${formatCurrency(gross)}</div>
+                </div>`;
+            }).join('')}
+        </div>` : ''}
     `;
 }
 
