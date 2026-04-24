@@ -7287,8 +7287,13 @@ function addPersonToInput(name) {
 function editExpense(id) {
     const e = expenses.find(x => x.id === id);
     if (!e) return;
-
-    document.getElementById('modal-title').textContent = 'Editar Despesa';
+    // Open the modal up-front. Same reasoning as showAddExpense: any
+    // downstream init failure (a missing optional DOM node, a bad cached
+    // value) shouldn't leave the user with an unresponsive row tap.
+    const modal = document.getElementById('modal-add');
+    if (modal) modal.classList.add('active');
+    try {
+        document.getElementById('modal-title').textContent = 'Editar Despesa';
     document.getElementById('expense-id').value = e.id;
     // Expose the source id to the "Tornar fixa" button rendered in the modal.
     window._editingExpenseId = e.id;
@@ -7404,8 +7409,9 @@ function editExpense(id) {
         source: 'edit'
     };
     updateFiscalFieldsUI();
-
-    document.getElementById('modal-add').classList.add('active');
+    } catch (err) {
+        console.error('editExpense init error:', err);
+    }
 }
 
 function saveExpense(event) {
