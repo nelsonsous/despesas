@@ -1422,6 +1422,41 @@
             </div>
         </div>
 
+        <!-- Savings goal: create / edit -->
+        <div id="modal-savings-goal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-bullseye"></i> <span id="goal-modal-title">Novo objetivo</span></h2>
+                    <button onclick="document.getElementById('modal-savings-goal').classList.remove('active')" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <input type="hidden" id="goal-form-id">
+                <div class="form-group">
+                    <label>Nome</label>
+                    <input type="text" id="goal-form-name" placeholder="Ex: Férias 2026, Fundo emergência">
+                </div>
+                <div class="form-group">
+                    <label>Valor a poupar (EUR)</label>
+                    <input type="number" step="0.01" id="goal-form-target" placeholder="2000,00">
+                </div>
+                <div class="form-group">
+                    <label>Data limite (opcional)</label>
+                    <input type="date" id="goal-form-deadline">
+                    <small class="field-hint">Se preencheres, a app calcula automaticamente quanto tens de poupar por mês.</small>
+                </div>
+                <div class="form-group">
+                    <label>Objetivo de contribuição mensal (EUR, opcional)</label>
+                    <input type="number" step="0.01" id="goal-form-monthly" placeholder="ex: 200,00">
+                    <small class="field-hint">Útil quando não tens prazo fixo mas queres impor uma cadência.</small>
+                </div>
+                <div class="form-group" id="goal-form-initial-group">
+                    <label>Saldo inicial (EUR, opcional)</label>
+                    <input type="number" step="0.01" id="goal-form-initial" placeholder="0,00">
+                    <small class="field-hint">Só usado na criação. Para alterar depois usa os botões + / − no resumo.</small>
+                </div>
+                <button onclick="submitSavingsGoal()" class="btn btn-primary btn-block"><i class="fas fa-save"></i> Guardar</button>
+            </div>
+        </div>
+
         <!-- Prepaid card: create -->
         <div id="modal-prepaid-create" class="modal">
             <div class="modal-content">
