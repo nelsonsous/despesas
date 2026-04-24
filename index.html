@@ -437,6 +437,21 @@
             <!-- Partner spending (separated mode) -->
             <div class="card" id="partner-spending-card" style="display:none"></div>
 
+            <!-- AI Item Analysis (cross-receipt) -->
+            <div class="card" id="ai-items-card">
+                <h3 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                    <span><i class="fas fa-wand-magic-sparkles" style="color:#5A3BD8"></i> Análise IA de itens</span>
+                    <button id="ai-items-btn" class="btn btn-sm" onclick="runAiItemAnalysis()" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-wand-magic-sparkles"></i> Analisar itens com IA</button>
+                </h3>
+                <div id="ai-items-body"><p class="empty-state" style="padding:16px 0">Toca em "Analisar itens com IA" para obteres insights sobre produtos de supermercado, pratos de restaurantes e faturas de utilities extraídos das tuas faturas.</p></div>
+            </div>
+
+            <!-- Utility Consumption Tracker -->
+            <div class="card" id="utility-card" style="display:none">
+                <h3><i class="fas fa-bolt" style="color:#FDCB6E"></i> Consumos (água, luz, gás)</h3>
+                <div id="utility-body"></div>
+            </div>
+
             <!-- Receipt insights: warranties, promotions, locations -->
             <div class="card" id="receipt-insights-card" style="display:none">
                 <h3><i class="fas fa-receipt" style="color:#5A3BD8"></i> Insights de faturas</h3>

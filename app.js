@@ -3744,6 +3744,7 @@ function renderReports() {
     renderSalaryCycleReport();
     renderPartnerSpending();
     renderIrsTracker();
+    renderUtilityConsumption();
     renderReceiptInsights();
     renderProductPrices();
     renderSavingsAnalysis();
@@ -5608,8 +5609,19 @@ async function onReceiptImageSelected(input) {
   "pontosFidelidade": N | null,
   "tipoServico": "mesa" | "take-away" | "esplanada" | "balcao" | "delivery" | null,
   "gorjeta": N | null,
-  "itens": [{ "nome": "produto/prato normalizado", "qtd": N, "unidade": "un|kg|L|g|ml|dose" | null, "precoUnitario": N | null, "total": N, "iva": 6|13|23 | null }] | null
-}
+  "itens": [{ "nome": "produto/prato normalizado", "qtd": N, "unidade": "un|kg|L|g|ml|dose" | null, "precoUnitario": N | null, "total": N, "iva": 6|13|23 | null }] | null,
+  "utility": {
+    "tipo": "eletricidade" | "agua" | "gas" | "telecom" | null,
+    "periodoInicio": "YYYY-MM-DD" | null,
+    "periodoFim": "YYYY-MM-DD" | null,
+    "consumoKwh": N | null,
+    "consumoM3": N | null,
+    "potenciaKva": N | null,
+    "tarifa": "simples" | "bi-horaria" | "tri-horaria" | null,
+    "consumoVazio": N | null,
+    "consumoCheias": N | null,
+    "consumoPonta": N | null
+  } | null
 Para "itens": extrai cada linha da factura que represente um produto ou prato. Normaliza o nome (ex: "LEITE MIMOSA M.G. 1L" → "Leite Mimosa 1L"; "Prato do dia carne" → "Prato do dia"). Se a factura só tem o total agregado (ex: recibo de restauração sem linhas), devolve null ou []. Máximo 30 itens.
 Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
 
@@ -5644,6 +5656,28 @@ function prefillExpenseFromReceipt(obj) {
 // In-flight state between the OCR read and the save. Also loaded from the
 // edited expense when the user opens an existing entry.
 let pendingReceiptFields = null;
+
+// Normalises the utility block from OCR. All fields optional; we only
+// persist when "tipo" is one of the recognised categories so we can filter
+// utility-bearing expenses cheaply later.
+function sanitizeUtility(u) {
+    if (!u || typeof u !== 'object') return null;
+    const tipo = ['eletricidade', 'agua', 'gas', 'telecom'].includes(u.tipo) ? u.tipo : null;
+    if (!tipo) return null;
+    const dateOk = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+    return {
+        tipo,
+        periodoInicio: dateOk(u.periodoInicio),
+        periodoFim:    dateOk(u.periodoFim),
+        consumoKwh:    toNumberOrNull(u.consumoKwh),
+        consumoM3:     toNumberOrNull(u.consumoM3),
+        potenciaKva:   toNumberOrNull(u.potenciaKva),
+        tarifa:        ['simples','bi-horaria','tri-horaria'].includes(u.tarifa) ? u.tarifa : null,
+        consumoVazio:  toNumberOrNull(u.consumoVazio),
+        consumoCheias: toNumberOrNull(u.consumoCheias),
+        consumoPonta:  toNumberOrNull(u.consumoPonta)
+    };
+}
 
 // Shape/trim line items returned by the OCR so they're safe to store and
 // easy to aggregate later. Keeps normalised name, quantity, unit, unit
@@ -6097,6 +6131,181 @@ function renderReceiptInsights() {
     body.innerHTML = sections.join('');
 }
 
+// ===== UTILITY CONSUMPTION TRACKER =====
+// Rolls up OCR-extracted kWh / m³ / contracted power by utility type and
+// month so the user can see trends without depending on the AI.
+function renderUtilityConsumption() {
+    const card = document.getElementById('utility-card');
+    const body = document.getElementById('utility-body');
+    if (!card || !body) return;
+
+    const rows = [];
+    expenses.forEach(e => {
+        if (!e.utility || !e.utility.tipo) return;
+        const u = e.utility;
+        const mKey = (u.periodoInicio || e.date || '').slice(0, 7);
+        rows.push({ mKey, type: u.tipo, amount: e.amount, kwh: u.consumoKwh, m3: u.consumoM3, power: u.potenciaKva });
+    });
+    if (!rows.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    const typeLabels = { eletricidade: 'Eletricidade', agua: 'Água', gas: 'Gás', telecom: 'Telecomunicações' };
+    const typeIcons  = { eletricidade: 'fa-bolt',      agua: 'fa-droplet', gas: 'fa-fire', telecom: 'fa-wifi' };
+    const byType = {};
+    rows.forEach(r => {
+        if (!byType[r.type]) byType[r.type] = [];
+        byType[r.type].push(r);
+    });
+
+    body.innerHTML = Object.entries(byType).map(([type, list]) => {
+        list.sort((a, b) => a.mKey.localeCompare(b.mKey));
+        const recent = list.slice(-6);
+        const unit = type === 'eletricidade' ? 'kWh' : type === 'agua' ? 'm³' : type === 'gas' ? 'm³' : '';
+        const getConsumption = r => type === 'eletricidade' ? r.kwh : type === 'agua' || type === 'gas' ? r.m3 : null;
+        const withCons = recent.filter(r => getConsumption(r) != null);
+        const lastC = withCons.length ? getConsumption(withCons[withCons.length - 1]) : null;
+        const prevC = withCons.length >= 2 ? getConsumption(withCons[withCons.length - 2]) : null;
+        const trend = lastC != null && prevC != null ? ((lastC - prevC) / prevC) * 100 : 0;
+        const trendCol = trend > 5 ? 'var(--danger)' : trend < -5 ? 'var(--success)' : 'var(--text-light)';
+        const trendIcn = trend > 5 ? 'arrow-up' : trend < -5 ? 'arrow-down' : 'minus';
+        const maxVal = Math.max(...recent.map(r => r.amount), 1);
+        return `<div class="ri-section">
+            <div class="ri-title" style="justify-content:space-between"><span><i class="fas ${typeIcons[type]}"></i> ${typeLabels[type]}</span>
+                ${lastC != null ? `<span style="font-size:0.72rem;color:${trendCol};font-weight:600"><i class="fas fa-${trendIcn}"></i> ${lastC} ${unit}${prevC != null ? ` (${trend > 0 ? '+' : ''}${trend.toFixed(0)}% vs anterior)` : ''}</span>` : ''}
+            </div>
+            ${recent.map(r => {
+                const c = getConsumption(r);
+                return `<div style="padding:5px 0;display:grid;grid-template-columns:70px 1fr 80px;gap:8px;align-items:center;font-size:0.78rem">
+                    <span style="color:var(--text-light)">${r.mKey}</span>
+                    <div style="height:8px;background:#EEE7FF;border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.round(r.amount/maxVal*100)}%;background:var(--primary)"></div></div>
+                    <span style="text-align:right;font-weight:600">${formatCurrency(r.amount)}${c != null ? ` · ${c}${unit}` : ''}</span>
+                </div>`;
+            }).join('')}
+        </div>`;
+    }).join('');
+}
+
+// ===== AI CROSS-RECEIPT ITEM ANALYSIS =====
+// Walks line items across all receipts (plus the raw amount for utility
+// bills that have no line items) and sends a grouped summary to the AI.
+// Output splits by receipt type so the user sees groceries, restaurants
+// and utilities analysed independently.
+const UTILITIES_RE = /\b(edp|endesa|galp\s+g[áa]s|iberdrola|goldenergy|plenitude|naturgy|coopernico|coopérnico|águas|aguas|epal|simar|smas|indaqua|emarp|cmtgl|barcelos|aqualia|vodafone|meo|nos|nowo|dstelecom)\b/i;
+
+async function runAiItemAnalysis() {
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    const btn = document.getElementById('ai-items-btn');
+    const body = document.getElementById('ai-items-body');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA a analisar itens…'; }
+    try {
+        const cats = getEffectiveCategories();
+        // 6-month window keeps the prompt small while giving enough signal
+        // for seasonal patterns (e.g. winter gas, summer water).
+        const since = new Date(); since.setMonth(since.getMonth() - 6);
+        const windowExp = expenses.filter(e => e.date && new Date(e.date) >= since && !e.isFixedExpense);
+
+        // Supermarket items: products with per-unit prices
+        const supermarketItems = [];
+        const restaurantItems = [];
+        windowExp.forEach(e => {
+            if (!Array.isArray(e.lineItems) || !e.lineItems.length) return;
+            const merchant = getCanonicalMerchant(e) || (e.description || '').trim();
+            const target = e.category === 'restaurantes' ? restaurantItems
+                : (e.category === 'supermercado' || e.category === 'alimentacao') ? supermarketItems
+                : null;
+            if (!target) return;
+            e.lineItems.forEach(it => {
+                target.push({
+                    nome: it.name,
+                    qtd: it.quantity,
+                    unidade: it.unit,
+                    preco_unit: it.unitPrice,
+                    total: it.total,
+                    data: e.date,
+                    estabelecimento: merchant
+                });
+            });
+        });
+
+        // Utility bills: detect via description/merchant keywords, aggregate
+        // per provider per month (bills rarely itemise the way receipts do).
+        const utilities = {};
+        windowExp.forEach(e => {
+            const hay = `${e.description || ''} ${e.notes || ''}`;
+            if (!UTILITIES_RE.test(hay)) return;
+            const provider = hay.match(UTILITIES_RE)?.[0]?.trim().toLowerCase();
+            if (!provider) return;
+            const mKey = e.date.slice(0, 7);
+            const key = `${provider}|${mKey}`;
+            if (!utilities[key]) utilities[key] = { fornecedor: provider, mes: mKey, total: 0, n: 0 };
+            utilities[key].total += e.amount;
+            utilities[key].n += 1;
+        });
+        const utilityMonths = Object.values(utilities)
+            .sort((a, b) => a.fornecedor.localeCompare(b.fornecedor) || a.mes.localeCompare(b.mes))
+            .map(u => ({ ...u, total: Math.round(u.total * 100) / 100 }));
+
+        // Cap each list to keep prompt under a reasonable size.
+        const trim = (arr, n) => arr.slice(0, n).map(x => ({ ...x, total: x.total && Math.round(x.total * 100) / 100, preco_unit: x.preco_unit && Math.round(x.preco_unit * 100) / 100 }));
+
+        if (!supermarketItems.length && !restaurantItems.length && !utilityMonths.length) {
+            if (body) body.innerHTML = '<p class="empty-state" style="padding:16px 0">Sem itens para analisar. Faz scan de facturas com linhas (supermercado, restaurante, utilities) para ativar a análise.</p>';
+            return;
+        }
+
+        const prompt = `${AI_SYSTEM_PROMPT}
+Analisa os dados abaixo e devolve APENAS um JSON com esta estrutura (secções podem ser omitidas quando não há dados):
+{
+  "supermercado": [{"type":"tip|warning|alert","text":"..."}],
+  "restaurante": [{"type":"tip|warning|alert","text":"..."}],
+  "utilities": [{"type":"tip|warning|alert","text":"..."}],
+  "transversal": [{"type":"tip|warning|alert","text":"..."}]
+}
+Cada secção tem 0-4 insights. Regras:
+- Supermercado: mesma referência de produto a subir de preço ao longo dos meses, ou preço diferente entre estabelecimentos ("compras o ovo X no Lidl a 2,49 e no Pingo Doce a 3,19").
+- Restaurante: pratos/bebidas favoritos, ticket médio por estabelecimento, gorjetas gastas no total.
+- Utilities: se há faturas mensais de água/luz/gás e o valor disparou num mês, destaca.
+- Transversal: padrões cruzados que relacionem categorias.
+- Sempre valores em EUR, nomes de estabelecimentos reais.
+
+Dados (últimos 6 meses):
+Supermercado (${supermarketItems.length} linhas): ${JSON.stringify(trim(supermarketItems, 80))}
+Restaurante (${restaurantItems.length} linhas): ${JSON.stringify(trim(restaurantItems, 60))}
+Utilities por mês: ${JSON.stringify(utilityMonths.slice(0, 40))}
+${userProfilePromptBlock()}`;
+
+        const raw = await callAIText(prompt);
+        const obj = extractJsonObject(raw) || {};
+        const sections = [
+            { key: 'supermercado', label: 'Supermercado', icon: 'fa-basket-shopping', color: '#2E7D32' },
+            { key: 'restaurante',  label: 'Restauração',  icon: 'fa-utensils',       color: '#E65100' },
+            { key: 'utilities',    label: 'Utilities (água, luz, gás)', icon: 'fa-bolt', color: '#FDCB6E' },
+            { key: 'transversal',  label: 'Padrões transversais', icon: 'fa-shuffle', color: '#5A3BD8' }
+        ];
+        const hasAny = sections.some(s => Array.isArray(obj[s.key]) && obj[s.key].length);
+        if (!hasAny) {
+            if (body) body.innerHTML = '<p class="empty-state" style="padding:16px 0">A IA não encontrou padrões relevantes desta vez. Tenta novamente quando tiveres mais faturas.</p>';
+            return;
+        }
+        if (body) body.innerHTML = sections.map(s => {
+            const list = Array.isArray(obj[s.key]) ? obj[s.key] : [];
+            if (!list.length) return '';
+            return `<div class="ri-section">
+                <div class="ri-title"><i class="fas ${s.icon}" style="color:${s.color}"></i> ${s.label}</div>
+                ${list.map(t => {
+                    const icn = t.type === 'tip' ? 'fa-lightbulb' : t.type === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-exclamation';
+                    const col = t.type === 'tip' ? 'var(--success)' : t.type === 'warning' ? 'var(--warning)' : 'var(--danger)';
+                    return `<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-size:0.85rem"><i class="fas ${icn}" style="color:${col};margin-top:2px"></i><div>${t.text || ''}</div></div>`;
+                }).join('')}
+            </div>`;
+        }).join('');
+    } catch (e) {
+        if (body) body.innerHTML = `<p class="empty-state" style="padding:16px 0;color:var(--danger)">Erro: ${e?.message || e}</p>`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Analisar itens com IA'; }
+    }
+}
+
 // ===== PRODUCT PRICE TRACKER =====
 // Walks every expense that has lineItems and builds an index per normalised
 // product name. Each product gets: total occurrences, last price seen,
@@ -6385,6 +6594,7 @@ function applyOcrFieldsToOpenModal(obj) {
         serviceType:     ['mesa','take-away','esplanada','balcao','delivery'].includes(obj.tipoServico) ? obj.tipoServico : null,
         tip:             toNumberOrNull(obj.gorjeta),
         lineItems:       sanitizeLineItems(obj.itens),
+        utility:         sanitizeUtility(obj.utility),
         location:        pendingReceiptFields?.location || null,
         source: 'ocr'
     };
@@ -7018,6 +7228,7 @@ function editExpense(id) {
         contextTag: e.contextTag || null,
         location: e.location || null,
         lineItems: Array.isArray(e.lineItems) ? e.lineItems : null,
+        utility: e.utility || null,
         source: 'edit'
     };
     updateFiscalFieldsUI();
@@ -7186,6 +7397,7 @@ function saveExpense(event) {
         contextTag:      fiscal.contextTag,
         location:        pendingReceiptFields?.location || null,
         lineItems:       pendingReceiptFields?.lineItems || null,
+        utility:         pendingReceiptFields?.utility || null,
         updatedAt: new Date().toISOString()
     };
 
