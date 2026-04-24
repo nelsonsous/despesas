@@ -7649,16 +7649,13 @@ function saveExpense(event) {
     // on the card so the balance stays in sync. We stamp prepaidCardId on
     // the expense so editing the expense later can still pair up with its
     // original ledger entry (used for delete cleanup down the line).
-    const prepaidCardId = document.getElementById('expense-prepaid-card')?.value;
-    if (prepaidCardId) {
-        const last = expenses[expenses.length - 1];
-        if (last && last.id === expense.id) {
-            last.prepaidCardId = prepaidCardId;
-            // Stamp the txId so deleting the expense can also drop the
-            // matching prepaid transaction (kept for future cleanup).
-            const txId = addPrepaidSpend(prepaidCardId, last.amount, last.description || 'Consumo', last.date, last.id);
-            if (txId) last.prepaidTxId = txId;
-        }
+    // Sync the prepaid card link for both new and edited expenses. Top-ups
+    // (isPrepaidTopup) are managed by the top-up flow itself, so we only
+    // touch spends here.
+    const newPrepaidCardId = document.getElementById('expense-prepaid-card')?.value || null;
+    const target = expenses.find(x => x.id === expense.id);
+    if (target && !target.isPrepaidTopup) {
+        syncPrepaidSpendForExpense(target, newPrepaidCardId);
     }
 
     saveData();
@@ -8423,6 +8420,46 @@ function expenseAffectsBalance(e) {
     return !!e.isPrepaidTopup;
 }
 
+// Reconciles the prepaid spend ledger after an expense save. Handles all
+// four transitions in one place so callers don't have to reason about
+// them: (no card → card) creates a tx, (card → no card) removes the
+// existing tx, (card A → card B) moves it across, (same card, edited
+// fields) updates amount/date/description in place.
+function syncPrepaidSpendForExpense(expense, newCardId) {
+    const oldCardId = expense.prepaidCardId || null;
+    const oldTxId = expense.prepaidTxId || null;
+    const sameCard = oldCardId && newCardId && oldCardId === newCardId;
+
+    if (sameCard) {
+        const card = prepaidCards.find(c => c.id === newCardId);
+        const tx = card?.transactions?.find(t => t.id === oldTxId);
+        if (tx) {
+            tx.amount = expense.amount;
+            tx.date = expense.date;
+            tx.description = expense.description || 'Consumo';
+            return;
+        }
+        // Fallthrough: linked tx vanished — create a fresh one below.
+    }
+
+    if (oldCardId) {
+        const oldCard = prepaidCards.find(c => c.id === oldCardId);
+        if (oldCard && oldTxId) {
+            oldCard.transactions = (oldCard.transactions || []).filter(t => t.id !== oldTxId);
+        }
+        expense.prepaidCardId = null;
+        expense.prepaidTxId = null;
+    }
+
+    if (newCardId) {
+        const txId = addPrepaidSpend(newCardId, expense.amount, expense.description || 'Consumo', expense.date, expense.id);
+        if (txId) {
+            expense.prepaidCardId = newCardId;
+            expense.prepaidTxId = txId;
+        }
+    }
+}
+
 function addPrepaidSpend(cardId, amount, description, date, expenseId) {
     const card = prepaidCards.find(c => c.id === cardId);
     if (!card) return null;
@@ -8533,19 +8570,48 @@ function showPrepaidTopupPrompt(cardId) {
     document.getElementById('prepaid-topup-amount').value = '';
     document.getElementById('prepaid-topup-date').value = today;
     document.getElementById('prepaid-topup-note').value = '';
+    delete modal.dataset.editingTxId;
     modal.classList.add('active');
     setTimeout(() => document.getElementById('prepaid-topup-amount')?.focus(), 100);
 }
 
 function submitPrepaidTopup() {
+    const modal = document.getElementById('modal-prepaid-topup');
     const cardId = document.getElementById('prepaid-topup-card-id')?.value;
     if (!cardId) return;
     const amt = parseFloat((document.getElementById('prepaid-topup-amount')?.value || '').replace(',', '.'));
     if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
     const date = document.getElementById('prepaid-topup-date')?.value || new Date().toISOString().slice(0, 10);
     const note = (document.getElementById('prepaid-topup-note')?.value || '').trim() || 'Carregamento';
-    addPrepaidTopup(cardId, amt, note, date);
-    document.getElementById('modal-prepaid-topup')?.classList.remove('active');
+    const editingId = modal?.dataset.editingTxId;
+    if (editingId) {
+        // Edit mode: update the tx in place and the linked top-up expense.
+        const card = prepaidCards.find(c => c.id === cardId);
+        const tx = card?.transactions?.find(t => t.id === editingId);
+        if (tx) {
+            tx.amount = amt;
+            tx.date = date;
+            tx.description = note;
+            const linked = expenses.find(e => e.id === tx.expenseId);
+            if (linked) {
+                linked.amount = amt;
+                linked.date = date;
+                linked.description = `Carregamento ${card.name}`;
+                linked.notes = note && note !== 'Carregamento' ? note : '';
+                linked.updatedAt = new Date().toISOString();
+            }
+            saveData();
+            updateAll();
+            renderPrepaidCards();
+            showToast('Carregamento atualizado');
+        }
+    } else {
+        addPrepaidTopup(cardId, amt, note, date);
+    }
+    if (modal) {
+        delete modal.dataset.editingTxId;
+        modal.classList.remove('active');
+    }
 }
 
 function renderPrepaidCards() {
@@ -8614,36 +8680,37 @@ function deletePrepaidTransaction(cardId, txId) {
     showToast('Movimento apagado');
 }
 
+// Editing semantics:
+//  - Spend (paid via card): the source of truth is the linked expense, so
+//    we just open the regular expense edit modal. saveExpense's prepaid
+//    sync hook will rewrite the matching ledger entry on save.
+//  - Top-up: the source of truth is the prepaid transaction, so we reuse
+//    the top-up modal in "edit" mode (hidden tx-id stamps the existing
+//    tx instead of creating a new one). Saving syncs the paired expense.
 function editPrepaidTransaction(cardId, txId) {
     const card = prepaidCards.find(c => c.id === cardId);
     const tx = card?.transactions?.find(t => t.id === txId);
     if (!card || !tx) return;
-    const v = prompt('Valor (EUR):', tx.amount);
-    if (v == null) return;
-    const n = parseFloat((v || '').replace(',', '.'));
-    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
-    const d = prompt('Data (YYYY-MM-DD):', tx.date);
-    if (d == null) return;
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : tx.date;
-    const note = prompt('Descrição:', tx.description) ?? tx.description;
-    tx.amount = n;
-    tx.date = date;
-    tx.description = note || tx.description;
-    // Sync the linked top-up expense if any
-    if (tx.type === 'topup') {
-        const linked = expenses.find(e => e.id === tx.expenseId);
-        if (linked) {
-            linked.amount = n;
-            linked.date = date;
-            linked.description = `Carregamento ${card.name}`;
-            linked.notes = note && note !== 'Carregamento' ? note : '';
-            linked.updatedAt = new Date().toISOString();
-        }
+    if (tx.type === 'spend') {
+        // Find the linked expense and open the standard editor.
+        const expId = tx.expenseId || expenses.find(e => e.prepaidTxId === txId)?.id;
+        if (!expId) { showToast('Despesa associada não encontrada'); return; }
+        editExpense(expId);
+        return;
     }
-    saveData();
-    updateAll();
-    renderPrepaidCards();
-    showToast('Movimento atualizado');
+    // Top-up: prefill the topup modal in edit mode.
+    const modal = document.getElementById('modal-prepaid-topup');
+    if (!modal) return;
+    document.getElementById('prepaid-topup-card-id').value = cardId;
+    document.getElementById('prepaid-topup-card-info').innerHTML =
+        `<strong>${card.name}</strong> · a editar carregamento`;
+    document.getElementById('prepaid-topup-amount').value = tx.amount;
+    document.getElementById('prepaid-topup-date').value = tx.date;
+    document.getElementById('prepaid-topup-note').value = tx.description || '';
+    // Mark the modal as editing this tx so submit updates instead of creates.
+    modal.dataset.editingTxId = txId;
+    modal.classList.add('active');
+    setTimeout(() => document.getElementById('prepaid-topup-amount')?.focus(), 100);
 }
 
 // Populates the "Pagar com cartão" select in the expense modal. Balance
