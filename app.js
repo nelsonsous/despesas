@@ -1409,12 +1409,12 @@ function getEffectiveFixedAmount(f, date) {
         const deduction = splits.reduce((sum, s, i) => paidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
         effective = Math.max(0, effective - deduction);
     }
-    // Mix-partner sub-split: partner reimburses a share of their portion once
-    // the month's "pago" toggle is flipped (stored on fixedStatus.mixPartnerPaid).
+    // Mix-partner: when she reimburses this month, deduct her full attributed
+    // share from the effective amount. New semantics: one % means both her
+    // portion and what she pays back.
     if (f.mixPartnerPct && f.mixPartnerName && f.mixPartnerSplit && st?.mixPartnerPaid) {
         const pct = parseFloat(f.mixPartnerPct) || 0;
-        const splitPct = parseFloat(f.mixPartnerSplitPct) || 50;
-        const deduction = base * (pct / 100) * (splitPct / 100);
+        const deduction = base * (pct / 100);
         effective = Math.max(0, effective - deduction);
     }
     return effective;
@@ -1753,8 +1753,8 @@ function expandMixPersonalPartner(e) {
     // to the partner, so the normal adjust-for-splits logic deducts it when
     // marked paid.
     if (e.mixPartnerSplit) {
-        const splitPct = parseFloat(e.mixPartnerSplitPct) || 50;
-        const partnerShare = Math.round(partnerPortion * (splitPct / 100) * 100) / 100;
+        // New semantics: attribution IS what she pays back — no further division.
+        const partnerShare = Math.round(partnerPortion * 100) / 100;
         partnerVirtual.splits = [{ name: e.mixPartnerName, amount: partnerShare, paid: !!e.mixPartnerPaid }];
     }
     const partnerAdjusted = adjustExpenseForCustomSplit(partnerVirtual);
@@ -2102,8 +2102,8 @@ function getPartnerInvolvement(e, nameLower) {
         if (out.involved === 0) out.involved += gross;
         out.attributed += attrAmt;
         if (e.mixPartnerSplit) {
-            const splitPct = parseFloat(e.mixPartnerSplitPct) || 50;
-            const share = attrAmt * splitPct / 100;
+            // New semantics: attribution % IS what she pays back — no second knob.
+            const share = attrAmt;
             if (e.mixPartnerPaid) out.paid += share; else out.owed += share;
         }
     }
@@ -2164,8 +2164,8 @@ function getPartnerMonthStats(date, name) {
         const attributed = base * pct / 100;
         let owed = 0, paid = 0;
         if (f.mixPartnerSplit) {
-            const splitPct = parseFloat(f.mixPartnerSplitPct) || 100;
-            const share = attributed * splitPct / 100;
+            // Attribution = what she pays back (new semantics).
+            const share = attributed;
             if (st?.mixPartnerPaid) paid = share; else owed = share;
         }
         totals.involved += base;
@@ -2729,7 +2729,7 @@ function renderExpenses() {
             let totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
             if (f.mixPartnerPct && f.mixPartnerSplit && st?.mixPartnerPaid) {
                 const base = st?.amount || f.amount;
-                totalSplitsDeduction += base * (parseFloat(f.mixPartnerPct) / 100) * (parseFloat(f.mixPartnerSplitPct || 50) / 100);
+                totalSplitsDeduction += base * (parseFloat(f.mixPartnerPct) / 100);
             }
             const gross = st?.amount || f.amount;
             const hasSplitDeduction = totalSplitsDeduction > 0;
