@@ -1759,6 +1759,9 @@ function expandMixPersonalChild(e) {
 // virtual carries a splits[] entry recording how much the partner owes/paid.
 function expandMixPersonalPartner(e) {
     if (!e.mixPartnerPct || !e.mixPartnerName) return [e];
+    // Grouped expenses use per-entry withPartner flags as the source of truth,
+    // so ignore any whole-expense mixPartner* fields that may have leaked in.
+    if (e.isGrouped && Array.isArray(e.entries)) return [e];
     const pct = parseFloat(e.mixPartnerPct);
     if (!(pct > 0 && pct < 100)) return [e];
     const total = e.fullAmount || e.amount;
@@ -2124,15 +2127,18 @@ function getPartnerInvolvement(e, nameLower) {
     const out = { involved: 0, attributed: 0, owed: 0, paid: 0 };
     const gross = e.fullAmount != null ? e.fullAmount : (e.amount || 0);
 
-    // Grouped expense with per-entry partner flag — the tagged entries are
-    // considered 100 % hers.
+    // Grouped expense: per-entry withPartner flags are the SOLE source of
+    // truth. Skip the whole-expense mix/splits/withPeople logic so an entry
+    // without the flag never leaks in as "with partner".
     if (e.isGrouped && Array.isArray(e.entries)) {
         const sumPartnerEntries = e.entries
             .filter(en => en.withPartner)
             .reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
         if (sumPartnerEntries > 0) {
             out.attributed += sumPartnerEntries;
+            out.involved = out.attributed;
         }
+        return out;
     }
 
     // Mix Pessoal+partner on this expense — attributing a % always counts as
@@ -4721,6 +4727,7 @@ function showAddExpense() {
     if (mixGrp) mixGrp.style.display = children.length >= 1 ? 'block' : 'none';
     if (children.length >= 1) populateMixChildSelect();
     document.getElementById('expense-is-grouped').checked = false;
+    onIsGroupedChange();
     document.getElementById('modal-add').classList.add('active');
 }
 
@@ -4737,6 +4744,24 @@ function toggleMixWithPartner() {
     const cb = document.getElementById('mix-with-partner');
     const fields = document.getElementById('mix-with-partner-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+
+// Grouped expenses use per-entry withPartner in the grouped-entry modal;
+// showing the whole-expense "Atribuir parte a X" block just invites double
+// attribution, so hide it while "Agrupada" is on.
+function onIsGroupedChange() {
+    const isGrouped = !!document.getElementById('expense-is-grouped')?.checked;
+    const partnerGrp = document.getElementById('mix-personal-partner-group');
+    if (partnerGrp) {
+        if (isGrouped) {
+            partnerGrp.style.display = 'none';
+            const cb = document.getElementById('mix-with-partner');
+            if (cb) cb.checked = false;
+            toggleMixWithPartner();
+        } else {
+            updateMixPartnerUI();
+        }
+    }
 }
 
 function toggleMixPartnerSplit() {
@@ -5131,6 +5156,7 @@ function editExpense(id) {
     renderPeopleSuggestions();
     setupSpouseSplitUI(e);
     document.getElementById('expense-is-grouped').checked = !!e.isGrouped;
+    onIsGroupedChange();
     // Restore split-across-children state
     const splitGrp = document.getElementById('split-children-group');
     if (splitGrp) {
@@ -5309,12 +5335,14 @@ function saveExpense(event) {
         mixChildPct: mixWithChild && mixChildPct > 0 && mixChildPct < 100 ? mixChildPct : null,
         mixChildSplitCoParent,
         mixChildPaidByFather,
-        // Mix split between Pessoal and the partner (separated mode)
-        mixPartnerPct: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? mixPartnerPct : null,
-        mixPartnerName: mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? partnerName : null,
-        mixPartnerSpent: mixPartnerSpentOn,
-        mixPartnerSplit: mixPartnerSplitOn,
-        mixPartnerPaid: mixPartnerPaidOn,
+        // Mix split between Pessoal and the partner (separated mode). Grouped
+        // expenses use per-entry withPartner instead, so we never persist
+        // whole-expense mix fields on them.
+        mixPartnerPct: (!isGrouped && mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100) ? mixPartnerPct : null,
+        mixPartnerName: (!isGrouped && mixWithPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100) ? partnerName : null,
+        mixPartnerSpent: !isGrouped && mixPartnerSpentOn,
+        mixPartnerSplit: !isGrouped && mixPartnerSplitOn,
+        mixPartnerPaid: !isGrouped && mixPartnerPaidOn,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
         notes: notesVal,
         withPeople,
