@@ -2096,20 +2096,14 @@ function getPartnerInvolvement(e, nameLower) {
         }
     }
 
-    // Mix Pessoal+partner on this expense — two separate flags:
-    // "mixPartnerSpent" (tag for reports) and "mixPartnerSplit" (debt tracking).
-    // Legacy data without the flags is treated as spent=true for back-compat.
+    // Mix Pessoal+partner on this expense — attributing a % always counts as
+    // "spent with" for reports. "mixPartnerSplit" adds the debt layer on top.
     if (e.mixPartnerName && e.mixPartnerName.toLowerCase() === nameLower && e.mixPartnerPct) {
-        const hasSpentFlag = 'mixPartnerSpent' in e;
-        const isSpent = hasSpentFlag ? !!e.mixPartnerSpent : true;
-        const isSplit = !!e.mixPartnerSplit;
-        if (isSpent || isSplit) {
-            const pct = parseFloat(e.mixPartnerPct) || 0;
-            const attrAmt = gross * pct / 100;
-            out.attributed += attrAmt;
-            if (isSplit) {
-                if (e.mixPartnerPaid) out.paid += attrAmt; else out.owed += attrAmt;
-            }
+        const pct = parseFloat(e.mixPartnerPct) || 0;
+        const attrAmt = gross * pct / 100;
+        out.attributed += attrAmt;
+        if (e.mixPartnerSplit) {
+            if (e.mixPartnerPaid) out.paid += attrAmt; else out.owed += attrAmt;
         }
     }
 
@@ -2169,14 +2163,10 @@ function getPartnerMonthStats(date, name) {
         const pct = parseFloat(f.mixPartnerPct) || 0;
         if (!(pct > 0 && pct < 100)) return;
         const attributed = base * pct / 100;
-        // Two flags: "Gastei" (tag) and "Dividir" (debt). Split implies
-        // per-month owed/paid. Spent alone is just a category tag.
-        const hasSpentFlag = 'mixPartnerSpent' in f;
-        const isSpent = hasSpentFlag ? !!f.mixPartnerSpent : true;
-        const isSplit = !!f.mixPartnerSplit;
-        if (!isSpent && !isSplit) return;
+        // Attribution always counts as "spent with". "Dividir" (mixPartnerSplit)
+        // turns it into a monthly debt tracked via fixedStatus.mixPartnerPaid.
         let owed = 0, paid = 0;
-        if (isSplit) {
+        if (f.mixPartnerSplit) {
             if (st?.mixPartnerPaid) paid = attributed; else owed = attributed;
         }
         // "Envolvido" in the report is the attributed share, not the full base —
@@ -4516,14 +4506,11 @@ function updateMixPartnerUI(expense) {
     // Populate from the expense when editing
     const cb = document.getElementById('mix-with-partner');
     const pct = document.getElementById('mix-partner-pct');
-    const spentCb = document.getElementById('mix-partner-spent');
     const splitCb = document.getElementById('mix-partner-split');
     const paidCb = document.getElementById('mix-partner-paid');
     const has = !!(expense && expense.mixPartnerPct);
     if (cb) cb.checked = has;
     if (pct) pct.value = expense?.mixPartnerPct || 50;
-    // Default "Gastei" to true when opening; loaded expense uses stored flag.
-    if (spentCb) spentCb.checked = expense ? !!expense.mixPartnerSpent : true;
     if (splitCb) splitCb.checked = !!(expense && expense.mixPartnerSplit);
     if (paidCb) paidCb.checked = !!(expense && expense.mixPartnerPaid);
     toggleMixWithPartner();
@@ -4766,12 +4753,10 @@ function updateFixedMixPartnerUI(f) {
     if (header) header.textContent = name;
     const cb = document.getElementById('fixed-mix-with-partner');
     const pct = document.getElementById('fixed-mix-partner-pct');
-    const spentCb = document.getElementById('fixed-mix-partner-spent');
     const splitCb = document.getElementById('fixed-mix-partner-split');
     const has = !!(f && f.mixPartnerPct);
     if (cb) cb.checked = has;
     if (pct) pct.value = f?.mixPartnerPct || 50;
-    if (spentCb) spentCb.checked = f ? !!f.mixPartnerSpent : true;
     if (splitCb) splitCb.checked = !!(f && f.mixPartnerSplit);
     toggleFixedMixPartner();
 }
@@ -5016,8 +5001,9 @@ function saveExpense(event) {
     const mixPartnerPct = mixWithPartnerOn
         ? (parseFloat(document.getElementById('mix-partner-pct')?.value) || 0)
         : 0;
-    // Two orthogonal flags: "Gastei" (tag for reports) and "Dividir" (debt tracking).
-    const mixPartnerSpentOn = mixWithPartnerOn && !!document.getElementById('mix-partner-spent')?.checked;
+    // Attributing a % to the partner implies "spent with" (tag for reports).
+    // Checking "Dividir" adds a debt layer on top; "Paid" clears the debt.
+    const mixPartnerSpentOn = mixWithPartnerOn;
     const mixPartnerSplitOn = mixWithPartnerOn && !!document.getElementById('mix-partner-split')?.checked;
     const mixPartnerPaidOn = mixPartnerSplitOn && !!document.getElementById('mix-partner-paid')?.checked;
     if (mixWithPartnerOn && mixPartnerPct > 0 && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
@@ -6014,9 +6000,9 @@ function saveFixed(event) {
     const mixPartnerPct = mixPartnerOn
         ? (parseFloat(document.getElementById('fixed-mix-partner-pct')?.value) || 0)
         : 0;
-    // Two orthogonal flags: "Gastei" (tag) and "Dividir" (debt). When dividir is
-    // on, per-month reimbursement is tracked on fixedStatus.mixPartnerPaid.
-    const mixPartnerSpentOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-spent')?.checked;
+    // Attribution implies "spent with" (tag). "Dividir" adds the debt layer,
+    // with per-month reimbursement tracked on fixedStatus.mixPartnerPaid.
+    const mixPartnerSpentOn = mixPartnerOn;
     const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
     const fixed = {
         id: id || generateId(),
