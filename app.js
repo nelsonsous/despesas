@@ -4662,6 +4662,7 @@ async function askAiMoney() {
     try {
         const answer = await answerAiMoneyQuestion(question);
         ansEl.innerHTML = answer;
+        input.value = '';
     } catch (e) {
         ansEl.textContent = `Erro: ${e?.message || 'não consegui responder'}`;
     }
