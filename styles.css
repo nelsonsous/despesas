@@ -890,6 +890,68 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 
 /* ===== Savings Analysis ===== */
 .savings-card { border-left: 4px solid var(--success); }
+#app-lock-overlay {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #1a1140 0%, #3b1c7a 60%, #5A3BD8 100%);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.app-lock-inner {
+    background: #fff;
+    border-radius: 18px;
+    padding: 28px 22px;
+    width: 100%;
+    max-width: 340px;
+    text-align: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+}
+.app-lock-icon {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#EEE7FF,#D8CAFF);
+    color: #5A3BD8;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem;
+    margin: 0 auto 14px;
+}
+.app-lock-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #2A1F4F;
+}
+.app-lock-sub {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    margin-bottom: 18px;
+}
+.app-lock-status {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: #C62828;
+    min-height: 18px;
+}
+#app-lock-pin {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 1.3rem;
+    letter-spacing: 0.4em;
+    text-align: center;
+    font-family: var(--font);
+    outline: none;
+}
+.btn-ghost {
+    background: transparent !important;
+    color: var(--primary) !important;
+    border: none !important;
+    text-decoration: underline;
+}
+
 .action-chips-row {
     display: flex;
     justify-content: flex-end;
