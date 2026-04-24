@@ -32,6 +32,16 @@ const APP_TITLE_KEY = 'vanessa_app_title';
 const HOUSEHOLD_MODE_KEY = 'vanessa_household_mode';
 const SPOUSE_NAME_KEY = 'vanessa_spouse_name';
 const SPOUSE_PCT_KEY = 'vanessa_spouse_pct';
+const PARTNER_NAME_KEY = 'vanessa_partner_name';
+const PARTNER_PCT_KEY = 'vanessa_partner_pct';
+
+function getPartnerName() {
+    return (localStorage.getItem(PARTNER_NAME_KEY) || '').trim();
+}
+function getPartnerPct() {
+    const raw = parseInt(localStorage.getItem(PARTNER_PCT_KEY));
+    return isNaN(raw) ? 50 : Math.max(0, Math.min(100, raw));
+}
 
 // 'separated' (default): track co-parent splits; 'married': spouse split
 function getHouseholdMode() {
@@ -3093,6 +3103,7 @@ function renderReports() {
     renderIncomeVsExpenses();
     renderMonthlyEvolution();
     renderSalaryCycleReport();
+    renderPartnerSpending();
     renderSavingsAnalysis();
     renderCategoryComparison();
     renderUnnecessaryExpenses();
@@ -3100,6 +3111,83 @@ function renderReports() {
     renderPeopleSpending();
     renderWeekdayHeatmap();
     renderSmartInsights();
+}
+
+// Partner-specific spending highlight card. Shows totals for the month and
+// the last 6 months, plus the user's net share (after subtracting paid splits
+// attributed to the partner). Only rendered in separated mode with a partner
+// name configured.
+function renderPartnerSpending() {
+    const container = document.getElementById('partner-spending-card');
+    if (!container) return;
+    const name = getPartnerName();
+    if (isMarriedMode() || !name) { container.style.display = 'none'; return; }
+    const nameLower = name.toLowerCase();
+
+    const monthExpRaw = getEffectiveMonthExpenses(currentDate);
+    // Include expenses where partner is tagged in withPeople OR appears in splits.
+    const involved = monthExpRaw.filter(e => {
+        if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) return true;
+        if (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower)) return true;
+        return false;
+    });
+    const totalInvolved = involved.reduce((s, e) => s + (e.amount || 0), 0);
+    const countInvolved = involved.length;
+
+    // Partner's share of shared costs (whether already paid back or not).
+    let partnerOwes = 0, partnerAlreadyPaid = 0;
+    involved.forEach(e => {
+        if (!Array.isArray(e.splits)) return;
+        e.splits.forEach(s => {
+            if ((s.name || '').toLowerCase() !== nameLower) return;
+            const amt = parseFloat(s.amount) || 0;
+            if (s.paid) partnerAlreadyPaid += amt; else partnerOwes += amt;
+        });
+    });
+
+    // Last 6 months trend
+    const now = new Date();
+    const series = [];
+    for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthExp = getEffectiveMonthExpenses(d);
+        const inv = monthExp.filter(e => {
+            if ((e.withPeople || []).some(p => p.toLowerCase() === nameLower)) return true;
+            if (Array.isArray(e.splits) && e.splits.some(s => (s.name || '').toLowerCase() === nameLower)) return true;
+            return false;
+        });
+        series.push({ date: d, total: inv.reduce((s, e) => s + (e.amount || 0), 0) });
+    }
+    const maxSeries = Math.max(...series.map(s => s.total), 1);
+    const monthsShort = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+    container.style.display = 'block';
+    container.innerHTML = `
+        <h3><i class="fas fa-heart" style="color:#E91E63"></i> Gasto com ${name}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="padding:10px;background:#FCE4EC;border-radius:10px">
+                <div style="font-size:0.7rem;color:#880E4F">Total envolvido este mês</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#C2185B">${formatCurrency(totalInvolved)}</div>
+                <div style="font-size:0.65rem;color:#AD1457">${countInvolved} ${countInvolved === 1 ? 'despesa' : 'despesas'}</div>
+            </div>
+            <div style="padding:10px;background:var(--surface);border-radius:10px">
+                <div style="font-size:0.7rem;color:var(--text-light)">Parte do/a ${name}</div>
+                <div style="font-size:0.95rem;font-weight:700">${formatCurrency(partnerOwes + partnerAlreadyPaid)}</div>
+                <div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(partnerAlreadyPaid)} pagos · <span style="color:var(--danger)">${formatCurrency(partnerOwes)} por receber</span></div>
+            </div>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Últimos 6 meses</div>
+        <div style="display:flex;gap:4px;align-items:flex-end;height:60px">
+            ${series.map(s => {
+                const h = Math.max(4, Math.round((s.total / maxSeries) * 54));
+                const isCurrent = s.date.getMonth() === now.getMonth() && s.date.getFullYear() === now.getFullYear();
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${monthsShort[s.date.getMonth()]}: ${formatCurrency(s.total)}">
+                    <div style="width:100%;height:${h}px;background:${isCurrent ? '#E91E63' : '#F8BBD0'};border-radius:4px 4px 0 0"></div>
+                    <div style="font-size:0.6rem;color:var(--text-light)">${monthsShort[s.date.getMonth()].slice(0,3)}</div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
 }
 
 // Local-timezone date formatter (YYYY-MM-DD). toISOString() uses UTC and can
@@ -4032,6 +4120,7 @@ function showAddExpense() {
     if (list) list.innerHTML = '';
     toggleSplitWithOther();
     populateSplitWithNamesList();
+    updatePartnerQuickGroupUI(null);
     // Reset mix-with-child state (defaults to hidden; setupTypeToggle shows when type=personal)
     const mixCb = document.getElementById('mix-with-child');
     if (mixCb) mixCb.checked = false;
@@ -4048,6 +4137,51 @@ function toggleMixWithChild() {
     const fields = document.getElementById('mix-with-child-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
     if (cb?.checked) { populateMixChildSelect(); updateMixCoParentLabels(); }
+}
+
+// Show the partner quick-toggle block only in separated mode with a partner
+// name configured. Refreshes the visible name.
+function updatePartnerQuickGroupUI(expense) {
+    const grp = document.getElementById('partner-quick-group');
+    if (!grp) return;
+    const name = getPartnerName();
+    const show = !isMarriedMode() && !!name;
+    grp.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    const lbl = document.getElementById('partner-quick-name');
+    if (lbl) lbl.textContent = name;
+    // Precompute state from the expense (if editing)
+    const withCb = document.getElementById('partner-quick-with');
+    const splitCb = document.getElementById('partner-quick-split');
+    const isInWith = expense && Array.isArray(expense.withPeople) && expense.withPeople.includes(name);
+    const hasPartnerSplit = expense && Array.isArray(expense.splits)
+        && expense.splits.some(s => (s.name || '').toLowerCase() === name.toLowerCase());
+    if (withCb) withCb.checked = !!isInWith;
+    if (splitCb) splitCb.checked = !!hasPartnerSplit;
+}
+
+// When the user ticks "Dividir esta despesa com o/a namorado/a", pre-fill a
+// splits row with the partner's name and share of the current amount.
+function applyPartnerSplitShortcut() {
+    const cb = document.getElementById('partner-quick-split');
+    const name = getPartnerName();
+    if (!cb || !name) return;
+    if (!cb.checked) return;
+    // Enable the main splits section and add a row for the partner.
+    const swOther = document.getElementById('split-with-other');
+    if (swOther && !swOther.checked) { swOther.checked = true; toggleSplitWithOther(); }
+    const pct = getPartnerPct();
+    const total = parseFloat(document.getElementById('expense-amount')?.value) || 0;
+    const amt = Math.round((total * pct / 100) * 100) / 100;
+    // Look for an existing row with the same name; otherwise add one.
+    const rows = document.querySelectorAll('#splits-list .split-row');
+    const existing = [...rows].find(r => (r.querySelector('.split-name')?.value || '').toLowerCase() === name.toLowerCase());
+    if (existing) {
+        const a = existing.querySelector('.split-amount');
+        if (a && (!a.value || parseFloat(a.value) === 0)) a.value = amt.toFixed(2);
+    } else {
+        addSplitRow({ name, amount: amt, paid: false });
+    }
 }
 
 function populateMixChildSelect() {
@@ -4401,6 +4535,7 @@ function editExpense(id) {
     // Multi-person split (with legacy migration)
     populateSplitWithNamesList();
     populateSplitsUI(e);
+    updatePartnerQuickGroupUI(e);
     // Mix-with-child (Pessoal + filho %). Visible when type is personal AND children exist.
     const mixGrp = document.getElementById('mix-personal-child-group');
     if (mixGrp) mixGrp.style.display = (e.type === 'personal' && children.length >= 1) ? 'block' : 'none';
@@ -4475,6 +4610,12 @@ function saveExpense(event) {
 
     const withInput = document.getElementById('expense-with')?.value.trim() || '';
     const withPeople = withInput ? withInput.split(',').map(s => s.trim()).filter(s => s) : [];
+    // Partner quick toggle: add partner name to withPeople (dedup, case-insensitive).
+    const partnerName = getPartnerName();
+    const partnerQuickWith = !isMarriedMode() && partnerName && document.getElementById('partner-quick-with')?.checked;
+    if (partnerQuickWith && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
+        withPeople.push(partnerName);
+    }
     const splitAcross = document.getElementById('split-across-children')?.checked || false;
     const splitChildrenIds = splitAcross
         ? Array.from(document.querySelectorAll('input[name="split-across-children"]:checked')).map(c => c.value)
@@ -5227,7 +5368,11 @@ function showSettingsModal() {
     const spousePctEl = document.getElementById('profile-spouse-pct');
     if (spouseNameEl) spouseNameEl.value = localStorage.getItem(SPOUSE_NAME_KEY) || '';
     if (spousePctEl) spousePctEl.value = getSpousePct();
-    // Live-update spouse settings visibility when mode changes (before Guardar)
+    const partnerNameEl = document.getElementById('profile-partner-name');
+    const partnerPctEl = document.getElementById('profile-partner-pct');
+    if (partnerNameEl) partnerNameEl.value = getPartnerName();
+    if (partnerPctEl) partnerPctEl.value = getPartnerPct();
+    // Live-update spouse/partner settings visibility when mode changes (before Guardar)
     toggleSpouseSettingsUI();
     document.querySelectorAll('input[name="household-mode"]').forEach(r => {
         r.onchange = toggleSpouseSettingsUI;
@@ -5236,8 +5381,10 @@ function showSettingsModal() {
 
 function toggleSpouseSettingsUI() {
     const mode = document.querySelector('input[name="household-mode"]:checked')?.value;
-    const group = document.getElementById('spouse-settings');
-    if (group) group.style.display = mode === 'married' ? 'block' : 'none';
+    const spouseGrp = document.getElementById('spouse-settings');
+    if (spouseGrp) spouseGrp.style.display = mode === 'married' ? 'block' : 'none';
+    const partnerGrp = document.getElementById('partner-settings');
+    if (partnerGrp) partnerGrp.style.display = mode === 'separated' ? 'block' : 'none';
     document.getElementById('modal-settings').classList.add('active');
 }
 
@@ -5269,6 +5416,14 @@ function saveProfileName() {
     const spousePct = parseInt(document.getElementById('profile-spouse-pct')?.value);
     if (spouseName) localStorage.setItem(SPOUSE_NAME_KEY, spouseName);
     if (!isNaN(spousePct)) localStorage.setItem(SPOUSE_PCT_KEY, String(spousePct));
+    // Partner settings (separated mode shortcut)
+    const partnerName = document.getElementById('profile-partner-name')?.value.trim();
+    const partnerPct = parseInt(document.getElementById('profile-partner-pct')?.value);
+    if (partnerName !== undefined) {
+        if (partnerName) localStorage.setItem(PARTNER_NAME_KEY, partnerName);
+        else localStorage.removeItem(PARTNER_NAME_KEY);
+    }
+    if (!isNaN(partnerPct)) localStorage.setItem(PARTNER_PCT_KEY, String(partnerPct));
     // Salary day + mode
     const sdInput = document.getElementById('profile-salary-day');
     if (sdInput) {
