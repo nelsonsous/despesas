@@ -2241,7 +2241,7 @@ function renderPartnerSummary() {
             <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
             <div style="font-size:1.4rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
             <div style="font-size:0.7rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
-            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Parte dela: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
+            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Por liquidar: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
         </div>
         ${topCats.length ? `
         <div style="font-size:0.68rem;color:var(--text-light);margin-bottom:4px">Onde mais gastaram</div>
@@ -3462,7 +3462,7 @@ function renderPartnerSpending() {
             <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
             <div style="font-size:1.4rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
             <div style="font-size:0.7rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
-            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Parte dela: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
+            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Por liquidar: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
         </div>
         <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Últimos 6 meses</div>
         <div style="display:flex;gap:4px;align-items:flex-end;height:60px;margin-bottom:12px">

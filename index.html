@@ -547,15 +547,15 @@
                             <input type="number" id="mix-partner-pct" min="1" max="99" value="50">
                             <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
                                 <input type="checkbox" id="mix-partner-split" onchange="toggleMixPartnerSplit()">
-                                <span style="font-size:0.85rem">Dividir a parte com <span class="mix-partner-name">namorada</span> (ela deve-me)</span>
+                                <span style="font-size:0.85rem">Dividir a parte com <span class="mix-partner-name">namorada</span> (dívida a receber)</span>
                             </label>
                             <div id="mix-partner-split-fields" style="display:none;margin-top:4px;padding-left:24px">
                                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                                     <input type="checkbox" id="mix-partner-paid">
-                                    <span style="font-size:0.85rem">Já recebi a parte dela</span>
+                                    <span style="font-size:0.85rem">Já me foi pago</span>
                                 </label>
                             </div>
-                            <small class="field-hint">A % atribuída aparece nos relatórios como gasto com ela. Se marcares "Dividir", fica uma dívida até carregares em "Já recebi".</small>
+                            <small class="field-hint">A % atribuída aparece nos relatórios como gasto partilhado. Se marcares "Dividir", fica uma dívida até carregares em "Já me foi pago".</small>
                         </div>
                     </div>
                     <div class="form-group show-when-married" id="spouse-split-group" style="display:none">
@@ -1200,9 +1200,9 @@
                             <input type="number" id="fixed-mix-partner-pct" min="1" max="99" value="50">
                             <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
                                 <input type="checkbox" id="fixed-mix-partner-split">
-                                <span style="font-size:0.85rem">Dividir a parte com <span class="fixed-mix-partner-name">namorada</span> (ela paga)</span>
+                                <span style="font-size:0.85rem">Dividir a parte com <span class="fixed-mix-partner-name">namorada</span> (dívida mensal a receber)</span>
                             </label>
-                            <small class="field-hint">A % atribuída aparece nos relatórios. Se marcares "Dividir", na lista mensal marcas mês a mês quando ela te paga.</small>
+                            <small class="field-hint">A % atribuída aparece nos relatórios. Se marcares "Dividir", na lista mensal marcas mês a mês quando recebes essa parte.</small>
                         </div>
                     </div>
                     <div class="form-group">
