@@ -7632,7 +7632,15 @@ function saveExpense(event) {
     if (id) {
         const idx = expenses.findIndex(e => e.id === id);
         if (idx >= 0) {
-            expense.createdAt = expenses[idx].createdAt;
+            const old = expenses[idx];
+            expense.createdAt = old.createdAt;
+            // Preserve prepaid card linkage across edits — saveExpense
+            // builds a fresh object that doesn't carry these fields, so
+            // syncPrepaidSpendForExpense would otherwise see "no card"
+            // and create a duplicate tx instead of updating.
+            if (!('prepaidCardId' in expense)) expense.prepaidCardId = old.prepaidCardId || null;
+            if (!('prepaidTxId' in expense))   expense.prepaidTxId = old.prepaidTxId || null;
+            if (!('isPrepaidTopup' in expense)) expense.isPrepaidTopup = !!old.isPrepaidTopup;
             expenses[idx] = expense;
         }
     } else {
