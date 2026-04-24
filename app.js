@@ -63,10 +63,14 @@ function getSpousePct() {
 }
 const TEMPLATES_KEY = 'vanessa_templates';
 const PREPAID_KEY = 'vanessa_prepaid_cards';
+const GOALS_KEY = 'vanessa_savings_goals';
+const NETWORTH_KEY = 'vanessa_net_worth';
 const BUDGETS_KEY = 'vanessa_budgets';
 let expenseTemplates = [];   // { id, description, amount, category, type, split, essential, icon }
 let categoryBudgets = {};    // { category: maxAmount }
 let prepaidCards = [];       // { id, name, icon, color, createdAt, transactions: [{id, type:'topup'|'spend', amount, description, date, expenseId?}] }
+let savingsGoals = [];       // { id, name, target, deadline, savedSoFar, createdAt, color }
+let netWorth = { assets: [], liabilities: [], updatedAt: null }; // { assets: [{name, amount}], liabilities: [{name, amount}] }
 
 function getUserName() {
     return localStorage.getItem(USER_NAME_KEY) || '';
@@ -1326,7 +1330,16 @@ function renderSalaryCycle() {
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
             const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
-            projEl.textContent = `${sign}${formatCurrency(projectedEndBalance)} no fim`;
+            // Range projection: optimistic uses 0.7× current rate, pessimistic
+            // uses 1.3× — gives the user a quick sense of best/worst case
+            // alongside the central estimate.
+            const optimisticVar = dailyVarRate * 0.7 * daysLeft;
+            const pessimisticVar = dailyVarRate * 1.3 * daysLeft;
+            const incTotal = b.incReceived + b.incPending;
+            const fixedTotal = b.expPaid + b.expPending;
+            const optimistic = incTotal - fixedTotal - optimisticVar;
+            const pessimistic = incTotal - fixedTotal - pessimisticVar;
+            projEl.innerHTML = `<span style="font-weight:700">${sign}${formatCurrency(projectedEndBalance)}</span><span style="font-size:0.7em;opacity:0.85;margin-left:4px">(${formatCurrency(pessimistic)}…${formatCurrency(optimistic)})</span>`;
             projEl.style.color = color;
         }
         showProjection = true;
@@ -1704,6 +1717,10 @@ function loadData() {
     categoryBudgets = budData ? JSON.parse(budData) : {};
     const prepaidData = localStorage.getItem(PREPAID_KEY);
     prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
+    const goalsData = localStorage.getItem(GOALS_KEY);
+    savingsGoals = goalsData ? JSON.parse(goalsData) : [];
+    const netWorthData = localStorage.getItem(NETWORTH_KEY);
+    netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
     const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
@@ -1723,6 +1740,8 @@ function saveData() {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
     localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
+    localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
+    localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
     // analyses reflect the latest habits on the next call.
     try { recomputeUserProfile(); } catch {}
@@ -2470,6 +2489,9 @@ function updateDashboard() {
     renderSalaryCycle();
     renderPartnerSummary();
     renderAiInsightsCard();
+    renderSavingsGoals();
+    renderNetWorth();
+    renderBudgetAlerts();
     const prepaidCard = document.getElementById('prepaid-cards-card');
     if (prepaidCard) prepaidCard.style.display = prepaidCards.length ? 'block' : 'none';
     renderPrepaidCards();
@@ -3838,6 +3860,7 @@ function renderReports() {
     renderSalaryCycleReport();
     renderPartnerSpending();
     renderIrsTracker();
+    renderSubscriptionAudit();
     renderUtilityConsumption();
     renderReceiptInsights();
     renderProductPrices();
@@ -7814,6 +7837,319 @@ function promoteExpenseToFixed(id) {
     document.getElementById('fixed-modal').classList.add('active');
     // Flag so saveFixed can prompt "apagar a despesa original?" after save.
     window._expensePromotedToFixedSourceId = id;
+}
+
+// ===== SAVINGS GOALS =====
+// Each goal has a target amount and optional deadline. savedSoFar is
+// manually maintained — the user updates as they actually transfer money
+// to their savings account. We compute "monthly required" and surface
+// it on the dashboard along with progress vs the user's typical savings
+// rate so they know if the goal is realistic.
+function showAddGoalPrompt() {
+    const name = prompt('Nome do objetivo (ex: Férias 2026):');
+    if (!name || !name.trim()) return;
+    const target = parseFloat((prompt('Valor a poupar (EUR):') || '').replace(',', '.'));
+    if (!isFinite(target) || target <= 0) { showToast('Valor inválido'); return; }
+    const deadline = prompt('Data limite (YYYY-MM-DD, opcional):');
+    const goal = {
+        id: generateId(),
+        name: name.trim(),
+        target,
+        deadline: deadline && /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : null,
+        savedSoFar: 0,
+        color: '#5A3BD8',
+        createdAt: new Date().toISOString()
+    };
+    savingsGoals.push(goal);
+    saveData();
+    renderSavingsGoals();
+    showToast('Objetivo criado');
+}
+
+function updateGoalSaved(id) {
+    const g = savingsGoals.find(x => x.id === id);
+    if (!g) return;
+    const v = prompt(`Quanto tens guardado para "${g.name}"? (atual: ${formatCurrency(g.savedSoFar)})`);
+    if (v == null) return;
+    const n = parseFloat(v.replace(',', '.'));
+    if (!isFinite(n) || n < 0) { showToast('Valor inválido'); return; }
+    g.savedSoFar = n;
+    saveData();
+    renderSavingsGoals();
+    if (n >= g.target) showToast(`🎉 Objetivo "${g.name}" atingido!`);
+}
+
+function deleteGoal(id) {
+    const g = savingsGoals.find(x => x.id === id);
+    if (!g) return;
+    if (!confirm(`Apagar objetivo "${g.name}"?`)) return;
+    savingsGoals = savingsGoals.filter(x => x.id !== id);
+    saveData();
+    renderSavingsGoals();
+}
+
+function renderSavingsGoals() {
+    const card = document.getElementById('savings-goals-card');
+    const list = document.getElementById('savings-goals-list');
+    if (!card || !list) return;
+    // Always-visible card so the user can create the first goal even if
+    // none exist yet.
+    card.style.display = 'block';
+    if (!savingsGoals.length) {
+        list.innerHTML = '<p class="empty-state" style="padding:10px 0">Sem objetivos ainda. Cria um para começar a poupar com propósito.</p>';
+        return;
+    }
+
+    // Use the consumption profile's monthly savings to score each goal.
+    const profile = getUserProfile();
+    const avgMonthlySaving = profile?.media_mensal?.poupanca || 0;
+
+    list.innerHTML = savingsGoals.map(g => {
+        const pct = Math.min(100, (g.savedSoFar / g.target) * 100);
+        const remaining = Math.max(0, g.target - g.savedSoFar);
+        let timeLabel = '';
+        let warn = false;
+        if (g.deadline) {
+            const days = Math.round((new Date(g.deadline) - new Date()) / 86400000);
+            const months = Math.max(1, Math.round(days / 30));
+            const monthly = remaining / months;
+            timeLabel = days < 0 ? `prazo passou há ${Math.abs(days)} dias` : `${days} dias · poupar ${formatCurrency(monthly)}/mês`;
+            warn = avgMonthlySaving > 0 && monthly > avgMonthlySaving * 1.2;
+        } else if (avgMonthlySaving > 0 && remaining > 0) {
+            const months = Math.ceil(remaining / avgMonthlySaving);
+            timeLabel = `ao teu ritmo: ${months} ${months === 1 ? 'mês' : 'meses'}`;
+        }
+        const barColor = pct >= 100 ? 'var(--success)' : warn ? 'var(--danger)' : 'var(--primary)';
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+                <div style="font-weight:600;font-size:0.92rem">${g.name}</div>
+                <div style="font-size:0.78rem;color:var(--text-light)">${formatCurrency(g.savedSoFar)} / ${formatCurrency(g.target)}</div>
+            </div>
+            <div style="height:8px;background:#EEE7FF;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};transition:width 0.3s"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:0.72rem;color:var(--text-light);align-items:center">
+                <span>${timeLabel}${warn ? ' · <span style="color:var(--danger);font-weight:600">acima do teu ritmo</span>' : ''}</span>
+                <div style="display:flex;gap:4px">
+                    <button onclick="updateGoalSaved('${g.id}')" class="btn btn-sm" style="font-size:0.7rem;padding:3px 8px;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-pen"></i></button>
+                    <button onclick="deleteGoal('${g.id}')" class="btn btn-sm" style="font-size:0.7rem;padding:3px 8px;background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+        </div>`;
+    }).join('') + (hasAnyAiKey() ? `<button onclick="runAiGoalCoach()" id="ai-goal-coach-btn" class="btn btn-block" style="margin-top:10px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-sparkles"></i> Coach IA · ações para acelerar</button>
+        <div id="ai-goal-coach-output" style="display:none;margin-top:8px;padding:10px;background:#F3EFFF;border-radius:10px;font-size:0.85rem;line-height:1.5"></div>` : '');
+}
+
+async function runAiGoalCoach() {
+    const out = document.getElementById('ai-goal-coach-output');
+    if (!out) return;
+    out.style.display = 'block';
+    out.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA a desenhar um plano…';
+    try {
+        const profile = getUserProfile();
+        const goalsCompact = savingsGoals.map(g => ({
+            objetivo: g.name,
+            alvo: g.target,
+            poupado: g.savedSoFar,
+            falta: Math.max(0, g.target - g.savedSoFar),
+            prazo: g.deadline || 'sem prazo'
+        }));
+        const prompt = `${AI_SYSTEM_PROMPT}
+És um coach financeiro. Para cada objetivo abaixo, propõe 1-3 ações concretas baseadas no perfil do utilizador (cortar X EUR em Y, reduzir frequência de Z, etc.). Devolve APENAS JSON array: [{"objetivo":"…","plano":"texto curto com ações concretas e valores em EUR"}]. Máx. ${goalsCompact.length} objetivos.
+
+Objetivos: ${JSON.stringify(goalsCompact)}
+${userProfilePromptBlock()}`;
+        const raw = await callAIText(prompt);
+        const parsed = extractJsonArray(raw);
+        if (!parsed.length) { out.innerHTML = 'A IA não gerou um plano desta vez.'; return; }
+        out.innerHTML = parsed.map(p => `<div style="padding:8px 0;border-bottom:1px dashed var(--border)">
+            <div style="font-weight:700;color:#5A3BD8;margin-bottom:4px">${p.objetivo || ''}</div>
+            <div>${p.plano || ''}</div>
+        </div>`).join('');
+    } catch (e) {
+        out.textContent = `Erro: ${e?.message || e}`;
+    }
+}
+
+// ===== SUBSCRIPTION AUDIT =====
+// Combines explicit fixed expenses with detected monthly recurrences in
+// regular variable expenses (same description in 3+ different months).
+function detectSubscriptions() {
+    const subs = [];
+
+    // 1) Explicit fixed expenses with category subscriptions/utilities
+    fixedExpenses.forEach(f => {
+        if (f.endDate && f.endDate < new Date().toISOString().slice(0, 7)) return;
+        const monthly = parseFloat(f.amount) || 0;
+        subs.push({
+            id: f.id,
+            kind: 'fixed',
+            name: f.description,
+            category: f.category,
+            monthly,
+            yearly: monthly * 12,
+            day: f.dayOfMonth,
+            startDate: f.startDate,
+            source: 'Despesa fixa'
+        });
+    });
+
+    // 2) Variable expenses showing as monthly recurrences (≥3 months in last 6)
+    const monthsSeen = new Map(); // descKey -> Set of YYYY-MM
+    const monthsAmount = new Map();
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 6);
+    expenses.forEach(e => {
+        if (e.isFixedExpense || !e.date) return;
+        if (new Date(e.date) < cutoff) return;
+        const key = (e.description || '').toLowerCase().trim().slice(0, 30);
+        if (!key) return;
+        const mKey = e.date.slice(0, 7);
+        if (!monthsSeen.has(key)) { monthsSeen.set(key, new Set()); monthsAmount.set(key, []); }
+        monthsSeen.get(key).add(mKey);
+        monthsAmount.get(key).push(e.amount);
+    });
+    monthsSeen.forEach((months, key) => {
+        if (months.size < 3) return;
+        // Skip if already covered by an explicit fixed
+        if (subs.some(s => s.kind === 'fixed' && s.name.toLowerCase().includes(key))) return;
+        const amounts = monthsAmount.get(key);
+        const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+        const sample = expenses.find(e => (e.description || '').toLowerCase().trim().slice(0, 30) === key);
+        subs.push({
+            id: 'detected_' + key,
+            kind: 'detected',
+            name: sample?.description || key,
+            category: sample?.category || 'subscricoes',
+            monthly: avg,
+            yearly: avg * 12,
+            monthsSeen: months.size,
+            source: 'Detetada (mês a mês)'
+        });
+    });
+
+    return subs.sort((a, b) => b.yearly - a.yearly);
+}
+
+function renderSubscriptionAudit() {
+    const card = document.getElementById('subscriptions-card');
+    const body = document.getElementById('subscriptions-body');
+    if (!card || !body) return;
+    const subs = detectSubscriptions();
+    if (!subs.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const totalYearly = subs.reduce((s, x) => s + x.yearly, 0);
+    const totalMonthly = totalYearly / 12;
+    const cats = getEffectiveCategories();
+    body.innerHTML = `<div style="background:#F3EFFF;border-radius:10px;padding:10px;margin-bottom:10px;text-align:center">
+        <div style="font-size:0.72rem;color:#5A3BD8;font-weight:700">TOTAL ANUAL</div>
+        <div style="font-size:1.4rem;font-weight:700;color:#2A1F4F">${formatCurrency(totalYearly)}</div>
+        <div style="font-size:0.72rem;color:var(--text-light)">${subs.length} subscrições · ${formatCurrency(totalMonthly)}/mês</div>
+    </div>` + subs.map(s => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}</div>
+            <div style="font-size:0.7rem;color:var(--text-light)">${cats[s.category]?.label || s.category} · ${s.source}${s.day ? ` · dia ${s.day}` : ''}</div>
+        </div>
+        <div style="text-align:right;white-space:nowrap">
+            <div style="font-weight:700;font-size:0.9rem">${formatCurrency(s.monthly)}/mês</div>
+            <div style="font-size:0.7rem;color:var(--text-light)">${formatCurrency(s.yearly)}/ano</div>
+        </div>
+    </div>`).join('');
+}
+
+// ===== BUDGET ALERTS =====
+// Walks the current month's spend per category against categoryBudgets
+// and surfaces a banner card on the dashboard whenever any category is
+// past 80% (warning) or 100% (alert). Quietly hidden when nothing's at
+// risk so the user isn't seeing empty UI.
+function renderBudgetAlerts() {
+    const card = document.getElementById('budget-alerts');
+    if (!card) return;
+    const budgets = Object.entries(categoryBudgets || {}).filter(([_, v]) => v > 0);
+    if (!budgets.length) { card.style.display = 'none'; return; }
+    const monthExp = getEffectiveMonthExpenses(currentDate);
+    const byCat = groupByCategory(monthExp);
+    const cats = getEffectiveCategories();
+    const alerts = budgets.map(([catId, max]) => {
+        const spent = byCat[catId] || 0;
+        const pct = (spent / max) * 100;
+        return { catId, max, spent, pct };
+    }).filter(a => a.pct >= 80).sort((a, b) => b.pct - a.pct);
+    if (!alerts.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    card.innerHTML = `<h3><i class="fas fa-triangle-exclamation" style="color:#F57F17"></i> Alertas de orçamento</h3>` +
+        alerts.map(a => {
+            const cat = cats[a.catId] || cats.outros;
+            const color = a.pct >= 100 ? 'var(--danger)' : '#F57F17';
+            return `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span><i class="fas ${cat.icon}" style="color:${color}"></i> ${cat.label}</span>
+                    <span style="font-weight:600;color:${color}">${formatCurrency(a.spent)} / ${formatCurrency(a.max)}</span>
+                </div>
+                <div style="height:5px;background:#EEE7FF;border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.min(100, a.pct)}%;background:${color}"></div></div>
+                <div style="font-size:0.7rem;color:var(--text-light);margin-top:3px">${Math.round(a.pct)}% do limite mensal</div>
+            </div>`;
+        }).join('');
+}
+
+// ===== NET WORTH MINI =====
+// Tiny dashboard card with assets (savings, investments, real estate) and
+// liabilities (loans, credit). Computed totals, last update timestamp,
+// and a button to edit the lists via prompt. No double-counting of
+// expenses — this is a separate snapshot the user maintains manually.
+function renderNetWorth() {
+    const card = document.getElementById('net-worth-card');
+    const body = document.getElementById('net-worth-body');
+    if (!card || !body) return;
+    const assets = (netWorth.assets || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+    const liabilities = (netWorth.liabilities || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+    const total = assets - liabilities;
+    if (assets === 0 && liabilities === 0) {
+        card.style.display = 'block';
+        body.innerHTML = `<p class="empty-state" style="padding:10px 0">Sem ativos/passivos ainda. Adiciona para teres uma visão patrimonial além do mensal.</p>
+            <button onclick="editNetWorth()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Configurar</button>`;
+        return;
+    }
+    card.style.display = 'block';
+    const updated = netWorth.updatedAt ? new Date(netWorth.updatedAt).toLocaleDateString('pt-PT') : '—';
+    body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património</div>
+        <div style="font-size:1.6rem;font-weight:700;color:${total >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(total)}</div></div>
+        <button onclick="editNetWorth()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-pen"></i></button>
+    </div>
+    <div style="display:flex;gap:10px">
+        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">Ativos</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div></div>
+        <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px"><div style="font-size:0.72rem;color:#C62828">Passivos</div><div style="font-weight:700;color:#C62828">${formatCurrency(liabilities)}</div></div>
+    </div>
+    <div style="font-size:0.68rem;color:var(--text-light);text-align:right;margin-top:6px">Atualizado em ${updated}</div>`;
+}
+
+function editNetWorth() {
+    const lines = [];
+    lines.push('Edita os ativos e passivos. Formato: nome=valor por linha. Linhas vazias separam ativos (em cima) de passivos (em baixo).');
+    lines.push('');
+    lines.push('=== ATIVOS ===');
+    (netWorth.assets || []).forEach(a => lines.push(`${a.name}=${a.amount}`));
+    lines.push('');
+    lines.push('=== PASSIVOS ===');
+    (netWorth.liabilities || []).forEach(l => lines.push(`${l.name}=${l.amount}`));
+    const out = prompt(lines.join('\n'), [
+        ...(netWorth.assets || []).map(a => `${a.name}=${a.amount}`),
+        '---',
+        ...(netWorth.liabilities || []).map(a => `${a.name}=${a.amount}`)
+    ].join('\n'));
+    if (!out) return;
+    const sections = out.split(/^---\s*$/m);
+    const parseSection = section => (section || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+        const [name, val] = l.split('=');
+        const n = parseFloat((val || '').replace(',', '.'));
+        return name && isFinite(n) ? { name: name.trim(), amount: n } : null;
+    }).filter(Boolean);
+    netWorth = {
+        assets: parseSection(sections[0]),
+        liabilities: parseSection(sections[1] || ''),
+        updatedAt: new Date().toISOString()
+    };
+    saveData();
+    renderNetWorth();
+    showToast('Património atualizado');
 }
 
 // ===== PREPAID CARDS =====
