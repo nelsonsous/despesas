@@ -5313,7 +5313,7 @@ async function generateAiMonthNarrative(date) {
         const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
         const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
         prompt = `${AI_SYSTEM_PROMPT}
-Escreve 2 a 3 frases focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, contextualiza com o mês de calendário. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra.
+ESCREVE TEXTO CORRIDO (NÃO devolvas JSON, NÃO uses chaves {} nem aspas, NÃO devolvas listas). Apenas 2 a 3 frases naturais focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, contextualiza com o mês de calendário. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra.
 
 Dados do ciclo (EUR):
 Recebido: ${b.incReceived.toFixed(2)}
@@ -5330,7 +5330,7 @@ Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}
 ${userProfilePromptBlock()}`;
     } else {
         prompt = `${AI_SYSTEM_PROMPT}
-Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Usa o perfil histórico para dizer se o mês está dentro do normal ou destoa.
+ESCREVE TEXTO CORRIDO (NÃO devolvas JSON, NÃO uses chaves {} nem aspas, NÃO devolvas listas). Apenas 2 a 3 frases naturais que resumam o mês de ${monthLabel}. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Usa o perfil histórico para dizer se o mês está dentro do normal ou destoa.
 
 Dados (EUR):
 Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)} (poupança ${(totI-totE).toFixed(2)})
@@ -5340,7 +5340,35 @@ ${userProfilePromptBlock()}`;
     }
 
     const raw = await callAIText(prompt);
-    return (raw || '').replace(/```/g, '').trim().slice(0, 600);
+    return sanitizeNarrative(raw).slice(0, 600);
+}
+
+// Some models stubbornly return JSON even when asked for prose. Detect
+// that case and either glue the JSON values into a sentence, or fall
+// back to the raw text stripped of fences.
+function sanitizeNarrative(raw) {
+    if (!raw) return '';
+    let s = String(raw).replace(/```json|```/gi, '').trim();
+    // If it starts with a "json" tag or a brace, try to parse and join values.
+    const looksJson = /^\s*(json\s*)?[\{\[]/i.test(s);
+    if (looksJson) {
+        const m = s.match(/[\{\[][\s\S]*[\}\]]/);
+        if (m) {
+            try {
+                const obj = JSON.parse(m[0]);
+                const parts = [];
+                const collect = v => {
+                    if (typeof v === 'string') parts.push(v);
+                    else if (typeof v === 'number') parts.push(String(v));
+                    else if (Array.isArray(v)) v.forEach(collect);
+                    else if (v && typeof v === 'object') Object.values(v).forEach(collect);
+                };
+                collect(obj);
+                if (parts.length) return parts.join('. ').replace(/\.+/g, '.').trim();
+            } catch {}
+        }
+    }
+    return s;
 }
 
 // ----- Natural-language money question -----
