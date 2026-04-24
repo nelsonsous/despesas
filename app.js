@@ -551,21 +551,12 @@ function ownContactsPromptBlock() {
 // Dispatcher: routes to whichever provider is configured.
 async function callAI(emailTexts) {
     if (!emailTexts.length) return [];
-    const provider = aiCfg.aiProvider || 'gemini';
     const prompt = EMAIL_EXTRACT_PROMPT(emailTexts);
-    if (provider === 'grok') {
-        if (!aiCfg.grokKey) throw new Error('Chave Grok nao configurada');
-        const data = await callGrokOnce(prompt);
-        return extractJsonArray(data.choices?.[0]?.message?.content);
-    }
-    if (provider === 'groq') {
-        if (!aiCfg.groqKey) throw new Error('Chave Groq nao configurada');
-        const data = await callGroqOnce(prompt);
-        return extractJsonArray(data.choices?.[0]?.message?.content);
-    }
-    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
-    const data = await callGeminiOnce(prompt);
-    return extractJsonArray(data.candidates?.[0]?.content?.parts?.[0]?.text);
+    // Reuse the unified dispatcher so Gmail sync respects the same
+    // provider-preference + automatic fallback as every other AI feature.
+    // If the preferred provider runs out of quota, the next one takes over.
+    const raw = await callAIText(prompt);
+    return extractJsonArray(raw);
 }
 
 // Kept as an alias for any older callers.
@@ -793,21 +784,12 @@ EXTRATO:
 ${text}`;
 
 async function callAIForPdf(text) {
-    const provider = aiCfg.aiProvider || 'gemini';
+    // Unified dispatcher: same provider-preference + automatic fallback as
+    // the rest of the app. If Gemini free tier runs out, Mistral/Groq/Grok
+    // take over without the user having to reconfigure anything.
     const prompt = PDF_EXTRACT_PROMPT(text);
-    if (provider === 'grok') {
-        if (!aiCfg.grokKey) throw new Error('Chave Grok nao configurada');
-        const data = await callGrokOnce(prompt);
-        return extractJsonArray(data.choices?.[0]?.message?.content);
-    }
-    if (provider === 'groq') {
-        if (!aiCfg.groqKey) throw new Error('Chave Groq nao configurada');
-        const data = await callGroqOnce(prompt);
-        return extractJsonArray(data.choices?.[0]?.message?.content);
-    }
-    if (!aiCfg.geminiKey) throw new Error('Chave Gemini nao configurada');
-    const data = await callGeminiOnce(prompt);
-    return extractJsonArray(data.candidates?.[0]?.content?.parts?.[0]?.text);
+    const raw = await callAIText(prompt);
+    return extractJsonArray(raw);
 }
 
 async function handlePdfSelected(event) {
@@ -4625,10 +4607,55 @@ function computeHeuristicSavingsTips(monthExp, monthInc, prevExp) {
     return tips;
 }
 
-// Tries to identify a merchant brand from description/notes. Returns null if
-// it doesn't match any known pattern — falls back to the description itself
-// for AI prompting so unknown merchants still contribute to the analysis.
-function extractMerchant(e) {
+// Builds a map of NIF -> canonical merchant name from the user's own data.
+// Whenever we've seen a NIF before with any non-empty description, that
+// description becomes the canonical name — this means "LIDL ODIVELAS" and
+// "LIDL FONTE NOVA" (both NIF 500 799 367) collapse to the same bucket
+// once the user has at least one receipt where the description is "Lidl".
+let _canonicalByNifCache = null;
+let _canonicalByNifVersion = 0;
+function getCanonicalByNifMap() {
+    // Rebuilds when expenses change. Cheap enough to recompute lazily.
+    const v = expenses.length;
+    if (_canonicalByNifCache && _canonicalByNifVersion === v) return _canonicalByNifCache;
+    const map = new Map();
+    expenses.forEach(e => {
+        if (!e.sellerNif) return;
+        const brand = extractBrandOnly(e);
+        if (!brand) return;
+        if (!map.has(e.sellerNif)) map.set(e.sellerNif, brand);
+    });
+    _canonicalByNifCache = map;
+    _canonicalByNifVersion = v;
+    return map;
+}
+
+// Returns a canonical merchant label for an expense. Precedence:
+//  1. If sellerNif matches a known brand (from user's history), use it.
+//  2. Detect a brand keyword in description/notes (extractBrandOnly).
+//  3. Strip known location suffixes from the description ("Lidl Odivelas"
+//     → "Lidl", "McDonald's Cascais" → "McDonald's").
+//  4. Fallback to the raw description.
+function getCanonicalMerchant(e) {
+    if (e.sellerNif) {
+        const byNif = getCanonicalByNifMap().get(e.sellerNif);
+        if (byNif) return byNif;
+    }
+    const brand = extractBrandOnly(e);
+    if (brand) return brand;
+    const raw = (e.description || '').trim();
+    if (!raw) return null;
+    // Strip trailing location tokens (all-uppercase cities, common suffixes)
+    const cleaned = raw
+        .replace(/\s+(LISBOA|PORTO|BRAGA|COIMBRA|FARO|OEIRAS|CASCAIS|SINTRA|LOURES|ODIVELAS|AMADORA|SETÚBAL|SETUBAL|ALMADA|FUNCHAL|LEIRIA|AVEIRO|VIANA|BARCELOS|GUIMARÃES|GUIMARAES|MATOSINHOS|GAIA|MAIA|ALVERCA|SACAVÉM|SACAVEM|EXPO|COLOMBO|VASCO DA GAMA|FONTE NOVA)\b.*$/i, '')
+        .replace(/\s+-\s+.*$/, '')
+        .trim();
+    return cleaned || raw;
+}
+
+// Split brand detection from extractMerchant so getCanonicalByNifMap can
+// reuse it without recursion.
+function extractBrandOnly(e) {
     const raw = `${e.description || ''} ${e.notes || ''}`.toLowerCase();
     const brands = [
         ['pingo doce', 'Pingo Doce'], ['continente', 'Continente'],
@@ -4652,10 +4679,21 @@ function extractMerchant(e) {
     return null;
 }
 
+// Tries to identify a merchant brand from description/notes. Returns null if
+// it doesn't match any known pattern — falls back to the description itself
+// for AI prompting so unknown merchants still contribute to the analysis.
+function extractMerchant(e) {
+    // Kept as a thin wrapper for call sites that only care about "did we
+    // detect a known brand?". New code should prefer getCanonicalMerchant.
+    return extractBrandOnly(e);
+}
+
 function merchantComparisonTips(expenses, cats) {
     const byCat = {};
     expenses.forEach(e => {
-        const m = extractMerchant(e);
+        // Canonical merchant collapses "LIDL ODIVELAS" and "LIDL BRAGA"
+        // into a single "Lidl" bucket so comparisons are meaningful.
+        const m = getCanonicalMerchant(e);
         if (!m) return;
         if (!byCat[e.category]) byCat[e.category] = {};
         if (!byCat[e.category][m]) byCat[e.category][m] = { count: 0, total: 0 };
@@ -4846,7 +4884,7 @@ async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
     const byMerchant = {};
     monthExp.forEach(e => {
         if (e.isFixedExpense) return;
-        const m = extractMerchant(e) || (e.description || 'Sem descrição').slice(0, 28);
+        const m = getCanonicalMerchant(e) || (e.description || 'Sem descrição').slice(0, 28);
         const key = `${cats[e.category]?.label || e.category}|${m}`;
         if (!byMerchant[key]) byMerchant[key] = { cat: cats[e.category]?.label || e.category, merchant: m, count: 0, total: 0 };
         byMerchant[key].count++;
@@ -4865,16 +4903,16 @@ async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
     const fixedTotal = Math.round(monthExp.filter(e => e.isFixedExpense).reduce((s, e) => s + e.amount, 0) * 100) / 100;
     const nonEssential = Math.round(monthExp.filter(e => e.essential === false).reduce((s, e) => s + e.amount, 0) * 100) / 100;
 
-    const prompt = `És um consultor financeiro pessoal em Português de Portugal. Analisa os dados e devolve APENAS um array JSON com 4 a 6 sugestões acionáveis.
-Formato por item: {"type":"tip"|"warning"|"alert","text":"..."}. HTML só com <strong>…</strong>. Sem markdown, sem texto antes/depois do array.
+    const prompt = `${AI_SYSTEM_PROMPT}
+Devolve 4 a 6 sugestões acionáveis como JSON array. Formato por item: {"type":"tip"|"warning"|"alert","text":"..."}.
 
-Regras do conteúdo:
+Regras:
 - Cita sempre VALORES concretos em EUR (ex: "podes poupar ~25€/mês").
 - Prefere padrões entre estabelecimentos da mesma categoria (ticket médio, frequência, preço médio por visita).
 - Usa o histórico dos 3 meses para identificar tendências (a subir há N meses, dispara só este mês, etc.).
-- Sinaliza despesas que parecem evitáveis ou substituíveis (ex: delivery frequente).
-- NÃO repitas a taxa de poupança nem dês conselhos genéricos ("poupe mais", "faça orçamento").
-- Mantém PT-PT natural (ex: "ao Lidl", "no Continente"), 1-2 frases por sugestão.
+- Sinaliza despesas que parecem evitáveis ou substituíveis.
+- NÃO repitas a taxa de poupança.
+- 1-2 frases por sugestão.
 
 Contexto do mês atual (EUR):
 Rendimento: ${totalIncome.toFixed(2)}
@@ -4907,6 +4945,12 @@ const _aiNarrativeCache = {}; // { "YYYY-MM": { text, at } }
 const _aiCategoryCache = new Map(); // description -> {category, essential}
 
 const USER_PROFILE_KEY = 'user_profile_v1';
+
+// Shared persona / guardrails prepended to every text-generation call so
+// tone and formatting stay consistent across features. Individual prompts
+// only define the task and data; this takes care of language, voice,
+// anti-platitude stance, and output discipline.
+const AI_SYSTEM_PROMPT = `És um consultor financeiro pessoal em Português de Portugal. Tom direto, amigável, sem jargão. Usa sempre valores em EUR. Evita platitudes ("poupe mais", "faça orçamento") e frases de fortuna. Quando devolveres JSON, devolve APENAS o JSON pedido, sem markdown nem texto antes/depois. Quando devolveres texto livre, sem aspas nem markdown — HTML só com <strong>...</strong>.`;
 
 function aiMonthKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 
@@ -4943,9 +4987,10 @@ function recomputeUserProfile() {
                 categoryTotals[c].months[mKey] = v;
             });
 
-            // Merchant roll-up (only for variable expenses, brand-known)
+            // Merchant roll-up (canonical → "LIDL ODIVELAS" and "LIDL BRAGA"
+            // collapse to the same Lidl bucket).
             exp.filter(e => !e.isFixedExpense).forEach(e => {
-                const m = extractMerchant(e);
+                const m = getCanonicalMerchant(e);
                 if (!m) return;
                 const k = m;
                 if (!merchantTotals[k]) merchantTotals[k] = { count: 0, total: 0, category: cats[e.category]?.label || e.category };
@@ -5149,7 +5194,8 @@ async function generateAiMonthNarrative(date) {
         const dailyBudget = daysLeft > 0 && available > 0 ? available / daysLeft : 0;
         const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
         const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
-        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, podes contextualizar com o mês de calendário. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra. Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+        prompt = `${AI_SYSTEM_PROMPT}
+Escreve 2 a 3 frases focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, contextualiza com o mês de calendário. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra.
 
 Dados do ciclo (EUR):
 Recebido: ${b.incReceived.toFixed(2)}
@@ -5165,7 +5211,8 @@ Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)}
 Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}
 ${userProfilePromptBlock()}`;
     } else {
-        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Usa o perfil histórico para dizer se o mês está dentro do normal ou destoa. Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+        prompt = `${AI_SYSTEM_PROMPT}
+Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Usa o perfil histórico para dizer se o mês está dentro do normal ou destoa.
 
 Dados (EUR):
 Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)} (poupança ${(totI-totE).toFixed(2)})
@@ -5216,9 +5263,8 @@ async function answerAiMoneyQuestion(question) {
     const slim = history.slice(0, 800);
 
     const today = new Date().toISOString().slice(0,10);
-    const prompt = `És um assistente financeiro pessoal em Português de Portugal. Responde à pergunta do utilizador com base nas despesas abaixo.
-Hoje é ${today}. Formato da resposta: 1-3 frases curtas, com valores em EUR quando aplicável. Permite <strong>…</strong>. Sem markdown, sem listas salvo necessidade.
-Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
+    const prompt = `${AI_SYSTEM_PROMPT}
+Responde à pergunta do utilizador com base nas despesas abaixo. Hoje é ${today}. Formato: 1-3 frases curtas. Sem listas salvo necessidade. Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
 
 Pergunta: "${question.replace(/"/g, "'")}"
 
@@ -5588,55 +5634,10 @@ Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock
 // Opens the "Nova despesa" modal and drops the extracted fields into it.
 // The user still reviews and confirms — we never auto-save.
 function prefillExpenseFromReceipt(obj) {
-    // Stash the fiscal fields on the modal form so saveExpense() picks them
-    // up when the user confirms. Cleared by showAddExpense() on next open.
-    pendingReceiptFields = {
-        sellerNif:      cleanNif(obj.nifVendedor),
-        buyerNif:       cleanNif(obj.nifCliente),
-        vatBase:        toNumberOrNull(obj.ivaBase),
-        vatAmount:      toNumberOrNull(obj.ivaValor),
-        vatRate:        [6, 13, 23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
-        paymentMethod:  ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
-        cardLast4:      /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
-        purchaseTime:   /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
-        documentType:   ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
-        atcud:          typeof obj.atcud === 'string' ? obj.atcud.trim().slice(0, 40) : null,
-        docNumber:      typeof obj.numeroDocumento === 'string' ? obj.numeroDocumento.trim().slice(0, 40) : null,
-        sellerAddress:  typeof obj.moradaVendedor === 'string' ? obj.moradaVendedor.trim().slice(0, 120) : null,
-        sellerCity:     typeof obj.cidadeVendedor === 'string' ? obj.cidadeVendedor.trim().slice(0, 60) : null,
-        discount:       toNumberOrNull(obj.desconto),
-        loyaltyProgram: typeof obj.programaFidelidade === 'string' ? obj.programaFidelidade.trim().slice(0, 40) : null,
-        loyaltyPoints:  toNumberOrNull(obj.pontosFidelidade),
-        serviceType:    ['mesa','take-away','esplanada','balcao','delivery'].includes(obj.tipoServico) ? obj.tipoServico : null,
-        tip:            toNumberOrNull(obj.gorjeta),
-        lineItems:      sanitizeLineItems(obj.itens),
-        source: 'ocr'
-    };
+    // Opens the modal then routes to the unified OCR-apply helper so we
+    // don't have two copies of the "map JSON → form fields" logic.
     showAddExpense();
-    setTimeout(() => {
-        const descEl = document.getElementById('expense-desc');
-        const amtEl = document.getElementById('expense-amount');
-        const dateEl = document.getElementById('expense-date');
-        const catEl = document.getElementById('expense-category');
-        const notesEl = document.getElementById('expense-notes');
-        if (descEl && obj.descricao) descEl.value = String(obj.descricao).slice(0, 60);
-        if (amtEl && typeof obj.valor === 'number') amtEl.value = obj.valor;
-        if (dateEl && obj.data && /^\d{4}-\d{2}-\d{2}$/.test(obj.data)) dateEl.value = obj.data;
-        const cats = getEffectiveCategories();
-        if (catEl && obj.categoria && cats[obj.categoria]) catEl.value = obj.categoria;
-        if (notesEl) {
-            const pieces = [];
-            if (obj.estabelecimento && (!obj.descricao || !obj.descricao.toLowerCase().includes(String(obj.estabelecimento).toLowerCase()))) pieces.push(obj.estabelecimento);
-            if (obj.notas) pieces.push(obj.notas);
-            if (pieces.length) notesEl.value = pieces.join(' · ');
-        }
-        // Essential radio
-        if (typeof obj.essencial === 'boolean') {
-            const radio = document.querySelector(`input[name="essential"][value="${obj.essencial ? 'yes' : 'no'}"]`);
-            if (radio) radio.checked = true;
-        }
-        updateFiscalFieldsUI();
-    }, 120);
+    setTimeout(() => applyOcrFieldsToOpenModal(obj), 120);
 }
 
 // ===== FISCAL FIELDS (receipt details) =====
@@ -5733,6 +5734,27 @@ function updateFiscalFieldsUI() {
         body.style.display = hasAny ? 'block' : 'none';
         toggleIcon.className = hasAny ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     }
+    applyFiscalFieldsContext();
+}
+
+// Hide/show fields that only make sense for certain categories so the
+// form isn't cluttered with irrelevant options:
+//  - gorjeta + tipo de serviço → only for restauração-like categories.
+//  - garantia → only for tech/home durable categories.
+//  - programa fidelização / pontos → makes no sense for most service
+//    categories so restrict to supermercado/shopping-like.
+function applyFiscalFieldsContext() {
+    const cat = document.getElementById('expense-category')?.value || '';
+    const hostField = id => document.getElementById(id)?.closest('div');
+    const show = (id, visible) => { const h = hostField(id); if (h) h.style.display = visible ? '' : 'none'; };
+    const isRestaurant  = ['restaurantes', 'alimentacao'].includes(cat);
+    const isDurable     = ['casa', 'tecnologia', 'eletronica', 'mobiliario', 'outros', ''].includes(cat);
+    const isShopping    = ['supermercado', 'alimentacao', 'casa', 'presentes', 'vestuario', 'tecnologia', 'eletronica', 'outros', ''].includes(cat);
+    show('fiscal-service-type', isRestaurant);
+    show('fiscal-tip',          isRestaurant);
+    show('fiscal-warranty',     isDurable);
+    show('fiscal-loyalty-program', isShopping);
+    show('fiscal-loyalty-points',  isShopping);
     // Line items preview
     const itemsBox = document.getElementById('fiscal-line-items');
     if (itemsBox) {
@@ -6085,7 +6107,7 @@ function buildProductPriceIndex() {
     const bucket = new Map(); // key -> { name, entries: [{ date, unitPrice, total, merchant, quantity, unit }] }
     expenses.forEach(e => {
         if (!Array.isArray(e.lineItems) || !e.lineItems.length) return;
-        const merchant = extractMerchant(e) || (e.description || '').trim() || 'Sem descrição';
+        const merchant = getCanonicalMerchant(e) || 'Sem descrição';
         const date = e.date;
         e.lineItems.forEach(it => {
             if (!it || !it.key) return;
@@ -6280,14 +6302,115 @@ function renderAttachmentPreview(containerId, attachment) {
     if (!attachment) { container.innerHTML = ''; return; }
 
     const isPdf = attachment.type === 'application/pdf';
+    const isImage = (attachment.type || '').startsWith('image/');
+    const isExpense = containerId === 'attachment-preview';
     container.innerHTML = `
         <div class="attachment-thumb ${isPdf ? 'attachment-thumb-pdf' : ''}">
             ${isPdf ? '<i class="fas fa-file-pdf"></i>' : `<img src="${attachment.data}" alt="Anexo">`}
-            <button class="remove-attachment" onclick="remove${containerId === 'attachment-preview' ? 'Pending' : 'PendingIncome'}Attachment()" type="button">
+            <button class="remove-attachment" onclick="remove${isExpense ? 'Pending' : 'PendingIncome'}Attachment()" type="button">
                 <i class="fas fa-times"></i>
             </button>
         </div>
+        ${(isExpense && isImage) ? `<button type="button" onclick="runOcrOnAttachment()" class="btn btn-sm" style="margin-top:6px;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;width:100%"><i class="fas fa-wand-magic-sparkles"></i> Ler esta fatura com IA</button>` : ''}
     `;
+}
+
+// Runs OCR against the currently-attached photo, so the "Anexar fatura"
+// flow doubles as a scan. Users coming in via "+" → Anexar Fatura / Foto
+// no longer need a separate "Scan recibo" chip — same button, richer
+// outcome.
+async function runOcrOnAttachment() {
+    if (!pendingAttachment || !pendingAttachment.data || !pendingAttachment.type?.startsWith('image/')) {
+        showToast('Sem imagem anexada'); return;
+    }
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    try {
+        // Pull the base64 payload out of the data URL the attachment stores.
+        const comma = pendingAttachment.data.indexOf(',');
+        const rawData = comma >= 0 ? pendingAttachment.data.slice(comma + 1) : pendingAttachment.data;
+        // Resize from the existing base64 by loading into an Image first.
+        const resized = await new Promise((res, rej) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+                const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+                const cvs = document.createElement('canvas');
+                cvs.width = w; cvs.height = h;
+                cvs.getContext('2d').drawImage(img, 0, 0, w, h);
+                const url = cvs.toDataURL('image/jpeg', 0.85);
+                const c = url.indexOf(',');
+                res({ data: c >= 0 ? url.slice(c + 1) : url, type: 'image/jpeg' });
+            };
+            img.onerror = () => rej(new Error('Não consegui ler a imagem'));
+            img.src = pendingAttachment.data;
+        });
+
+        const cats = getEffectiveCategories();
+        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+        const today = new Date().toISOString().slice(0, 10);
+        const prompt = `${AI_SYSTEM_PROMPT}
+Extrai os dados deste recibo/fatura e devolve APENAS o JSON com o shape normal. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}`;
+        showToast('A ler fatura anexada…');
+        const { text, provider } = await runReceiptOcr(resized.data, resized.type, prompt);
+        const obj = extractJsonObject(text);
+        if (!obj || obj.erro) { showToast(obj?.erro || 'Não consegui ler o recibo'); return; }
+        applyOcrFieldsToOpenModal(obj);
+        showToast(`Lido via ${provider} — verifica os campos`);
+    } catch (e) {
+        showToast(`Erro: ${e?.message || e}`);
+    }
+}
+
+// Fills the currently-open expense modal with OCR output, keeping the
+// user-entered description/amount if already set. Used both by the "Scan
+// recibo" chip and by "Ler esta fatura com IA" on an attachment.
+function applyOcrFieldsToOpenModal(obj) {
+    pendingReceiptFields = {
+        sellerNif:       cleanNif(obj.nifVendedor),
+        buyerNif:        cleanNif(obj.nifCliente),
+        vatBase:         toNumberOrNull(obj.ivaBase),
+        vatAmount:       toNumberOrNull(obj.ivaValor),
+        vatRate:         [6, 13, 23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
+        paymentMethod:   ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
+        cardLast4:       /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
+        purchaseTime:    /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
+        documentType:    ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
+        atcud:           typeof obj.atcud === 'string' ? obj.atcud.trim().slice(0, 40) : null,
+        docNumber:       typeof obj.numeroDocumento === 'string' ? obj.numeroDocumento.trim().slice(0, 40) : null,
+        sellerAddress:   typeof obj.moradaVendedor === 'string' ? obj.moradaVendedor.trim().slice(0, 120) : null,
+        sellerCity:      typeof obj.cidadeVendedor === 'string' ? obj.cidadeVendedor.trim().slice(0, 60) : null,
+        discount:        toNumberOrNull(obj.desconto),
+        loyaltyProgram:  typeof obj.programaFidelidade === 'string' ? obj.programaFidelidade.trim().slice(0, 40) : null,
+        loyaltyPoints:   toNumberOrNull(obj.pontosFidelidade),
+        serviceType:     ['mesa','take-away','esplanada','balcao','delivery'].includes(obj.tipoServico) ? obj.tipoServico : null,
+        tip:             toNumberOrNull(obj.gorjeta),
+        lineItems:       sanitizeLineItems(obj.itens),
+        location:        pendingReceiptFields?.location || null,
+        source: 'ocr'
+    };
+    // Fill the form fields only when empty (don't clobber user-typed data)
+    const descEl = document.getElementById('expense-desc');
+    const amtEl = document.getElementById('expense-amount');
+    const dateEl = document.getElementById('expense-date');
+    const catEl = document.getElementById('expense-category');
+    const notesEl = document.getElementById('expense-notes');
+    if (descEl && !descEl.value && obj.descricao) descEl.value = String(obj.descricao).slice(0, 60);
+    if (amtEl && !amtEl.value && typeof obj.valor === 'number') amtEl.value = obj.valor;
+    if (dateEl && obj.data && /^\d{4}-\d{2}-\d{2}$/.test(obj.data)) dateEl.value = obj.data;
+    const cats = getEffectiveCategories();
+    if (catEl && !catEl.value && obj.categoria && cats[obj.categoria]) catEl.value = obj.categoria;
+    if (notesEl && !notesEl.value) {
+        const pieces = [];
+        if (obj.estabelecimento && (!obj.descricao || !obj.descricao.toLowerCase().includes(String(obj.estabelecimento).toLowerCase()))) pieces.push(obj.estabelecimento);
+        if (obj.notas) pieces.push(obj.notas);
+        if (pieces.length) notesEl.value = pieces.join(' · ');
+    }
+    if (typeof obj.essencial === 'boolean') {
+        const radio = document.querySelector(`input[name="essential"][value="${obj.essencial ? 'yes' : 'no'}"]`);
+        if (radio) radio.checked = true;
+    }
+    updateFiscalFieldsUI();
+    applyFiscalFieldsContext();
 }
 
 function removePendingAttachment() {
@@ -6909,6 +7032,19 @@ function saveExpense(event) {
     const isChild = children.some(c => c.id === type);
     const isMulti = type === 'multi';
     const split = isChild && document.querySelector('input[name="laura-split"]:checked')?.value === 'yes';
+
+    // ATCUD dedup: PT invoices carry a unique AT code. If the user enters
+    // an ATCUD that matches another expense (not the one being edited),
+    // warn before saving — strong signal of a duplicate.
+    const atcudVal = document.getElementById('fiscal-atcud')?.value.trim();
+    if (atcudVal && atcudVal.length >= 5) {
+        const dup = expenses.find(x => x.id !== id && x.atcud === atcudVal);
+        if (dup) {
+            if (!confirm(`Já existe uma despesa com este ATCUD (${dup.description} — ${formatCurrency(dup.amount)} em ${formatDate(dup.date)}). Queres guardar mesmo assim?`)) {
+                return;
+            }
+        }
+    }
 
     // Multi-child: create N expenses, one per selected child, with amount/N each
     if (isMulti) {
