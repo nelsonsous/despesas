@@ -1527,14 +1527,41 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 .fixed-month-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 11px 12px;
+    gap: 8px;
+    padding: 10px 12px;
     background: white;
     border-radius: 12px;
     margin-bottom: 8px;
     border: 1px solid rgba(108,92,231,0.1);
     box-shadow: 0 1px 4px rgba(0,0,0,0.04);
     transition: all 0.15s;
+}
+.fixed-month-item > div:nth-child(2) {
+    /* Description wrapper: takes flex space, never overflows. Long names
+       wrap on whitespace; long single words break gracefully instead of
+       pushing the amount/badges into the icon column. */
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+.fixed-month-item .fixed-month-desc {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    /* Cap to 2 lines so the row stays a sane height. The user can edit
+       to shorten if it's chopped — better than 3-line wraps. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.fixed-month-item .fixed-month-meta {
+    font-size: 0.7rem;
+    color: var(--text-light);
+    line-height: 1.3;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
 }
 .fixed-month-item:last-child { margin-bottom: 0; }
 .fixed-skipped-item { opacity: 0.5; background: #fafafa; }
@@ -1547,7 +1574,13 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 }
 .status-pendente { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
 .status-pago { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-.fixed-month-amount { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+.fixed-month-amount {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
 
 /* ===== Balance Fixed Row ===== */
 .balance-fixed-row {

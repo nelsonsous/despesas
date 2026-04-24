@@ -3303,9 +3303,9 @@ function renderExpenses() {
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'};flex-shrink:0">
                         <i class="fas ${cat.icon}"></i>
                     </div>
-                    <div style="flex:1;min-width:0">
-                        <div style="font-size:0.85rem;font-weight:600">${f.description} ${varBadge}</div>
-                        <div style="font-size:0.72rem;color:var(--text-light)">Dia ${f.dayOfMonth} &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
+                    <div>
+                        <div class="fixed-month-desc">${f.description} ${varBadge}</div>
+                        <div class="fixed-month-meta">Dia ${f.dayOfMonth} &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
                     ${varEdit}
                     <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
