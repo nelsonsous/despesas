@@ -855,6 +855,9 @@
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
+                    <button type="button" id="promote-to-fixed-btn" class="btn btn-block" onclick="if(window._editingExpenseId){promoteExpenseToFixed(window._editingExpenseId);}" style="display:none;margin-top:8px;background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25)">
+                        <i class="fas fa-rotate"></i> Tornar esta despesa fixa (mensal)
+                    </button>
                 </form>
             </div>
         </div>

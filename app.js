@@ -861,16 +861,25 @@ function renderPendingExpenses() {
 
     const renderItem = (e) => {
         const cat = cats[e.category] || cats.outros;
-        return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
-            <div style="width:30px;height:30px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0;font-size:0.8rem"><i class="fas ${cat.icon}"></i></div>
-            <div style="flex:1;min-width:0">
-                <div style="font-size:0.83rem;font-weight:600">${e.description}${e.merchant && e.merchant !== e.description ? ` <span style="font-weight:400;color:var(--text-light);font-size:0.75rem">(${e.merchant})</span>` : ''}</div>
-                <div style="font-size:0.7rem;color:var(--text-light)">${e.date}${e.confidence ? ` &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} conf.</span>` : ''}</div>
+        const match = findMatchingFixedForPending(e);
+        const matchBtn = match
+            ? `<button onclick="approvePendingAsFixedMatch('${e.id}','${match.id}')" title="Encaixar em ${match.description} (fixa)" style="background:#E3F2FD;color:#1565C0;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:0.7rem"><i class="fas fa-link"></i> ${match.description.slice(0, 10)}</button>`
+            : `<button onclick="approvePendingAsFixed('${e.id}')" title="Promover a despesa fixa" style="background:#EDE7F6;color:var(--primary);border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-rotate"></i></button>`;
+        return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+                <div style="width:30px;height:30px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0;font-size:0.8rem"><i class="fas ${cat.icon}"></i></div>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:0.83rem;font-weight:600">${e.description}${e.merchant && e.merchant !== e.description ? ` <span style="font-weight:400;color:var(--text-light);font-size:0.75rem">(${e.merchant})</span>` : ''}</div>
+                    <div style="font-size:0.7rem;color:var(--text-light)">${e.date}${e.confidence ? ` &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} conf.</span>` : ''}</div>
+                </div>
+                <div style="font-size:0.85rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
             </div>
-            <div style="font-size:0.85rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
-            <button onclick="approvePendingAsFixed('${e.id}')" title="Adicionar como despesa fixa" style="background:#EDE7F6;color:var(--primary);border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-rotate"></i></button>
-            <button onclick="approvePending('${e.id}')" title="Aprovar como despesa única" style="background:var(--success);color:white;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-check"></i></button>
-            <button onclick="dismissPending('${e.id}')" title="Descartar" style="background:#F5F5F5;color:#999;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-times"></i></button>
+            <div style="display:flex;gap:4px;margin-left:auto">
+                <button onclick="editPending('${e.id}')" title="Ver/editar detalhes" style="background:#FFF3E0;color:#E65100;border:none;border-radius:8px;padding:6px 9px;cursor:pointer"><i class="fas fa-pen"></i></button>
+                ${matchBtn}
+                <button onclick="approvePending('${e.id}')" title="Aprovar como despesa única" style="background:var(--success);color:white;border:none;border-radius:8px;padding:6px 9px;cursor:pointer"><i class="fas fa-check"></i></button>
+                <button onclick="dismissPending('${e.id}')" title="Descartar" style="background:#F5F5F5;color:#999;border:none;border-radius:8px;padding:6px 9px;cursor:pointer"><i class="fas fa-times"></i></button>
+            </div>
         </div>`;
     };
 
@@ -891,6 +900,83 @@ function renderPendingExpenses() {
 // Opens the fixed-expense modal pre-filled from a pending item. When saved,
 // removes the item from the pending list so it doesn't also appear as a
 // one-off expense.
+// Looks for a fixed expense that likely corresponds to this pending item.
+// Heuristics (kept conservative so we only offer the shortcut on confident
+// matches; the user can always approve as one-off if we miss):
+//   - Active for the pending item's month (startDate <= month <= endDate)
+//   - Description keyword overlap (shared token >= 3 chars) OR same brand
+//     token on both sides (EDP, Meo, Nos, Vodafone…)
+//   - Amount within ±40 % of the fixed's default (utilities vary a lot
+//     month to month, rent doesn't, same threshold works for both).
+function findMatchingFixedForPending(p) {
+    if (!p || !p.date) return null;
+    const monthKey = p.date.slice(0, 7);
+    const pDesc = (p.description || '').toLowerCase();
+    const pMerchant = (p.merchant || '').toLowerCase();
+    const pTokens = new Set([pDesc, pMerchant].join(' ').toLowerCase().split(/\W+/).filter(t => t.length >= 3));
+    if (!pTokens.size) return null;
+    return fixedExpenses.find(f => {
+        if (f.startDate && f.startDate > monthKey) return false;
+        if (f.endDate && f.endDate < monthKey) return false;
+        const fDesc = (f.description || '').toLowerCase();
+        const fTokens = fDesc.split(/\W+/).filter(t => t.length >= 3);
+        if (!fTokens.length) return false;
+        const shared = fTokens.find(t => pTokens.has(t));
+        if (!shared) return false;
+        const base = parseFloat(f.amount) || 0;
+        const pct = base > 0 ? Math.abs(parseFloat(p.amount) - base) / base : 0;
+        return pct <= 0.4; // 40 % tolerance absorbs utility variability
+    }) || null;
+}
+
+// Marks the matched fixed as paid for the pending item's month using the
+// actual billed amount (so the amount override reflects reality), then
+// drops the pending item. Avoids the user ending up with both a fixed and
+// a one-off for the same bill.
+function approvePendingAsFixedMatch(pendingId, fixedId) {
+    const p = pendingExpenses.find(x => x.id === pendingId);
+    const f = fixedExpenses.find(x => x.id === fixedId);
+    if (!p || !f) return;
+    const monthKey = (p.date || '').slice(0, 7) || getFixedMonthKey(new Date());
+    const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
+    const entry = {
+        fixedId,
+        month: monthKey,
+        status: 'paid',
+        amount: parseFloat(p.amount),
+        updatedAt: new Date().toISOString()
+    };
+    if (idx >= 0) fixedStatus[idx] = { ...fixedStatus[idx], ...entry }; else fixedStatus.push(entry);
+    pendingExpenses = pendingExpenses.filter(x => x.id !== pendingId);
+    saveData();
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+    renderPendingExpenses();
+    updateAll();
+    showToast(`${f.description} marcada como paga em ${monthKey}`);
+}
+
+// Opens the normal expense modal pre-filled from a pending item so the
+// user can tweak anything (amount, category, description, notes, fiscal)
+// before approving. We drop the pending entry on a successful save via
+// _pendingApprovedFromId set here + picked up in saveExpense.
+function editPending(id) {
+    const e = pendingExpenses.find(x => x.id === id);
+    if (!e) return;
+    showAddExpense();
+    setTimeout(() => {
+        document.getElementById('expense-desc').value = e.description || '';
+        document.getElementById('expense-amount').value = parseFloat(e.amount) || '';
+        if (e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) document.getElementById('expense-date').value = e.date;
+        const catSel = document.getElementById('expense-category');
+        const cats = getEffectiveCategories();
+        if (catSel && e.category && cats[e.category]) catSel.value = e.category;
+        const notesEl = document.getElementById('expense-notes');
+        if (notesEl && e.merchant && e.merchant !== e.description) notesEl.value = `Via: ${e.merchant}`;
+        applyFiscalFieldsContext();
+    }, 120);
+    window._pendingApprovedFromId = id;
+}
+
 function approvePendingAsFixed(id) {
     const e = pendingExpenses.find(x => x.id === id);
     if (!e) return;
@@ -6664,6 +6750,9 @@ function closeAttachmentViewer() {
 function showAddExpense() {
     document.getElementById('modal-title').textContent = 'Nova Despesa';
     document.getElementById('expense-id').value = '';
+    window._editingExpenseId = null;
+    const promoBtn = document.getElementById('promote-to-fixed-btn');
+    if (promoBtn) promoBtn.style.display = 'none';
     document.getElementById('expense-date').valueAsDate = new Date();
     document.getElementById('laura-split-group').style.display = 'none';
     document.getElementById('paid-by-father-group').style.display = 'none';
@@ -7127,6 +7216,10 @@ function editExpense(id) {
 
     document.getElementById('modal-title').textContent = 'Editar Despesa';
     document.getElementById('expense-id').value = e.id;
+    // Expose the source id to the "Tornar fixa" button rendered in the modal.
+    window._editingExpenseId = e.id;
+    const promoBtn = document.getElementById('promote-to-fixed-btn');
+    if (promoBtn) promoBtn.style.display = 'block';
     document.getElementById('expense-desc').value = e.description;
     document.getElementById('expense-amount').value = e.amount;
     document.getElementById('expense-date').value = e.date;
@@ -7436,6 +7529,15 @@ function saveExpense(event) {
     saveData();
     closeModal();
     pendingAttachment = null;
+    // If this save came from approving a pending imported expense, drop it
+    // from the pending list so it doesn't stay as a duplicate. Flag is set
+    // by editPending() just before opening the modal.
+    if (window._pendingApprovedFromId) {
+        pendingExpenses = pendingExpenses.filter(x => x.id !== window._pendingApprovedFromId);
+        localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
+        window._pendingApprovedFromId = null;
+        renderPendingExpenses();
+    }
     updateAll();
     showToast(id ? 'Despesa atualizada!' : 'Despesa adicionada!');
 }
@@ -7650,6 +7752,38 @@ function confirmDelete(id) {
     document.getElementById('confirm-btn').onclick = deleteExpense;
     document.getElementById('modal-confirm').classList.add('active');
 }
+// Converts an existing variable expense into a recurring fixed expense.
+// Opens the fixed-expense modal pre-filled from this expense and remembers
+// the source id so we can optionally remove the one-off once the fixed is
+// saved (with user confirmation, to avoid silent data loss).
+function promoteExpenseToFixed(id) {
+    const e = expenses.find(x => x.id === id);
+    if (!e) { showToast('Despesa não encontrada'); return; }
+    const d = new Date(e.date);
+    const day = isNaN(d) ? 1 : d.getDate();
+    const monthKey = isNaN(d)
+        ? (new Date()).toISOString().slice(0, 7)
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    populateCategorySelects();
+    populateFixedTypeOptions();
+    document.getElementById('fixed-modal-title').textContent = 'Nova Despesa Fixa';
+    document.getElementById('fixed-id').value = '';
+    document.getElementById('fixed-form').reset();
+    document.getElementById('fixed-desc').value = e.description || '';
+    document.getElementById('fixed-amount').value = parseFloat(e.fullAmount || e.amount).toFixed(2);
+    document.getElementById('fixed-day').value = day;
+    document.getElementById('fixed-start').value = monthKey;
+    const catSel = document.getElementById('fixed-category');
+    if (catSel) catSel.value = e.category || 'outros';
+    const splitGroup = document.getElementById('fixed-split-group');
+    if (splitGroup) splitGroup.style.display = 'none';
+    // Close the expense modal if open, then open the fixed one.
+    closeModal();
+    document.getElementById('fixed-modal').classList.add('active');
+    // Flag so saveFixed can prompt "apagar a despesa original?" after save.
+    window._expensePromotedToFixedSourceId = id;
+}
+
 function deleteExpense() {
     expenses = expenses.filter(e => e.id !== pendingDeleteId);
     saveData();
@@ -8413,6 +8547,17 @@ function saveFixed(event) {
         localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
         window._pendingPromotedToFixed = null;
         renderPendingExpenses();
+    }
+    // Promoted from an existing variable expense: offer to remove the one-off
+    // so the user doesn't double-count the bill once the fixed fires this month.
+    if (window._expensePromotedToFixedSourceId) {
+        const srcId = window._expensePromotedToFixedSourceId;
+        window._expensePromotedToFixedSourceId = null;
+        const src = expenses.find(x => x.id === srcId);
+        if (src && confirm(`Apagar a despesa variável original (${src.description} — ${formatCurrency(src.amount)})? A fixa já vai substituí-la a partir deste mês.`)) {
+            expenses = expenses.filter(x => x.id !== srcId);
+            saveData();
+        }
     }
     updateAll();
 }
