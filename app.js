@@ -28,6 +28,7 @@ let pendingAttachment = null;
 let pendingIncomeAttachment = null;
 const LAST_CAT_KEY = 'vanessa_last_category';
 const USER_NAME_KEY = 'vanessa_user_name';
+const USER_NIF_KEY = 'vanessa_user_nif';
 const APP_TITLE_KEY = 'vanessa_app_title';
 const HOUSEHOLD_MODE_KEY = 'vanessa_household_mode';
 const SPOUSE_NAME_KEY = 'vanessa_spouse_name';
@@ -67,6 +68,11 @@ let categoryBudgets = {};    // { category: maxAmount }
 
 function getUserName() {
     return localStorage.getItem(USER_NAME_KEY) || '';
+}
+
+function getUserNif() {
+    const s = (localStorage.getItem(USER_NIF_KEY) || '').replace(/\D+/g, '');
+    return /^\d{9}$/.test(s) ? s : '';
 }
 
 function getUserNameOrDefault() {
@@ -3490,6 +3496,7 @@ function renderReports() {
     renderMonthlyEvolution();
     renderSalaryCycleReport();
     renderPartnerSpending();
+    renderIrsTracker();
     renderSavingsAnalysis();
     renderCategoryComparison();
     renderUnnecessaryExpenses();
@@ -5260,7 +5267,28 @@ async function onReceiptImageSelected(input) {
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
         const today = new Date().toISOString().slice(0, 10);
-        const prompt = `Extrai os dados deste recibo/fatura. Devolve APENAS JSON: {"descricao":"nome curto do estabelecimento","valor":N,"data":"YYYY-MM-DD","estabelecimento":"…","categoria":"<id exato>","essencial":true|false,"confianca":0..1,"notas":"…"}. Se não conseguires, devolve {"erro":"razão"}. Sem markdown.
+        const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):
+{
+  "descricao": "nome curto do estabelecimento",
+  "valor": N,
+  "data": "YYYY-MM-DD",
+  "hora": "HH:MM" | null,
+  "estabelecimento": "…",
+  "categoria": "<id exato da lista>",
+  "essencial": true|false,
+  "confianca": 0..1,
+  "notas": "…",
+  "nifVendedor": "9 dígitos sem espaços" | null,
+  "nifCliente": "9 dígitos sem espaços, se aparecer o NIF do comprador" | null,
+  "ivaBase": N | null,
+  "ivaValor": N | null,
+  "ivaTaxa": 6 | 13 | 23 | null,
+  "metodoPagamento": "cartao" | "mbway" | "dinheiro" | "transferencia" | "cheque" | "outro" | null,
+  "cartaoUltimos4": "4 dígitos" | null,
+  "tipoDocumento": "fatura" | "fatura-recibo" | "recibo" | "nota-credito" | null
+}
+Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
+
 Categorias (usa o id exato): ${JSON.stringify(catList)}
 Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
         const { text, provider } = await runReceiptOcr(data, type, prompt);
@@ -5282,6 +5310,20 @@ Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock
 // Opens the "Nova despesa" modal and drops the extracted fields into it.
 // The user still reviews and confirms — we never auto-save.
 function prefillExpenseFromReceipt(obj) {
+    // Stash the fiscal fields on the modal form so saveExpense() picks them
+    // up when the user confirms. Cleared by showAddExpense() on next open.
+    pendingReceiptFields = {
+        sellerNif:    cleanNif(obj.nifVendedor),
+        buyerNif:     cleanNif(obj.nifCliente),
+        vatBase:      toNumberOrNull(obj.ivaBase),
+        vatAmount:    toNumberOrNull(obj.ivaValor),
+        vatRate:      [6, 13, 23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
+        paymentMethod: ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
+        cardLast4:    /^\d{4}$/.test(String(obj.cartaoUltimos4 || '')) ? String(obj.cartaoUltimos4) : null,
+        purchaseTime: /^\d{2}:\d{2}$/.test(String(obj.hora || '')) ? String(obj.hora) : null,
+        documentType: ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
+        source: 'ocr'
+    };
     showAddExpense();
     setTimeout(() => {
         const descEl = document.getElementById('expense-desc');
@@ -5305,7 +5347,73 @@ function prefillExpenseFromReceipt(obj) {
             const radio = document.querySelector(`input[name="essential"][value="${obj.essencial ? 'yes' : 'no'}"]`);
             if (radio) radio.checked = true;
         }
+        updateFiscalFieldsUI();
     }, 120);
+}
+
+// ===== FISCAL FIELDS (receipt details) =====
+// In-flight state between the OCR read and the save. Also loaded from the
+// edited expense when the user opens an existing entry.
+let pendingReceiptFields = null;
+
+function cleanNif(v) {
+    const s = String(v || '').replace(/\D+/g, '');
+    return /^\d{9}$/.test(s) ? s : null;
+}
+function toNumberOrNull(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'));
+    return isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+// Populates the collapsible "Detalhes fiscais" block in the expense modal
+// with whatever's in pendingReceiptFields. Called after OCR prefill and
+// after loading an existing expense for editing.
+function updateFiscalFieldsUI() {
+    const p = pendingReceiptFields || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+    set('fiscal-seller-nif', p.sellerNif);
+    set('fiscal-buyer-nif', p.buyerNif);
+    set('fiscal-vat-base', p.vatBase);
+    set('fiscal-vat-amount', p.vatAmount);
+    set('fiscal-vat-rate', p.vatRate);
+    set('fiscal-payment-method', p.paymentMethod || '');
+    set('fiscal-card-last4', p.cardLast4);
+    set('fiscal-time', p.purchaseTime);
+    set('fiscal-doc-type', p.documentType || '');
+    // Show the block collapsed by default unless something came from OCR.
+    const body = document.getElementById('fiscal-details-body');
+    const toggleIcon = document.getElementById('fiscal-details-toggle');
+    const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType;
+    if (body && toggleIcon) {
+        body.style.display = hasAny ? 'block' : 'none';
+        toggleIcon.className = hasAny ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    }
+}
+
+function toggleFiscalDetails() {
+    const body = document.getElementById('fiscal-details-body');
+    const toggleIcon = document.getElementById('fiscal-details-toggle');
+    if (!body || !toggleIcon) return;
+    const open = body.style.display !== 'block';
+    body.style.display = open ? 'block' : 'none';
+    toggleIcon.className = open ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+}
+
+// Reads the fiscal fields back from the DOM at save time.
+function collectFiscalFieldsFromForm() {
+    const val = id => document.getElementById(id)?.value.trim();
+    return {
+        sellerNif: cleanNif(val('fiscal-seller-nif')),
+        buyerNif: cleanNif(val('fiscal-buyer-nif')),
+        vatBase: toNumberOrNull(val('fiscal-vat-base')),
+        vatAmount: toNumberOrNull(val('fiscal-vat-amount')),
+        vatRate: val('fiscal-vat-rate') ? parseInt(val('fiscal-vat-rate'), 10) : null,
+        paymentMethod: val('fiscal-payment-method') || null,
+        cardLast4: /^\d{4}$/.test(val('fiscal-card-last4') || '') ? val('fiscal-card-last4') : null,
+        purchaseTime: /^\d{2}:\d{2}$/.test(val('fiscal-time') || '') ? val('fiscal-time') : null,
+        documentType: val('fiscal-doc-type') || null
+    };
 }
 
 // ----- Salary cycle "what if" scenario -----
@@ -5339,6 +5447,114 @@ ${userProfilePromptBlock()}`;
     } catch (e) {
         if (ans) { ans.textContent = `Erro: ${e?.message || e}`; ans.dataset.loaded = '1'; }
     }
+}
+
+// ===== IRS TRACKER =====
+// Simplified PT IRS deduction rules. Categories map to buckets, each bucket
+// has a deductible % (of VAT or total) and an annual cap. Numbers follow
+// 2024/2025 AT rules; user sees a best-effort estimate, not a guarantee.
+const IRS_BUCKETS = [
+    { id: 'saude',        label: 'Saúde',          pctOfVat: 15, cap: 1000.00, cats: ['saude'] },
+    { id: 'educacao',     label: 'Educação',       pctOfVat: 30, cap: 800.00,  cats: ['educacao'] },
+    { id: 'habitacao',    label: 'Habitação',      pctOfVat: 15, cap: 502.00,  cats: ['casa'] },
+    { id: 'passes',       label: 'Passes sociais', pctOfVat: 100, cap: 250.00, cats: ['transportes'] },
+    { id: 'restauracao',  label: 'Restauração',    pctOfVat: 15, cap: 250.00, cats: ['restaurantes','alimentacao'] },
+    { id: 'outros',       label: 'Outros deduz.',  pctOfVat: 15, cap: 250.00, cats: [] } // catch-all bucket
+];
+
+function bucketForCategory(catId) {
+    return IRS_BUCKETS.find(b => b.cats.includes(catId));
+}
+
+function populateIrsYearSelect() {
+    const sel = document.getElementById('irs-year-select');
+    if (!sel) return;
+    const years = new Set();
+    const nowY = new Date().getFullYear();
+    years.add(nowY); years.add(nowY - 1);
+    expenses.forEach(e => { const y = parseInt((e.date || '').slice(0, 4)); if (y > 2000) years.add(y); });
+    const sorted = [...years].sort((a, b) => b - a);
+    const current = sel.value || String(nowY);
+    sel.innerHTML = sorted.map(y => `<option value="${y}">${y}</option>`).join('');
+    sel.value = sorted.includes(parseInt(current)) ? current : String(sorted[0] || nowY);
+}
+
+function renderIrsTracker() {
+    const card = document.getElementById('irs-tracker-card');
+    const body = document.getElementById('irs-tracker-body');
+    const yearLabel = document.getElementById('irs-year');
+    if (!card || !body) return;
+
+    populateIrsYearSelect();
+    const yearSel = document.getElementById('irs-year-select');
+    const year = parseInt(yearSel?.value || new Date().getFullYear());
+
+    const userNif = getUserNif();
+    // Only expenses with a fatura-type document AND buyerNif matching the
+    // user's NIF count towards the deduction. Without a user NIF set we
+    // show an onboarding message instead.
+    const eligibleExp = expenses.filter(e => {
+        if (!e.date || !e.date.startsWith(String(year))) return false;
+        if (!e.vatAmount) return false;
+        if (!e.documentType || e.documentType === 'recibo') return false;
+        if (!userNif) return false;
+        return e.buyerNif === userNif;
+    });
+
+    if (!userNif) {
+        card.style.display = 'block';
+        if (yearLabel) yearLabel.textContent = '';
+        body.innerHTML = `<p class="empty-state" style="padding:16px 0">Adiciona o teu NIF nas Definições (Perfil) para começar a contabilizar o IVA deduzível das faturas.</p>`;
+        return;
+    }
+
+    // Roll up per bucket
+    const bucketTotals = {};
+    IRS_BUCKETS.forEach(b => { bucketTotals[b.id] = { total: 0, vat: 0, count: 0 }; });
+    eligibleExp.forEach(e => {
+        const b = bucketForCategory(e.category) || IRS_BUCKETS.find(x => x.id === 'outros');
+        bucketTotals[b.id].total += e.amount;
+        bucketTotals[b.id].vat += e.vatAmount || 0;
+        bucketTotals[b.id].count += 1;
+    });
+
+    let grandDeductible = 0;
+    const rows = IRS_BUCKETS.map(b => {
+        const t = bucketTotals[b.id];
+        if (!t.count) return '';
+        const deductible = Math.min(t.vat * b.pctOfVat / 100, b.cap);
+        grandDeductible += deductible;
+        const pctCap = b.cap > 0 ? Math.min(100, (deductible / b.cap) * 100) : 0;
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <div>
+                    <div style="font-weight:600;font-size:0.88rem">${b.label}</div>
+                    <div style="font-size:0.72rem;color:var(--text-light)">${t.count} ${t.count === 1 ? 'factura' : 'facturas'} · ${formatCurrency(t.total)} · IVA ${formatCurrency(t.vat)}</div>
+                </div>
+                <div style="text-align:right;white-space:nowrap">
+                    <div style="font-weight:700;color:#5A3BD8">${formatCurrency(deductible)}</div>
+                    <div style="font-size:0.7rem;color:var(--text-light)">máx. ${formatCurrency(b.cap)}</div>
+                </div>
+            </div>
+            <div style="height:6px;background:#EEE7FF;border-radius:3px;margin-top:6px;overflow:hidden">
+                <div style="height:100%;width:${pctCap}%;background:linear-gradient(90deg,#5A3BD8,#8C6DFF)"></div>
+            </div>
+        </div>`;
+    }).join('');
+
+    if (yearLabel) yearLabel.textContent = `· ${year}`;
+    card.style.display = 'block';
+
+    if (!eligibleExp.length) {
+        body.innerHTML = `<p class="empty-state" style="padding:16px 0">Nenhuma factura com o teu NIF neste ano. Ao fazer scan de recibo/factura, se aparecer o teu NIF ele entra automaticamente.</p>`;
+        return;
+    }
+
+    body.innerHTML = `<div style="background:linear-gradient(135deg,#F3EFFF,#FCF4FF);border-radius:10px;padding:12px;margin-bottom:10px;text-align:center">
+        <div style="font-size:0.72rem;color:#5A3BD8;letter-spacing:0.04em;font-weight:700">ESTIMATIVA DE DEDUÇÃO IRS</div>
+        <div style="font-size:1.8rem;font-weight:700;color:#2A1F4F;margin-top:2px">${formatCurrency(grandDeductible)}</div>
+        <div style="font-size:0.72rem;color:var(--text-light)">Com ${eligibleExp.length} facturas elegíveis em ${year}</div>
+    </div>${rows}`;
 }
 
 function renderCategoryComparison() {
@@ -5498,6 +5714,10 @@ function showAddExpense() {
     document.getElementById('expense-date').valueAsDate = new Date();
     document.getElementById('laura-split-group').style.display = 'none';
     document.getElementById('paid-by-father-group').style.display = 'none';
+    // Don't wipe OCR-injected fiscal fields right before we render them.
+    // prefillExpenseFromReceipt sets pendingReceiptFields and then calls
+    // showAddExpense(); when the user opens manually, reset here.
+    if (pendingReceiptFields?.source !== 'ocr') pendingReceiptFields = null;
     pendingAttachment = null;
     document.getElementById('attachment-preview').innerHTML = '';
     populateExpenseTypeOptions(); // rebuilds radios (resets to personal)
@@ -5540,6 +5760,7 @@ function showAddExpense() {
     if (children.length >= 1) populateMixChildSelect();
     document.getElementById('expense-is-grouped').checked = false;
     onIsGroupedChange();
+    updateFiscalFieldsUI();
     document.getElementById('modal-add').classList.add('active');
 }
 
@@ -6028,6 +6249,22 @@ function editExpense(id) {
     pendingAttachment = e.attachment || null;
     renderAttachmentPreview('attachment-preview', pendingAttachment);
 
+    // Load the fiscal fields stored on the expense so the edit form mirrors
+    // whatever the OCR extracted (or the user typed) originally.
+    pendingReceiptFields = {
+        sellerNif: e.sellerNif || null,
+        buyerNif: e.buyerNif || null,
+        vatBase: e.vatBase ?? null,
+        vatAmount: e.vatAmount ?? null,
+        vatRate: e.vatRate ?? null,
+        paymentMethod: e.paymentMethod || null,
+        cardLast4: e.cardLast4 || null,
+        purchaseTime: e.purchaseTime || null,
+        documentType: e.documentType || null,
+        source: 'edit'
+    };
+    updateFiscalFieldsUI();
+
     document.getElementById('modal-add').classList.add('active');
 }
 
@@ -6117,6 +6354,7 @@ function saveExpense(event) {
     const amount = parseFloat(document.getElementById('expense-amount').value);
     const dateVal = document.getElementById('expense-date').value;
     const notesVal = document.getElementById('expense-notes').value.trim();
+    const fiscal = collectFiscalFieldsFromForm();
 
     // Mix split: stored as ONE expense with mix* fields. Expanded at render
     // time into Pessoal + child virtuals so reports and totals reflect both
@@ -6154,6 +6392,16 @@ function saveExpense(event) {
         splitChildrenIds,
         isGrouped,
         attachment: pendingAttachment || null,
+        // Fiscal / receipt detail fields (optional — from OCR or manual entry)
+        sellerNif:     fiscal.sellerNif,
+        buyerNif:      fiscal.buyerNif,
+        vatBase:       fiscal.vatBase,
+        vatAmount:     fiscal.vatAmount,
+        vatRate:       fiscal.vatRate,
+        paymentMethod: fiscal.paymentMethod,
+        cardLast4:     fiscal.cardLast4,
+        purchaseTime:  fiscal.purchaseTime,
+        documentType:  fiscal.documentType,
         updatedAt: new Date().toISOString()
     };
 
@@ -6863,6 +7111,8 @@ function showSettingsModal() {
     populateCategorySelects();
     document.getElementById('profile-name').value = getUserName();
     document.getElementById('profile-title').value = getAppTitle();
+    const nifEl = document.getElementById('profile-nif');
+    if (nifEl) nifEl.value = getUserNif();
     const modeRadio = document.querySelector(`input[name="household-mode"][value="${getHouseholdMode()}"]`);
     if (modeRadio) modeRadio.checked = true;
     const spouseNameEl = document.getElementById('profile-spouse-name');
@@ -6912,6 +7162,16 @@ function saveProfileName() {
     localStorage.setItem(USER_NAME_KEY, name);
     if (title) localStorage.setItem(APP_TITLE_KEY, title);
     localStorage.setItem(HOUSEHOLD_MODE_KEY, mode);
+    // Persist the user's NIF for the IRS tracker and e-fatura matching.
+    const nifEl = document.getElementById('profile-nif');
+    if (nifEl) {
+        const nif = (nifEl.value || '').replace(/\D+/g, '');
+        if (nif === '' || /^\d{9}$/.test(nif)) {
+            localStorage.setItem(USER_NIF_KEY, nif);
+        } else {
+            showToast('NIF deve ter 9 dígitos (ignorado)');
+        }
+    }
     // Spouse settings (only relevant in married mode but save anyway)
     const spouseName = document.getElementById('profile-spouse-name')?.value.trim();
     const spousePct = parseInt(document.getElementById('profile-spouse-pct')?.value);

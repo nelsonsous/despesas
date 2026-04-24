@@ -437,6 +437,15 @@
             <!-- Partner spending (separated mode) -->
             <div class="card" id="partner-spending-card" style="display:none"></div>
 
+            <!-- IRS Tracker -->
+            <div class="card" id="irs-tracker-card" style="display:none">
+                <h3 style="display:flex;justify-content:space-between;align-items:center">
+                    <span><i class="fas fa-landmark" style="color:#5A3BD8"></i> Tracker IRS <span id="irs-year" style="font-weight:500;color:var(--text-light);font-size:0.82rem"></span></span>
+                    <select id="irs-year-select" onchange="renderIrsTracker()" style="font-size:0.75rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px"></select>
+                </h3>
+                <div id="irs-tracker-body"></div>
+            </div>
+
             <!-- Savings Analysis -->
             <div class="card savings-card">
                 <h3><i class="fas fa-piggy-bank"></i> Analise de Poupanca</h3>
@@ -670,6 +679,75 @@
                         <label>Notas (opcional)</label>
                         <textarea id="expense-notes" rows="2" placeholder="Notas adicionais..."></textarea>
                     </div>
+
+                    <!-- Fiscal / receipt detail (auto-filled by OCR, editable) -->
+                    <div class="form-group fiscal-details">
+                        <label class="fiscal-details-header" onclick="toggleFiscalDetails()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+                            <span><i class="fas fa-receipt"></i> Detalhes fiscais (opcional)</span>
+                            <i id="fiscal-details-toggle" class="fas fa-chevron-down"></i>
+                        </label>
+                        <div id="fiscal-details-body" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                                <div>
+                                    <label style="font-size:0.75rem">NIF do vendedor</label>
+                                    <input type="text" id="fiscal-seller-nif" inputmode="numeric" maxlength="9" placeholder="9 dígitos">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">NIF na factura</label>
+                                    <input type="text" id="fiscal-buyer-nif" inputmode="numeric" maxlength="9" placeholder="o teu NIF se aparece">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Base tributável (€)</label>
+                                    <input type="number" id="fiscal-vat-base" step="0.01" placeholder="sem IVA">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">IVA (€)</label>
+                                    <input type="number" id="fiscal-vat-amount" step="0.01" placeholder="valor do IVA">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Taxa de IVA</label>
+                                    <select id="fiscal-vat-rate">
+                                        <option value="">—</option>
+                                        <option value="6">6% (reduzida)</option>
+                                        <option value="13">13% (intermédia)</option>
+                                        <option value="23">23% (normal)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Hora</label>
+                                    <input type="time" id="fiscal-time">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Método de pagamento</label>
+                                    <select id="fiscal-payment-method">
+                                        <option value="">—</option>
+                                        <option value="cartao">Cartão</option>
+                                        <option value="mbway">MB Way</option>
+                                        <option value="dinheiro">Dinheiro</option>
+                                        <option value="transferencia">Transferência</option>
+                                        <option value="cheque">Cheque</option>
+                                        <option value="outro">Outro</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem">Últimos 4 do cartão</label>
+                                    <input type="text" id="fiscal-card-last4" inputmode="numeric" maxlength="4" placeholder="4 dígitos">
+                                </div>
+                                <div style="grid-column:span 2">
+                                    <label style="font-size:0.75rem">Tipo de documento</label>
+                                    <select id="fiscal-doc-type">
+                                        <option value="">—</option>
+                                        <option value="fatura">Fatura</option>
+                                        <option value="fatura-recibo">Fatura-Recibo</option>
+                                        <option value="recibo">Recibo simplificado</option>
+                                        <option value="nota-credito">Nota de crédito</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <small class="field-hint" style="margin-top:6px">Se o NIF na factura for o teu, entra no Tracker IRS nos Relatórios. Só os tipos "Fatura" e "Fatura-Recibo" dão dedução.</small>
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
@@ -880,6 +958,11 @@
                     <div class="form-group">
                         <label>Titulo da aplicacao</label>
                         <input type="text" id="profile-title" placeholder="Ex: Minhas Despesas" maxlength="30">
+                    </div>
+                    <div class="form-group">
+                        <label>O teu NIF (opcional)</label>
+                        <input type="text" id="profile-nif" inputmode="numeric" maxlength="9" placeholder="9 dígitos">
+                        <small class="field-hint">Usado pelo Tracker IRS nos Relatórios: despesas com o teu NIF na factura são consideradas para dedução fiscal.</small>
                     </div>
                     <div class="form-group">
                         <label>Situacao familiar</label>
