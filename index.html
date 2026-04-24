@@ -341,7 +341,7 @@
                     <h3><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span id="fixed-month-total" class="fixed-month-total"></span>
-                        <button onclick="event.stopPropagation();openFixedManagerModal()" class="btn-icon" title="Gerir despesas fixas" style="background:#EDE7F6;color:var(--primary);width:30px;height:30px;border-radius:6px"><i class="fas fa-cog"></i></button>
+                        <button onclick="event.stopPropagation();openFixedManagerModal()" title="Gerir despesas fixas" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-cog"></i> Gerir</button>
                         <i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.8rem;color:var(--text-light);transition:transform 0.2s"></i>
                     </span>
                 </div>
@@ -1410,14 +1410,14 @@
                     <h2><i class="fas fa-repeat"></i> Despesas Fixas</h2>
                     <button onclick="closeFixedManagerModal()" class="btn-icon"><i class="fas fa-times"></i></button>
                 </div>
-                <p class="settings-desc">Despesas que saem todos os meses automaticamente. Cativadas no saldo ate ao dia de pagamento.</p>
-                <button onclick="showAddFixed()" class="btn btn-primary btn-block">
+                <p class="settings-desc">Despesas que saem todos os meses automaticamente. Cativadas no saldo até ao dia de pagamento.</p>
+                <button onclick="showAddFixed()" class="btn btn-primary btn-block" style="padding:14px;font-size:1rem">
                     <i class="fas fa-plus"></i> Adicionar Despesa Fixa
                 </button>
                 <button id="ai-fixed-btn" onclick="runAiFixedSuggestion()" class="btn btn-block" style="margin-top:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0">
                     <i class="fas fa-wand-magic-sparkles"></i> Detetar fixas com IA
                 </button>
-                <div id="fixed-list" class="fixed-list"></div>
+                <div id="fixed-list" class="fixed-list" style="margin-top:14px"></div>
             </div>
         </div>
 
