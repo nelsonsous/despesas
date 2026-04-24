@@ -2122,8 +2122,10 @@ function getPartnerInvolvement(e, nameLower) {
     }
 
     // Legacy fallback: if the expense has the partner name in withPeople
+    // Legacy fallback: if the expense has the partner name in withPeople
     // without any mix/split info, treat the full expense as attributed.
-    if (out.attributed === 0 && (e.withPeople || []).some(p => p.toLowerCase() === nameLower)) {
+    // Does NOT apply to grouped expenses — those rely on per-entry withPartner.
+    if (!e.isGrouped && out.attributed === 0 && (e.withPeople || []).some(p => p.toLowerCase() === nameLower)) {
         out.attributed += gross;
     }
 
