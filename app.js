@@ -491,20 +491,46 @@ const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a 
 - presentes: (quando claramente identificável como presente)
 - outros: tudo o resto (incluindo transferências MBway/IPS para pessoas sem contexto claro)`;
 
-const EMAIL_EXTRACT_PROMPT = (texts) => `Extrai despesas/pagamentos destes emails. Inclui:
+const EMAIL_EXTRACT_PROMPT = (texts) => `Extrai despesas/pagamentos destes emails em Português de Portugal. Inclui:
 - Débitos em conta (bancos, MB Way, SEPA)
-- Faturas emitidas a pagar (EDP, Galp, Vodafone, NOS, MEO, seguros, rendas, ginásios, etc.) — conta a despesa quando a fatura chega, mesmo que ainda não tenha sido debitada
+- Faturas emitidas a pagar (EDP, Galp, Vodafone, NOS, MEO, seguros, rendas, ginásios, etc.) — conta a despesa quando a fatura chega
 - Compras online / cartão
 - Subscrições renovadas (Netflix, Spotify, etc.)
 
 Ignora apenas: transferências entre contas próprias, depósitos/créditos recebidos, publicidade/promoções sem valor concreto, newsletters, notificações de saldo, emails de marketing.
 
-Para cada despesa devolve:
-- description: empresa/serviço curto (ex: "EDP", "Netflix", "Continente")
-- amount: valor em euros (numero, ex 42.15)
-- date: data de débito se mencionada, ou data de vencimento, ou data da fatura (YYYY-MM-DD)
-- category: (ver lista abaixo)
-- id: usa o valor após "ID:" no email
+Para cada despesa devolve um objeto JSON com TODOS os campos que conseguires identificar (usa null quando não está claro). Estabelecimentos como EDP, Galp, Vodafone, MEO, NOS, EPAL, Águas, costumam trazer NIF, IVA, ATCUD e período — extrai-os.
+
+Schema completo:
+{
+  "id": "valor após 'ID:' no email, se existir",
+  "description": "empresa/serviço curto (ex: 'EDP', 'Netflix')",
+  "amount": numero em euros,
+  "date": "YYYY-MM-DD (débito > vencimento > emissão)",
+  "category": "id da lista de categorias",
+  "merchant": "nome do estabelecimento se diferente da description",
+  "isRecurring": true|false,            // verdadeiro para utilities/subscrições mensais
+  "fixedHint": true|false,              // verdadeiro se claramente é factura recorrente que valeria a pena ser fixa
+  "atcud": "código ATCUD se presente" | null,
+  "docNumber": "nº de fatura/ref. ex: 'FT 2024/12345'" | null,
+  "sellerNif": "NIF do vendedor (9 dígitos)" | null,
+  "buyerNif": "NIF na fatura (9 dígitos) se aparece" | null,
+  "vatBase": numero | null,
+  "vatAmount": numero | null,
+  "vatRate": 6|13|23 | null,
+  "paymentMethod": "cartao"|"mbway"|"dinheiro"|"transferencia"|"debito-direto"|"cheque"|"outro"|null,
+  "documentType": "fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,
+  "purchaseChannel": "online"|"fisico"|"telefone"|"recorrente"|null,
+  "utility": {                          // só preencher para EDP/Galp/águas/gás/telecom
+    "tipo": "eletricidade"|"agua"|"gas"|"telecom"|null,
+    "periodoInicio": "YYYY-MM-DD"|null,
+    "periodoFim": "YYYY-MM-DD"|null,
+    "consumoKwh": numero|null,
+    "consumoM3": numero|null,
+    "potenciaKva": numero|null,
+    "tarifa": "simples"|"bi-horaria"|"tri-horaria"|null
+  } | null
+}
 
 ${CATEGORY_HINTS_BLOCK}
 ${ownContactsPromptBlock()}
@@ -1012,6 +1038,9 @@ function approvePendingAsFixed(id) {
 function approvePending(id) {
     const e = pendingExpenses.find(x => x.id === id);
     if (!e) return;
+    // Carry every fiscal/utility field the email AI managed to extract
+    // into the saved expense. The new fields are all optional on the
+    // expense object so missing ones harmlessly resolve to null.
     expenses.push({
         id: generateId(),
         description: e.description,
@@ -1021,6 +1050,17 @@ function approvePending(id) {
         type: 'personal',
         split: false,
         notes: e.merchant ? 'Via: ' + e.merchant : '',
+        sellerNif:       e.sellerNif || null,
+        buyerNif:        e.buyerNif || null,
+        vatBase:         typeof e.vatBase === 'number' ? e.vatBase : null,
+        vatAmount:       typeof e.vatAmount === 'number' ? e.vatAmount : null,
+        vatRate:         [6,13,23].includes(e.vatRate) ? e.vatRate : null,
+        paymentMethod:   e.paymentMethod || null,
+        documentType:    e.documentType || null,
+        atcud:           e.atcud || null,
+        docNumber:       e.docNumber || null,
+        purchaseChannel: e.purchaseChannel || 'online',
+        utility:         e.utility && e.utility.tipo ? e.utility : null,
         createdAt: new Date().toISOString()
     });
     pendingExpenses = pendingExpenses.filter(x => x.id !== id);
@@ -2435,6 +2475,21 @@ function updateDashboard() {
     // Balance KPI
     animateNumber(document.getElementById('kpi-income'), totalIncome);
     animateNumber(document.getElementById('kpi-expenses'), totalExpenses);
+    // Net contribution to savings goals this month (adds − removes). Only
+    // shows up as a hero pill when the user actually moved money in/out
+    // this month so the dashboard isn't cluttered for non-users.
+    const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+    const savingsThisMonth = getGoalsMonthlyContribution(monthKey);
+    const savingsPill = document.getElementById('kpi-savings-pill');
+    const savingsEl = document.getElementById('kpi-savings');
+    if (savingsPill && savingsEl) {
+        if (savingsThisMonth !== 0) {
+            savingsPill.style.display = '';
+            savingsEl.textContent = `${savingsThisMonth > 0 ? '+' : ''}${formatCurrency(savingsThisMonth)}`;
+        } else {
+            savingsPill.style.display = 'none';
+        }
+    }
     const balanceEl = document.getElementById('kpi-balance');
     animateNumber(balanceEl, balance, formatCurrency, 700);
     balanceEl.className = 'balance-hero-amount' + (balance < 0 ? ' negative' : '');
@@ -8326,23 +8381,31 @@ function renderNetWorth() {
     const card = document.getElementById('net-worth-card');
     const body = document.getElementById('net-worth-body');
     if (!card || !body) return;
-    const assets = (netWorth.assets || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+    const manualAssets = (netWorth.assets || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+    // Savings goals roll up into the Património automatically: every euro
+    // the user moves into a goal counts as an asset. Avoids the user
+    // having to keep two lists in sync manually.
+    const goalsBalance = (savingsGoals || []).reduce((s, g) => s + getGoalBalance(g), 0);
+    const assets = manualAssets + goalsBalance;
     const liabilities = (netWorth.liabilities || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
     const total = assets - liabilities;
     card.style.display = 'block';
     if (assets === 0 && liabilities === 0) {
-        body.innerHTML = `<p class="empty-state" style="padding:10px 0">O património é uma fotografia rápida de tudo o que tens (depósitos, investimentos, casa, carro) menos tudo o que deves (créditos, cartão de crédito por pagar). Útil para veres a evolução além do mês.</p>
+        body.innerHTML = `<p class="empty-state" style="padding:10px 0">O património é uma fotografia rápida de tudo o que tens (depósitos, investimentos, casa, carro) menos tudo o que deves (créditos, cartão de crédito por pagar). Os teus objetivos de poupança entram automaticamente nos ativos.</p>
             <button onclick="openNetWorthModal()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Configurar património</button>`;
         return;
     }
     const updated = netWorth.updatedAt ? new Date(netWorth.updatedAt).toLocaleDateString('pt-PT') : '—';
+    const assetsLabel = goalsBalance > 0
+        ? `Ativos · ${(netWorth.assets || []).length}+poupança`
+        : `Ativos · ${(netWorth.assets || []).length}`;
     body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património líquido</div>
         <div style="font-size:1.6rem;font-weight:700;color:${total >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(total)}</div></div>
         <button onclick="openNetWorthModal()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-pen"></i></button>
     </div>
     <div style="display:flex;gap:10px">
-        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">Ativos · ${(netWorth.assets || []).length}</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div></div>
+        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">${assetsLabel}</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div>${goalsBalance > 0 ? `<div style="font-size:0.66rem;color:var(--text-light)">+${formatCurrency(goalsBalance)} de objetivos</div>` : ''}</div>
         <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px"><div style="font-size:0.72rem;color:#C62828">Passivos · ${(netWorth.liabilities || []).length}</div><div style="font-weight:700;color:#C62828">${formatCurrency(liabilities)}</div></div>
     </div>
     <div style="font-size:0.68rem;color:var(--text-light);text-align:right;margin-top:6px">Atualizado em ${updated}</div>`;
