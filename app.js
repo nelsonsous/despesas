@@ -1402,13 +1402,39 @@ function toggleSkipFixed(fixedId, date) {
 function getEffectiveFixedAmount(f, date) {
     const st = getFixedStatusForMonth(f.id, date);
     const base = st?.amount || f.amount;
+    let effective = base;
     const splits = Array.isArray(f.splits) ? f.splits : null;
     if (splits && splits.length) {
         const paidArr = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
         const deduction = splits.reduce((sum, s, i) => paidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
-        return Math.max(0, base - deduction);
+        effective = Math.max(0, effective - deduction);
     }
-    return base;
+    // Mix-partner sub-split: partner reimburses a share of their portion once
+    // the month's "pago" toggle is flipped (stored on fixedStatus.mixPartnerPaid).
+    if (f.mixPartnerPct && f.mixPartnerName && f.mixPartnerSplit && st?.mixPartnerPaid) {
+        const pct = parseFloat(f.mixPartnerPct) || 0;
+        const splitPct = parseFloat(f.mixPartnerSplitPct) || 50;
+        const deduction = base * (pct / 100) * (splitPct / 100);
+        effective = Math.max(0, effective - deduction);
+    }
+    return effective;
+}
+
+// Flips the mix-partner "paid" state for this specific month of a fixed
+// expense, stored on the fixedStatus record.
+function toggleFixedMixPartnerPaid(fixedId, date) {
+    const f = fixedExpenses.find(x => x.id === fixedId);
+    if (!f || !f.mixPartnerSplit) return;
+    const monthKey = getFixedMonthKey(date);
+    let st = fixedStatus.find(s => s.fixedId === fixedId && s.month === monthKey);
+    if (!st) {
+        st = { fixedId, month: monthKey, status: 'pendente', mixPartnerPaid: false };
+        fixedStatus.push(st);
+    }
+    st.mixPartnerPaid = !st.mixPartnerPaid;
+    saveData();
+    updateAll();
+    showToast(st.mixPartnerPaid ? 'Parte recebida!' : 'Marcado por receber');
 }
 
 // Toggles whether a specific split on a fixed expense has paid its share for
@@ -2155,19 +2181,14 @@ function renderPartnerSummary() {
         return;
     }
 
+    const hasSettle = (totals.owed + totals.paid) > 0;
     card.innerHTML = `
         <h3 style="color:#C2185B"><i class="fas fa-heart"></i> Gasto com ${name}</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-            <div style="padding:10px;background:#FCE4EC;border-radius:10px">
-                <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
-                <div style="font-size:1.15rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
-                <div style="font-size:0.65rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
-            </div>
-            <div style="padding:10px;background:var(--surface);border-radius:10px">
-                <div style="font-size:0.7rem;color:var(--text-light)">Atribuído a ${name}</div>
-                <div style="font-size:1.05rem;font-weight:800">${formatCurrency(totals.attributed)}</div>
-                ${(totals.owed + totals.paid) > 0 ? `<div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(totals.paid)} pagos · <span style="color:var(--danger)">${formatCurrency(totals.owed)} por receber</span></div>` : '<div style="font-size:0.65rem;color:var(--text-light)">sem split pendente</div>'}
-            </div>
+        <div style="padding:12px;background:#FCE4EC;border-radius:10px;margin-bottom:8px">
+            <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
+            <div style="font-size:0.7rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
+            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Parte dela: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
         </div>
         ${topCats.length ? `
         <div style="font-size:0.68rem;color:var(--text-light);margin-bottom:4px">Onde mais gastaram</div>
@@ -2644,7 +2665,23 @@ function renderExpenses() {
                     return `<button onclick="event.stopPropagation();toggleFixedSplitPaid('${f.id}', currentDate, ${i})" class="fixed-status-badge ${paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem" title="${s.name}: ${formatCurrency(s.amount)}">${paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`;
                 }).join('')
                 : '';
-            const totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
+            // Mix-partner badge + per-month toggle for fixed expenses
+            let fixedMixPartnerBadge = '';
+            if (f.mixPartnerPct && f.mixPartnerName) {
+                const mpPaid = !!st?.mixPartnerPaid;
+                const hasSubSplit = !!f.mixPartnerSplit;
+                const clickAttr = hasSubSplit
+                    ? ` onclick="event.stopPropagation();toggleFixedMixPartnerPaid('${f.id}', currentDate)" style="cursor:pointer;"`
+                    : ' style="cursor:default;"';
+                const cls = hasSubSplit ? (mpPaid ? 'status-pago' : 'status-pendente') : '';
+                const stateIcon = hasSubSplit ? (mpPaid ? '<i class="fas fa-check"></i> ' : '<i class="fas fa-clock"></i> ') : '';
+                fixedMixPartnerBadge = `<span${clickAttr} class="fixed-status-badge ${cls}" ${clickAttr.includes('onclick') ? 'role="button"' : ''} style="${clickAttr.includes('cursor') ? '' : ''}background:${mpPaid && hasSubSplit ? '#E8F5E9' : '#FCE4EC'};color:${mpPaid && hasSubSplit ? '#2E7D32' : '#C2185B'};font-size:0.65rem"><i class="fas fa-heart"></i> ${stateIcon}${f.mixPartnerName} ${f.mixPartnerPct}%</span>`;
+            }
+            let totalSplitsDeduction = fSplits.reduce((sum, s, i) => fPaidArr[i] ? sum + (parseFloat(s.amount) || 0) : sum, 0);
+            if (f.mixPartnerPct && f.mixPartnerSplit && st?.mixPartnerPaid) {
+                const base = st?.amount || f.amount;
+                totalSplitsDeduction += base * (parseFloat(f.mixPartnerPct) / 100) * (parseFloat(f.mixPartnerSplitPct || 50) / 100);
+            }
             const gross = st?.amount || f.amount;
             const hasSplitDeduction = totalSplitsDeduction > 0;
             const netAmount = (f.split && coParentPaid && child) ? amount * (1 - splitPct / 100) : amount;
@@ -2675,7 +2712,7 @@ function renderExpenses() {
                     <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px;margin-left:2px" title="Ignorar este mês">
                         <i class="fas fa-ban"></i>
                     </button>
-                    ${hasExtraBadges ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}</div>` : ''}
+                    ${hasExtraBadges || fixedMixPartnerBadge ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}${fixedMixPartnerBadge}</div>` : ''}
                 </div>
             `;
         }
@@ -2953,8 +2990,15 @@ function renderExpenseItem(e) {
     }
     // Mix Pessoal+namorado/a badge
     if (e.mixPartnerPct && e.mixPartnerName) {
-        const state = e.mixPartnerSplit ? (e.mixPartnerPaid ? ' · ✓' : ' · 🕐') : '';
-        mixBadge += `<span class="fixed-status-badge" style="background:#FCE4EC;color:#C2185B;font-size:0.65rem;margin-left:${mixBadge ? '4px' : '0'}"><i class="fas fa-heart"></i> ${100 - e.mixPartnerPct}% / ${e.mixPartnerPct}% ${e.mixPartnerName}${state}</span>`;
+        const hasSubSplit = !!e.mixPartnerSplit;
+        const state = hasSubSplit ? (e.mixPartnerPaid ? ' ✓' : ' 🕐') : '';
+        const color = hasSubSplit ? (e.mixPartnerPaid ? '#2E7D32' : '#C2185B') : '#C2185B';
+        const bg = hasSubSplit ? (e.mixPartnerPaid ? '#E8F5E9' : '#FCE4EC') : '#FCE4EC';
+        const clickAttr = hasSubSplit
+            ? ` onclick="event.stopPropagation();toggleMixPartnerPaid('${e.id}')" title="Tocar para alternar pago/por receber" role="button"`
+            : '';
+        const cursor = hasSubSplit ? 'cursor:pointer;' : '';
+        mixBadge += `<span${clickAttr} class="fixed-status-badge" style="background:${bg};color:${color};font-size:0.65rem;margin-left:${mixBadge ? '4px' : '0'};${cursor}"><i class="fas fa-heart"></i> ${100 - e.mixPartnerPct}% / ${e.mixPartnerPct}% ${e.mixPartnerName}${state}</span>`;
     }
 
     // Grouped expense rendering (has entries array)
@@ -3348,19 +3392,14 @@ function renderPartnerSpending() {
     const isOpen = localStorage.getItem('partner-details-open') === '1';
 
     container.style.display = 'block';
+    const hasSettle = (totals.owed + totals.paid) > 0;
     container.innerHTML = `
         <h3><i class="fas fa-heart" style="color:#E91E63"></i> Gasto com ${name}</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-            <div style="padding:10px;background:#FCE4EC;border-radius:10px">
-                <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
-                <div style="font-size:1.1rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
-                <div style="font-size:0.65rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
-            </div>
-            <div style="padding:10px;background:var(--surface);border-radius:10px">
-                <div style="font-size:0.7rem;color:var(--text-light)">Atribuído a ${name}</div>
-                <div style="font-size:1.05rem;font-weight:800">${formatCurrency(totals.attributed)}</div>
-                ${(totals.owed + totals.paid) > 0 ? `<div style="font-size:0.65rem;color:var(--text-light)">${formatCurrency(totals.paid)} pagos · <span style="color:var(--danger)">${formatCurrency(totals.owed)} por receber</span></div>` : '<div style="font-size:0.65rem;color:var(--text-light)">sem split pendente</div>'}
-            </div>
+        <div style="padding:12px;background:#FCE4EC;border-radius:10px;margin-bottom:10px">
+            <div style="font-size:0.7rem;color:#880E4F">Envolvido este mês</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#C2185B">${formatCurrency(totals.involved)}</div>
+            <div style="font-size:0.7rem;color:#AD1457">${entries.length} ${entries.length === 1 ? 'despesa' : 'despesas'}</div>
+            ${hasSettle ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--text-light)">Parte dela: <span style="color:var(--success);font-weight:600">${formatCurrency(totals.paid)} pagos</span> · <span style="color:var(--danger);font-weight:600">${formatCurrency(totals.owed)} por receber</span></div>` : ''}
         </div>
         <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:4px">Últimos 6 meses</div>
         <div style="display:flex;gap:4px;align-items:flex-end;height:60px;margin-bottom:12px">
@@ -3401,7 +3440,6 @@ function renderPartnerSpending() {
                     </div>
                     <div style="text-align:right;white-space:nowrap">
                         <div style="font-size:0.8rem;font-weight:700;color:#C2185B">${formatCurrency(involved)}</div>
-                        ${attributed > 0 && attributed !== involved ? `<div style="font-size:0.6rem;color:var(--text-light)">atrib. ${formatCurrency(attributed)}</div>` : ''}
                     </div>
                 </div>`;
             }).join('')}
@@ -4629,6 +4667,42 @@ function fixedDistributeEqually() {
     });
     showToast(`${parts} partes de ${formatCurrency(per)}`);
 }
+// Mix Pessoal+partner for FIXED expenses — same concept as one-offs. Template
+// stores mixPartnerPct + optional sub-split. Paid-per-month state lives on the
+// per-month fixedStatus record (mixPartnerPaid).
+function toggleFixedMixPartner() {
+    const cb = document.getElementById('fixed-mix-with-partner');
+    const fields = document.getElementById('fixed-mix-partner-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+function toggleFixedMixPartnerSplit() {
+    const cb = document.getElementById('fixed-mix-partner-split');
+    const fields = document.getElementById('fixed-mix-partner-split-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+function updateFixedMixPartnerUI(f) {
+    const grp = document.getElementById('fixed-mix-partner-group');
+    if (!grp) return;
+    const name = getPartnerName();
+    const show = !isMarriedMode() && !!name;
+    grp.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    document.querySelectorAll('.fixed-mix-partner-name').forEach(el => { el.textContent = name; });
+    const header = document.getElementById('fixed-mix-partner-name');
+    if (header) header.textContent = name;
+    const cb = document.getElementById('fixed-mix-with-partner');
+    const pct = document.getElementById('fixed-mix-partner-pct');
+    const splitCb = document.getElementById('fixed-mix-partner-split');
+    const splitPct = document.getElementById('fixed-mix-partner-split-pct');
+    const has = !!(f && f.mixPartnerPct);
+    if (cb) cb.checked = has;
+    if (pct) pct.value = f?.mixPartnerPct || 50;
+    if (splitCb) splitCb.checked = !!(f && f.mixPartnerSplit);
+    if (splitPct) splitPct.value = f?.mixPartnerSplitPct || getPartnerPct();
+    toggleFixedMixPartner();
+    toggleFixedMixPartnerSplit();
+}
+
 function populateFixedSplitsUI(f) {
     const list = document.getElementById('fixed-splits-list');
     if (!list) return;
@@ -4638,6 +4712,21 @@ function populateFixedSplitsUI(f) {
     if (cb) cb.checked = splits.length > 0;
     toggleFixedSplitOther();
     splits.forEach(s => addFixedSplitRow(s));
+}
+
+// Flips mixPartnerPaid so the user can settle the partner's sub-split straight
+// from the expense row, without opening the modal. Only meaningful when the
+// sub-split is enabled.
+function toggleMixPartnerPaid(expenseId) {
+    const idx = expenses.findIndex(e => e.id === expenseId);
+    if (idx < 0) return;
+    const e = expenses[idx];
+    if (!e.mixPartnerSplit) return;
+    e.mixPartnerPaid = !e.mixPartnerPaid;
+    e.updatedAt = new Date().toISOString();
+    saveData();
+    updateAll();
+    showToast(e.mixPartnerPaid ? 'Parte recebida!' : 'Marcado como por receber');
 }
 
 // Legacy single-person toggle — kept so old saved expenses still work.
@@ -5805,6 +5894,7 @@ function showAddFixed() {
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
     populateFixedSplitsUI(null);
+    updateFixedMixPartnerUI(null);
     populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
 }
@@ -5835,6 +5925,7 @@ function editFixed(id) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
     populateFixedSplitsUI(f);
+    updateFixedMixPartnerUI(f);
     populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
 }
@@ -5846,6 +5937,16 @@ function saveFixed(event) {
     const isChild = children.some(c => c.id === ftype);
     const splitOtherOn = document.getElementById('fixed-split-other')?.checked;
     const fixedSplits = splitOtherOn ? collectFixedSplitsFromModal() : [];
+    const partnerName = getPartnerName();
+    const mixPartnerOn = !isMarriedMode() && partnerName
+        && !!document.getElementById('fixed-mix-with-partner')?.checked;
+    const mixPartnerPct = mixPartnerOn
+        ? (parseFloat(document.getElementById('fixed-mix-partner-pct')?.value) || 0)
+        : 0;
+    const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
+    const mixPartnerSplitPct = mixPartnerSplitOn
+        ? (parseFloat(document.getElementById('fixed-mix-partner-split-pct')?.value) || 50)
+        : null;
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
@@ -5859,6 +5960,10 @@ function saveFixed(event) {
         endDate: document.getElementById('fixed-end').value || null,
         notes: document.getElementById('fixed-notes').value.trim(),
         splits: fixedSplits,
+        mixPartnerPct: mixPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? mixPartnerPct : null,
+        mixPartnerName: mixPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? partnerName : null,
+        mixPartnerSplit: mixPartnerSplitOn,
+        mixPartnerSplitPct: mixPartnerSplitOn ? mixPartnerSplitPct : null,
         updatedAt: new Date().toISOString()
     };
     if (id) {
