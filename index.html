@@ -681,9 +681,9 @@
                     </div>
 
                     <!-- Fiscal / receipt detail (auto-filled by OCR, editable) -->
-                    <div class="form-group fiscal-details">
-                        <label class="fiscal-details-header" onclick="toggleFiscalDetails()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-                            <span><i class="fas fa-receipt"></i> Detalhes fiscais (opcional)</span>
+                    <div class="form-group fiscal-details" style="border:1px dashed #B9A4F0;border-radius:10px;padding:8px 10px;background:#FCFAFF">
+                        <label class="fiscal-details-header" onclick="toggleFiscalDetails()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:0">
+                            <span style="color:#5A3BD8"><i class="fas fa-receipt"></i> Detalhes fiscais <span style="font-weight:400;color:var(--text-light);font-size:0.78rem">(NIF, IVA, pagamento, hora — opcional)</span></span>
                             <i id="fiscal-details-toggle" class="fas fa-chevron-down"></i>
                         </label>
                         <div id="fiscal-details-body" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
@@ -905,6 +905,9 @@
                     </button>
                     <button class="settings-tab" data-stab="ai" onclick="switchSettingsTab('ai')">
                         <i class="fas fa-robot"></i> IA
+                    </button>
+                    <button class="settings-tab" data-stab="security" onclick="switchSettingsTab('security')">
+                        <i class="fas fa-shield-halved"></i> Segurança
                     </button>
                 </div>
 
@@ -1164,6 +1167,38 @@
                             <i class="fas fa-file-import"></i> Escolher PDF do extrato
                         </button>
                         <div id="ai-pdf-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px;line-height:1.4"></div>
+                    </div>
+                </div>
+
+                <div id="stab-security" class="settings-tab-content">
+                    <p class="settings-desc">Bloqueia a app com Face ID / Touch ID e/ou PIN. O PIN serve de alternativa quando a biometria falha.</p>
+
+                    <div class="form-group">
+                        <label>Biometria</label>
+                        <button id="security-bio-btn" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0">
+                            <i class="fas fa-fingerprint"></i> Ativar Face ID / Touch ID
+                        </button>
+                        <small class="field-hint">Usa o Face ID / Touch ID que já tens configurado no dispositivo. Requer ter a app em HTTPS (é o caso).</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>PIN de fallback</label>
+                        <button id="security-pin-btn" class="btn btn-block" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80">
+                            <i class="fas fa-key"></i> Definir PIN de fallback
+                        </button>
+                        <small class="field-hint">4 a 6 dígitos. Usado quando a biometria falha ou não está disponível.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Auto-bloqueio quando sais da app</label>
+                        <select id="security-autolock">
+                            <option value="0">Imediato</option>
+                            <option value="30000" selected>30 segundos</option>
+                            <option value="60000">1 minuto</option>
+                            <option value="300000">5 minutos</option>
+                            <option value="1800000">30 minutos</option>
+                        </select>
+                        <small class="field-hint">Tempo em background antes de bloquear outra vez.</small>
                     </div>
                 </div>
             </div>

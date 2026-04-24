@@ -1290,8 +1290,244 @@ function renderSalaryCycle() {
     if (aiScenarioRow) aiScenarioRow.style.display = (hasAnyAiKey() && cycleContainsToday) ? 'block' : 'none';
 }
 
+// ===== APP LOCK (biometric + PIN) =====
+const LOCK_KEY = 'app_lock_v1';
+
+function getLockCfg() {
+    try { return JSON.parse(localStorage.getItem(LOCK_KEY) || '{}'); } catch { return {}; }
+}
+function setLockCfg(patch) {
+    const next = { ...getLockCfg(), ...patch };
+    localStorage.setItem(LOCK_KEY, JSON.stringify(next));
+    return next;
+}
+
+function b64urlEncode(buf) {
+    const bytes = new Uint8Array(buf);
+    let str = '';
+    bytes.forEach(b => str += String.fromCharCode(b));
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(str) {
+    str = (str || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const bin = atob(str);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+}
+
+async function hashPin(pin) {
+    const buf = new TextEncoder().encode('despesas:v1:' + pin);
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return b64urlEncode(hash);
+}
+
+function isBiometricSupported() {
+    return !!(window.PublicKeyCredential && window.isSecureContext && navigator.credentials);
+}
+
+async function setupBiometricLock() {
+    if (!isBiometricSupported()) { showToast('Este dispositivo/navegador não suporta biometria'); return false; }
+    try {
+        const userId = crypto.getRandomValues(new Uint8Array(16));
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const credential = await navigator.credentials.create({
+            publicKey: {
+                challenge,
+                rp: { name: 'Despesas', id: location.hostname },
+                user: { id: userId, name: 'user@despesas', displayName: getUserName() || 'Utilizador' },
+                pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+                authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+                timeout: 60000,
+                attestation: 'none'
+            }
+        });
+        setLockCfg({ enabled: true, biometricId: b64urlEncode(credential.rawId), autoLockMs: getLockCfg().autoLockMs || 30000 });
+        showToast('Biometria ativada');
+        renderSecuritySettingsUI();
+        return true;
+    } catch (e) {
+        console.warn('Biometric setup failed:', e);
+        showToast(`Não foi possível ativar: ${e?.message || 'erro'}`);
+        return false;
+    }
+}
+
+async function verifyBiometric() {
+    const cfg = getLockCfg();
+    if (!cfg.biometricId) return false;
+    try {
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        await navigator.credentials.get({
+            publicKey: {
+                challenge,
+                rpId: location.hostname,
+                allowCredentials: [{ type: 'public-key', id: b64urlDecode(cfg.biometricId) }],
+                userVerification: 'required',
+                timeout: 60000
+            }
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function setupPinLock() {
+    const pin = prompt('Escolhe um PIN de 4 a 6 dígitos:');
+    if (pin == null) return false;
+    if (!/^\d{4,6}$/.test(pin)) { showToast('PIN inválido — só dígitos, 4 a 6'); return false; }
+    const confirmPin = prompt('Confirma o PIN:');
+    if (pin !== confirmPin) { showToast('PINs não coincidem'); return false; }
+    const hash = await hashPin(pin);
+    setLockCfg({ enabled: true, pinHash: hash });
+    showToast('PIN ativado');
+    renderSecuritySettingsUI();
+    return true;
+}
+
+async function verifyPin(pin) {
+    const cfg = getLockCfg();
+    if (!cfg.pinHash) return false;
+    const hash = await hashPin(pin);
+    return hash === cfg.pinHash;
+}
+
+function disablePinOnly() {
+    setLockCfg({ pinHash: null });
+    const cfg = getLockCfg();
+    if (!cfg.biometricId && !cfg.pinHash) { localStorage.removeItem(LOCK_KEY); hideLockScreen(); }
+    showToast('PIN removido');
+    renderSecuritySettingsUI();
+}
+
+function disableBiometricOnly() {
+    setLockCfg({ biometricId: null });
+    const cfg = getLockCfg();
+    if (!cfg.biometricId && !cfg.pinHash) { localStorage.removeItem(LOCK_KEY); hideLockScreen(); }
+    showToast('Biometria removida');
+    renderSecuritySettingsUI();
+}
+
+function ensureLockOverlay() {
+    let overlay = document.getElementById('app-lock-overlay');
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = 'app-lock-overlay';
+    overlay.innerHTML = `
+        <div class="app-lock-inner">
+            <div class="app-lock-icon"><i class="fas fa-lock"></i></div>
+            <div class="app-lock-title">App bloqueada</div>
+            <div class="app-lock-sub">Desbloqueia para continuar</div>
+            <button id="app-lock-bio" class="btn btn-primary btn-block"><i class="fas fa-fingerprint"></i> Desbloquear</button>
+            <div id="app-lock-pin-row" style="margin-top:12px;display:none">
+                <input type="password" id="app-lock-pin" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="PIN" autocomplete="off">
+                <button id="app-lock-pin-btn" class="btn btn-block" style="margin-top:6px">Entrar</button>
+            </div>
+            <button id="app-lock-use-pin" class="btn btn-ghost" style="margin-top:10px">Usar PIN</button>
+            <div id="app-lock-status" class="app-lock-status"></div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#app-lock-bio').onclick = async () => {
+        const ok = await verifyBiometric();
+        if (ok) unlockApp();
+        else overlay.querySelector('#app-lock-status').textContent = 'Não foi possível verificar';
+    };
+    overlay.querySelector('#app-lock-use-pin').onclick = () => {
+        overlay.querySelector('#app-lock-pin-row').style.display = 'block';
+        overlay.querySelector('#app-lock-pin').focus();
+    };
+    const pinSubmit = async () => {
+        const pin = overlay.querySelector('#app-lock-pin').value;
+        if (await verifyPin(pin)) unlockApp();
+        else {
+            overlay.querySelector('#app-lock-status').textContent = 'PIN incorreto';
+            overlay.querySelector('#app-lock-pin').value = '';
+        }
+    };
+    overlay.querySelector('#app-lock-pin-btn').onclick = pinSubmit;
+    overlay.querySelector('#app-lock-pin').addEventListener('keydown', ev => { if (ev.key === 'Enter') pinSubmit(); });
+    return overlay;
+}
+
+function showLockScreen() {
+    const cfg = getLockCfg();
+    const overlay = ensureLockOverlay();
+    overlay.style.display = 'flex';
+    overlay.querySelector('#app-lock-bio').style.display = cfg.biometricId ? '' : 'none';
+    overlay.querySelector('#app-lock-use-pin').style.display = cfg.pinHash ? '' : 'none';
+    overlay.querySelector('#app-lock-pin-row').style.display = 'none';
+    overlay.querySelector('#app-lock-pin').value = '';
+    overlay.querySelector('#app-lock-status').textContent = '';
+    if (!cfg.biometricId && cfg.pinHash) {
+        overlay.querySelector('#app-lock-pin-row').style.display = 'block';
+        setTimeout(() => overlay.querySelector('#app-lock-pin').focus(), 100);
+    }
+}
+
+function hideLockScreen() {
+    const overlay = document.getElementById('app-lock-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function unlockApp() { hideLockScreen(); }
+
+// Auto-lock on return from background past the configured grace period.
+function installAppLockVisibilityHandler() {
+    let backgroundTs = null;
+    document.addEventListener('visibilitychange', () => {
+        const cfg = getLockCfg();
+        if (!cfg.enabled) return;
+        if (document.visibilityState === 'hidden') backgroundTs = Date.now();
+        else if (document.visibilityState === 'visible') {
+            const away = backgroundTs ? (Date.now() - backgroundTs) : 0;
+            if (away > (cfg.autoLockMs || 30000)) showLockScreen();
+            backgroundTs = null;
+        }
+    });
+}
+
+function renderSecuritySettingsUI() {
+    const cfg = getLockCfg();
+    const bioBtn = document.getElementById('security-bio-btn');
+    const pinBtn = document.getElementById('security-pin-btn');
+    const autoSel = document.getElementById('security-autolock');
+    const supported = isBiometricSupported();
+    if (bioBtn) {
+        if (!supported) {
+            bioBtn.textContent = 'Biometria não suportada';
+            bioBtn.disabled = true;
+        } else if (cfg.biometricId) {
+            bioBtn.innerHTML = '<i class="fas fa-check"></i> Biometria ativa — tocar para remover';
+            bioBtn.onclick = disableBiometricOnly;
+        } else {
+            bioBtn.innerHTML = '<i class="fas fa-fingerprint"></i> Ativar Face ID / Touch ID';
+            bioBtn.onclick = setupBiometricLock;
+        }
+    }
+    if (pinBtn) {
+        if (cfg.pinHash) {
+            pinBtn.innerHTML = '<i class="fas fa-check"></i> PIN definido — tocar para remover';
+            pinBtn.onclick = disablePinOnly;
+        } else {
+            pinBtn.innerHTML = '<i class="fas fa-key"></i> Definir PIN de fallback';
+            pinBtn.onclick = setupPinLock;
+        }
+    }
+    if (autoSel) {
+        autoSel.value = String(cfg.autoLockMs || 30000);
+        autoSel.onchange = () => setLockCfg({ autoLockMs: parseInt(autoSel.value) });
+    }
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
+    // Put up the lock overlay before anything else renders, so sensitive
+    // data never flashes before the user authenticates.
+    if (getLockCfg().enabled) showLockScreen();
+    installAppLockVisibilityHandler();
     loadData();
     loadAiData();
     // Kick off a profile build on cold start. Runs async-ish against
@@ -7108,6 +7344,7 @@ function showSettingsModal() {
     renderCatList('income');
     renderTemplateList();
     renderBudgetList();
+    renderSecuritySettingsUI();
     populateCategorySelects();
     document.getElementById('profile-name').value = getUserName();
     document.getElementById('profile-title').value = getAppTitle();
