@@ -890,6 +890,34 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 
 /* ===== Savings Analysis ===== */
 .savings-card { border-left: 4px solid var(--success); }
+.action-chips-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.action-chip {
+    padding: 5px 10px;
+    border-radius: 16px;
+    border: 1px solid;
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    line-height: 1;
+    white-space: nowrap;
+}
+.action-chip-receipt { background: #FFF3E0; color: #E65100; border-color: #FFCC80; }
+.action-chip-ai      { background: #EEE7FF; color: #5A3BD8; border-color: #B9A4F0; }
+.action-chip-pdf     { background: #EDE7F6; color: var(--primary); border-color: rgba(108,92,231,0.25); }
+@media (max-width: 380px) {
+    .action-chip span { display: none; }
+    .action-chip { width: 34px; height: 34px; justify-content: center; padding: 0; border-radius: 50%; }
+}
+
 .ai-insights-card {
     background: linear-gradient(135deg, #F3EFFF 0%, #FCF4FF 100%);
     border: 1px solid #E1D6FF;
