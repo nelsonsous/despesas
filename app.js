@@ -1175,11 +1175,50 @@ function renderSalaryCycle() {
 
     animateNumber(document.getElementById('salary-spent'), spentSinceSalary);
     const rateEl = document.getElementById('salary-spent-rate');
-    if (rateEl) rateEl.textContent = b.expPaidVariable > 0 ? `${formatCurrency(dailyVarRate)}/dia` : '';
+    // Daily budget (what's left / days remaining) lets us compare the current
+    // rate against what you can actually sustain until the end of the cycle.
+    const dailyBudget = (cycleContainsToday && daysLeft > 0) ? (available / daysLeft) : 0;
+    if (rateEl) {
+        if (b.expPaidVariable > 0 && dailyBudget > 0) {
+            const diffPct = Math.round((dailyVarRate - dailyBudget) / dailyBudget * 100);
+            const over = diffPct > 10;
+            const under = diffPct < -10;
+            const tag = over ? ` · ${diffPct}% acima do orçamento` : under ? ` · ${Math.abs(diffPct)}% abaixo` : '';
+            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia${tag}`;
+            rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
+        } else if (b.expPaidVariable > 0) {
+            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
+            rateEl.style.color = '';
+        } else {
+            rateEl.textContent = '';
+        }
+    }
 
     animateNumber(document.getElementById('salary-fixed'), cycleFixed);
     animateNumber(document.getElementById('salary-available'), available, formatCurrency, 700);
     document.getElementById('salary-available').style.color = available >= 0 ? 'var(--success)' : 'var(--danger)';
+
+    // Daily budget row — only meaningful inside the current cycle with days left.
+    const budgetRow = document.getElementById('salary-daily-budget-row');
+    const budgetEl = document.getElementById('salary-daily-budget');
+    const budgetHintEl = document.getElementById('salary-daily-budget-hint');
+    if (budgetRow && budgetEl) {
+        if (cycleContainsToday && daysLeft > 0 && available > 0) {
+            budgetRow.style.display = 'flex';
+            budgetEl.textContent = `${formatCurrency(dailyBudget)}/dia`;
+            const isOver = dailyVarRate > dailyBudget * 1.1;
+            const isUnder = dailyBudget > 0 && dailyVarRate > 0 && dailyVarRate < dailyBudget * 0.9;
+            budgetEl.style.color = isOver ? 'var(--danger)' : isUnder ? 'var(--success)' : 'var(--warning)';
+            if (budgetHintEl) budgetHintEl.textContent = `nos próximos ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}`;
+        } else if (cycleContainsToday && daysLeft > 0 && available <= 0) {
+            budgetRow.style.display = 'flex';
+            budgetEl.textContent = '0 €/dia';
+            budgetEl.style.color = 'var(--danger)';
+            if (budgetHintEl) budgetHintEl.textContent = 'orçamento esgotado';
+        } else {
+            budgetRow.style.display = 'none';
+        }
+    }
     const fill = document.getElementById('salary-progress-fill');
     if (fill) {
         fill.style.width = usedPct + '%';
@@ -4176,62 +4215,76 @@ function renderMonthlyEvolution() {
     }).join('');
 }
 
-function renderSavingsAnalysis() {
+// Guard to avoid parallel AI calls while the user taps the tab repeatedly.
+let _savingsAnalysisAiToken = 0;
+
+async function renderSavingsAnalysis() {
     const container = document.getElementById('savings-analysis');
+    if (!container) return;
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const monthInc = getEffectiveMonthIncomes(currentDate);
     const prevExp = getPrevMonthExpenses();
-    const tips = [];
 
+    // Heuristic tips render synchronously so there's always content even if
+    // there's no AI key or the provider is down.
+    const heuristicTips = computeHeuristicSavingsTips(monthExp, monthInc, prevExp);
+    const showLoader = hasAnyAiKey();
+    renderSavingsTips(container, heuristicTips, showLoader);
+
+    if (!showLoader) return;
+    const token = ++_savingsAnalysisAiToken;
+    try {
+        const aiTips = await generateAiSavingsInsights(monthExp, monthInc, prevExp);
+        if (token !== _savingsAnalysisAiToken) return; // a newer run took over
+        const merged = aiTips && aiTips.length
+            ? [...aiTips, ...dedupHeuristicsVsAi(heuristicTips, aiTips)]
+            : heuristicTips;
+        renderSavingsTips(container, merged, false);
+    } catch (e) {
+        if (token !== _savingsAnalysisAiToken) return;
+        console.warn('AI savings analysis failed:', e?.message || e);
+        renderSavingsTips(container, heuristicTips, false);
+    }
+}
+
+function computeHeuristicSavingsTips(monthExp, monthInc, prevExp) {
+    const tips = [];
+    const cats = getEffectiveCategories();
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
     const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
 
-    // Income vs Expenses
+    // Savings rate
     if (totalIncome > 0) {
-        const savingsRate = ((totalIncome - totalExpenses) / totalIncome * 100).toFixed(0);
+        const savingsRate = Math.round((totalIncome - totalExpenses) / totalIncome * 100);
         if (savingsRate < 10) {
-            tips.push({
-                type: 'alert',
-                text: `Taxa de poupanca de apenas <strong>${savingsRate}%</strong>. O ideal e poupar pelo menos 20% do rendimento (${formatCurrency(totalIncome * 0.2)}).`
-            });
+            tips.push({ type: 'alert', text: `Taxa de poupança de apenas <strong>${savingsRate}%</strong>. O ideal é poupar pelo menos 20% (${formatCurrency(totalIncome * 0.2)}).` });
         } else if (savingsRate >= 20) {
-            tips.push({
-                type: 'tip',
-                text: `Excelente! Taxa de poupanca de <strong>${savingsRate}%</strong>. Esta a poupar ${formatCurrency(totalIncome - totalExpenses)} este mes.`
-            });
+            tips.push({ type: 'tip', text: `Excelente! Taxa de poupança de <strong>${savingsRate}%</strong>. Está a poupar ${formatCurrency(totalIncome - totalExpenses)} este mês.` });
         } else {
-            tips.push({
-                type: 'warning',
-                text: `Taxa de poupanca de <strong>${savingsRate}%</strong>. Tente chegar aos 20% (faltam ${formatCurrency(totalIncome * 0.2 - (totalIncome - totalExpenses))}).`
-            });
+            tips.push({ type: 'warning', text: `Taxa de poupança de <strong>${savingsRate}%</strong>. Tente chegar aos 20% (faltam ${formatCurrency(totalIncome * 0.2 - (totalIncome - totalExpenses))}).` });
         }
     }
 
-    // Category analysis
+    // Category month-over-month spikes
     const currByCategory = groupByCategory(monthExp);
     const prevByCategory = groupByCategory(prevExp);
-
     Object.entries(currByCategory).forEach(([cat, total]) => {
         const prevTotal = prevByCategory[cat] || 0;
-        if (prevTotal > 0) {
-            const increase = ((total - prevTotal) / prevTotal * 100).toFixed(0);
-            if (increase > 20) {
-                tips.push({
-                    type: 'warning',
-                    text: `<strong>${getEffectiveCategories()[cat]?.label}</strong> aumentou ${increase}% (de ${formatCurrency(prevTotal)} para ${formatCurrency(total)}). Verifique se ha gastos que pode reduzir.`
-                });
+        if (prevTotal >= 20) {
+            const increase = Math.round((total - prevTotal) / prevTotal * 100);
+            if (increase > 25) {
+                tips.push({ type: 'warning', text: `<strong>${cats[cat]?.label || cat}</strong> subiu ${increase}% (${formatCurrency(prevTotal)} → ${formatCurrency(total)}).` });
             }
         }
     });
 
-    // Non-essential
-    const nonEssential = monthExp.filter(e => e.essential === false);
-    const nonEssentialTotal = nonEssential.reduce((s, e) => s + e.amount, 0);
-    if (nonEssentialTotal > 0) {
-        const pct = (nonEssentialTotal / Math.max(totalExpenses, 1) * 100).toFixed(0);
+    // Non-essential share
+    const nonEssentialTotal = monthExp.filter(e => e.essential === false).reduce((s, e) => s + e.amount, 0);
+    if (nonEssentialTotal > 0 && totalExpenses > 0) {
+        const pct = Math.round(nonEssentialTotal / totalExpenses * 100);
         tips.push({
-            type: nonEssentialTotal > 100 ? 'alert' : 'tip',
-            text: `Gastos <strong>nao essenciais</strong> totalizam ${formatCurrency(nonEssentialTotal)} (${pct}% do total). ${nonEssentialTotal > 100 ? 'Considere reduzir estes gastos.' : 'Bom controlo!'}`
+            type: pct > 30 ? 'alert' : pct > 20 ? 'warning' : 'tip',
+            text: `Gastos <strong>não essenciais</strong>: ${formatCurrency(nonEssentialTotal)} (${pct}% do total). ${pct > 20 ? 'Há margem para cortar.' : 'Bom controlo!'}`
         });
     }
 
@@ -4239,34 +4292,235 @@ function renderSavingsAnalysis() {
     const subs = monthExp.filter(e => e.category === 'subscricoes');
     if (subs.length > 0) {
         const subsTotal = subs.reduce((s, e) => s + e.amount, 0);
-        tips.push({
-            type: 'tip',
-            text: `Tem <strong>${subs.length} subscricoes</strong> a custar ${formatCurrency(subsTotal)}/mes. Verifique se usa todas.`
-        });
+        tips.push({ type: 'tip', text: `Tem <strong>${subs.length} subscrições</strong> a custar ${formatCurrency(subsTotal)}/mês. Verifique se usa todas.` });
     }
 
-    // Restaurants vs cooking
+    // Restaurants vs supermarket
     const restTotal = currByCategory['restaurantes'] || 0;
     const superTotal = currByCategory['supermercado'] || 0;
     if (restTotal > 0 && superTotal > 0 && restTotal > superTotal * 0.5) {
-        tips.push({
-            type: 'warning',
-            text: `Gasta ${formatCurrency(restTotal)} em <strong>restaurantes</strong> (${(restTotal / (restTotal + superTotal) * 100).toFixed(0)}% do total alimentacao). Cozinhar mais pode poupar dinheiro.`
-        });
+        const pct = Math.round(restTotal / (restTotal + superTotal) * 100);
+        tips.push({ type: 'warning', text: `Gasta ${formatCurrency(restTotal)} em <strong>restaurantes</strong> (${pct}% da alimentação). Cozinhar mais pode poupar.` });
     }
+
+    // Merchant comparison within the same category
+    tips.push(...merchantComparisonTips(monthExp, cats));
+
+    // Weekend vs weekday
+    tips.push(...weekendPatternTips(monthExp));
+
+    // Single-expense outlier
+    tips.push(...outlierTips(monthExp, cats));
 
     if (tips.length === 0) {
-        tips.push({ type: 'tip', text: 'Adicione mais despesas e receitas para obter analises de poupanca.' });
+        tips.push({ type: 'tip', text: 'Adicione mais despesas e receitas para obter análises de poupança.' });
     }
+    return tips;
+}
 
-    container.innerHTML = tips.map(t => `
-        <div class="savings-item">
-            <div class="savings-icon ${t.type}">
-                <i class="fas ${t.type === 'tip' ? 'fa-lightbulb' : t.type === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-exclamation'}"></i>
-            </div>
-            <div class="savings-text">${t.text}</div>
-        </div>
-    `).join('');
+// Tries to identify a merchant brand from description/notes. Returns null if
+// it doesn't match any known pattern — falls back to the description itself
+// for AI prompting so unknown merchants still contribute to the analysis.
+function extractMerchant(e) {
+    const raw = `${e.description || ''} ${e.notes || ''}`.toLowerCase();
+    const brands = [
+        ['pingo doce', 'Pingo Doce'], ['continente', 'Continente'],
+        ['lidl', 'Lidl'], ['auchan', 'Auchan'], ['aldi', 'Aldi'],
+        ['mercadona', 'Mercadona'], ['intermarché', 'Intermarché'], ['intermarche', 'Intermarché'],
+        ['minipreço', 'Minipreço'], ['minipreco', 'Minipreço'],
+        ['jumbo', 'Jumbo'], ['meu super', 'Meu Super'],
+        ["mcdonald's", "McDonald's"], ['mcdonalds', "McDonald's"],
+        ['burger king', 'Burger King'], ['kfc', 'KFC'], ['pizza hut', 'Pizza Hut'],
+        ['starbucks', 'Starbucks'],
+        ['uber eats', 'Uber Eats'], ['bolt food', 'Bolt Food'],
+        ['uber', 'Uber'], ['bolt', 'Bolt'], ['glovo', 'Glovo'],
+        ['galp', 'Galp'], ['repsol', 'Repsol'], ['prio', 'Prio'], ['cepsa', 'Cepsa'], [' bp ', 'BP'],
+        ['worten', 'Worten'], ['fnac', 'Fnac'], ['ikea', 'IKEA'], ['leroy merlin', 'Leroy Merlin'],
+        ['decathlon', 'Decathlon'], ['zara', 'Zara'], ['h&m', 'H&M'],
+        ['amazon', 'Amazon'], ['aliexpress', 'AliExpress']
+    ];
+    for (const [kw, label] of brands) {
+        if (raw.includes(kw)) return label;
+    }
+    return null;
+}
+
+function merchantComparisonTips(expenses, cats) {
+    const byCat = {};
+    expenses.forEach(e => {
+        const m = extractMerchant(e);
+        if (!m) return;
+        if (!byCat[e.category]) byCat[e.category] = {};
+        if (!byCat[e.category][m]) byCat[e.category][m] = { count: 0, total: 0 };
+        byCat[e.category][m].count++;
+        byCat[e.category][m].total += e.amount;
+    });
+    const tips = [];
+    Object.entries(byCat).forEach(([cat, merchants]) => {
+        const list = Object.entries(merchants)
+            .map(([m, v]) => ({ m, ...v, avg: v.total / v.count }))
+            .filter(x => x.count >= 2);
+        if (list.length < 2) return;
+        list.sort((a, b) => b.avg - a.avg);
+        const high = list[0], low = list[list.length - 1];
+        if (high.avg > low.avg * 1.15 && high.avg - low.avg > 5) {
+            const saving = (high.avg - low.avg) * high.count;
+            tips.push({
+                type: 'tip',
+                text: `Em ${cats[cat]?.label || cat}: média por ida <strong>${formatCurrency(high.avg)}</strong> no ${high.m} vs <strong>${formatCurrency(low.avg)}</strong> no ${low.m}. Se mudares hábitos, podes poupar até ${formatCurrency(saving)}/mês.`
+            });
+        }
+    });
+    return tips.slice(0, 2);
+}
+
+function weekendPatternTips(expenses) {
+    const variable = expenses.filter(e => !e.isFixedExpense);
+    if (variable.length < 8) return [];
+    let weekendTotal = 0, weekdayTotal = 0;
+    const weekendDays = new Set(), weekdayDays = new Set();
+    variable.forEach(e => {
+        const d = new Date(e.date);
+        const wd = d.getDay();
+        if (wd === 0 || wd === 6) { weekendTotal += e.amount; weekendDays.add(e.date); }
+        else { weekdayTotal += e.amount; weekdayDays.add(e.date); }
+    });
+    if (weekendDays.size < 2 || weekdayDays.size < 2) return [];
+    const wkndAvg = weekendTotal / weekendDays.size;
+    const wkdyAvg = weekdayTotal / weekdayDays.size;
+    if (wkndAvg > wkdyAvg * 1.4 && wkndAvg > 20) {
+        return [{
+            type: 'warning',
+            text: `Aos fins-de-semana gasta em média <strong>${formatCurrency(wkndAvg)}/dia</strong> vs ${formatCurrency(wkdyAvg)} durante a semana. Planear saídas com orçamento ajuda a controlar.`
+        }];
+    }
+    return [];
+}
+
+function outlierTips(expenses, cats) {
+    const byCat = {};
+    expenses.forEach(e => {
+        if (e.isFixedExpense) return;
+        if (!byCat[e.category]) byCat[e.category] = [];
+        byCat[e.category].push(e);
+    });
+    const tips = [];
+    Object.entries(byCat).forEach(([cat, list]) => {
+        if (list.length < 4) return;
+        const amounts = list.map(e => e.amount).sort((a, b) => a - b);
+        const median = amounts[Math.floor(amounts.length / 2)];
+        const total = amounts.reduce((s, a) => s + a, 0);
+        const max = list.reduce((m, e) => e.amount > m.amount ? e : m);
+        if (max.amount > median * 3 && max.amount > total * 0.3 && max.amount > 30) {
+            tips.push({
+                type: 'tip',
+                text: `Em <strong>${cats[cat]?.label || cat}</strong>, uma despesa de ${formatCurrency(max.amount)} (${(max.description || '').trim() || 'sem descrição'}) pesa ${Math.round(max.amount/total*100)}% da categoria. Se for pontual está OK; se for recorrente, vale a pena rever.`
+            });
+        }
+    });
+    return tips.slice(0, 1);
+}
+
+// Keeps only heuristics that don't overlap with the AI suggestions (by
+// comparing the first 30 normalised characters). Stops us showing
+// "Taxa de poupança 74%" twice when the AI also produced it.
+function dedupHeuristicsVsAi(heuristics, aiTips) {
+    const norm = s => (s || '').replace(/<[^>]+>/g, '').toLowerCase().replace(/\s+/g, ' ').slice(0, 40).trim();
+    const aiKeys = new Set(aiTips.map(t => norm(t.text)));
+    return heuristics.filter(h => !aiKeys.has(norm(h.text)));
+}
+
+function renderSavingsTips(container, tips, loading) {
+    if (!container) return;
+    const tipHtml = tips.map(t => {
+        const icon = t.type === 'tip' ? 'fa-lightbulb' : t.type === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-exclamation';
+        const aiTag = t.ai ? '<span style="display:inline-block;background:#EEE7FF;color:#5A3BD8;border-radius:4px;font-size:0.6rem;padding:1px 5px;font-weight:700;margin-right:6px;vertical-align:middle">IA</span>' : '';
+        return `<div class="savings-item">
+            <div class="savings-icon ${t.type}"><i class="fas ${icon}"></i></div>
+            <div class="savings-text">${aiTag}${t.text}</div>
+        </div>`;
+    }).join('');
+    const loadingHtml = loading ? `<div class="savings-item">
+        <div class="savings-icon tip"><i class="fas fa-spinner fa-spin"></i></div>
+        <div class="savings-text" style="font-style:italic;color:var(--text-light)">A IA está a analisar padrões adicionais…</div>
+    </div>` : '';
+    container.innerHTML = tipHtml + loadingHtml;
+}
+
+function hasAnyAiKey() {
+    const p = aiCfg.aiProvider || 'gemini';
+    if (p === 'gemini') return !!aiCfg.geminiKey;
+    if (p === 'grok') return !!aiCfg.grokKey;
+    if (p === 'groq') return !!aiCfg.groqKey;
+    return false;
+}
+
+async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
+    const cats = getEffectiveCategories();
+    const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    const byCat = groupByCategory(monthExp);
+    const prevByCat = groupByCategory(prevExp);
+
+    const byMerchant = {};
+    monthExp.forEach(e => {
+        if (e.isFixedExpense) return;
+        const m = extractMerchant(e) || (e.description || 'Sem descrição').slice(0, 28);
+        const key = `${cats[e.category]?.label || e.category}|${m}`;
+        if (!byMerchant[key]) byMerchant[key] = { cat: cats[e.category]?.label || e.category, merchant: m, count: 0, total: 0 };
+        byMerchant[key].count++;
+        byMerchant[key].total += e.amount;
+    });
+    const topMerchants = Object.values(byMerchant)
+        .filter(m => m.count >= 1)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 12)
+        .map(m => ({ categoria: m.cat, estabelecimento: m.merchant, vezes: m.count, total: Math.round(m.total * 100) / 100, media: Math.round((m.total / m.count) * 100) / 100 }));
+
+    const categoriasAtual = Object.entries(byCat)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([c, v]) => ({ categoria: cats[c]?.label || c, atual: Math.round(v * 100) / 100, anterior: Math.round((prevByCat[c] || 0) * 100) / 100 }));
+
+    const prompt = `És um assistente financeiro em Português de Portugal. Analisa os dados abaixo e devolve APENAS um array JSON com 4 a 6 sugestões acionáveis, breves (máx. 2 frases cada). Cada item: {"type":"tip"|"warning"|"alert","text":"..."}. HTML <strong>...</strong> é permitido. Sem markdown, sem texto fora do array.
+
+Foca-te em insights não-óbvios:
+- Diferenças de preço médio entre estabelecimentos da mesma categoria (ex: "gastas mais por ida ao Lidl que ao Mercadona").
+- Subidas relevantes vs mês anterior e o porquê provável.
+- Estabelecimentos em que gastas pouco por visita mas muitas vezes (potencial de agregar compras).
+- Sugestões concretas de poupança com valores estimados em EUR.
+Evita platitudes ("poupe mais") e evita repetir a taxa de poupança.
+
+Dados do mês (EUR):
+Rendimento: ${totalIncome.toFixed(2)}
+Gastos: ${totalExpenses.toFixed(2)}
+Categorias: ${JSON.stringify(categoriasAtual)}
+Top estabelecimentos: ${JSON.stringify(topMerchants)}
+
+Responde só com o JSON array.`;
+
+    const provider = aiCfg.aiProvider || 'gemini';
+    let rawText = '';
+    if (provider === 'grok') {
+        const data = await callGrokOnce(prompt);
+        rawText = data?.choices?.[0]?.message?.content || '';
+    } else if (provider === 'groq') {
+        const data = await callGroqOnce(prompt);
+        rawText = data?.choices?.[0]?.message?.content || '';
+    } else {
+        const data = await callGeminiOnce(prompt);
+        rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+    const parsed = extractJsonArray(rawText);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+        .filter(t => t && typeof t === 'object' && t.text)
+        .map(t => ({
+            type: ['tip', 'warning', 'alert'].includes(t.type) ? t.type : 'tip',
+            text: String(t.text).slice(0, 400),
+            ai: true
+        }))
+        .slice(0, 6);
 }
 
 function renderCategoryComparison() {
