@@ -2346,7 +2346,7 @@ function updateAll() {
 function updateDashboard() {
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const monthInc = getEffectiveMonthIncomes(currentDate);
-    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
     const balance = totalIncome - totalExpenses;
     const personal = monthExp.filter(e => e.type === 'personal').reduce((s, e) => s + e.amount, 0);
@@ -2858,7 +2858,7 @@ function renderCategoryChart(monthExp) {
 // ===== MONTH COMPARISON =====
 function renderMonthComparison(monthExp) {
     const prevExp = getPrevMonthExpenses();
-    const currTotal = monthExp.reduce((s, e) => s + e.amount, 0);
+    const currTotal = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const prevTotal = prevExp.reduce((s, e) => s + e.amount, 0);
 
     const container = document.getElementById('month-comparison');
@@ -3574,6 +3574,20 @@ function renderExpenseItem(e) {
 
     const catColor = cat.color || '#6C5CE7';
     const badgesRow = `${mixBadge}${splitWithBadge}${coParentBadge}`;
+    // Prepaid card visual treatment: top-ups get a purple chip ("Carregamento"),
+    // expenses paid from a card balance get a chip + muted strikethrough on
+    // the amount because that money was already counted at top-up time.
+    const linkedCard = e.prepaidCardId ? prepaidCards.find(c => c.id === e.prepaidCardId) : null;
+    const isPrepaidPaid = !!(e.prepaidCardId && !e.isPrepaidTopup);
+    const prepaidChip = e.isPrepaidTopup
+        ? `<span class="fixed-status-badge" style="background:#EEE7FF;color:#5A3BD8;font-size:0.65rem"><i class="fas fa-arrow-up"></i> Carregamento${linkedCard ? ' ' + linkedCard.name : ''}</span>`
+        : (isPrepaidPaid
+            ? `<span class="fixed-status-badge" style="background:#F3EFFF;color:#5A3BD8;font-size:0.65rem"><i class="fas fa-credit-card"></i> Pago via ${linkedCard?.name || 'cartão'}</span>`
+            : '');
+    const amountStyle = isPrepaidPaid
+        ? 'flex-shrink:0;color:var(--text-light);text-decoration:line-through;opacity:0.7'
+        : `flex-shrink:0;${hasDeduction ? 'color:var(--success)' : ''}`;
+    const amountTitle = isPrepaidPaid ? 'Já pago via cartão de carregamento — não conta no total do mês' : '';
     return `
         <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}" style="border-left:3px solid ${catColor}">
             <div class="expense-icon cat-${e.category}">
@@ -3581,8 +3595,8 @@ function renderExpenseItem(e) {
             </div>
             <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                    <div class="expense-desc">${e.description} ${essentialIcon} ${attachIcon} ${isFixedVirtual ? '<i class="fas fa-repeat" style="font-size:0.6rem;color:var(--text-light)" title="Despesa fixa"></i>' : ''}</div>
-                    <div class="expense-amount" style="flex-shrink:0;${hasDeduction ? 'color:var(--success)' : ''}">${amountDisplay}</div>
+                    <div class="expense-desc">${e.description} ${essentialIcon} ${attachIcon} ${isFixedVirtual ? '<i class="fas fa-repeat" style="font-size:0.6rem;color:var(--text-light)" title="Despesa fixa"></i>' : ''} ${prepaidChip}</div>
+                    <div class="expense-amount" style="${amountStyle}" title="${amountTitle}">${amountDisplay}</div>
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px">
                     <div class="expense-meta" style="min-width:0;flex:1">
@@ -4463,7 +4477,7 @@ function renderSmartInsights() {
 
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const monthInc = getEffectiveMonthIncomes(currentDate);
-    const totalExp = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totalExp = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const totalInc = monthInc.reduce((s, e) => s + e.amount, 0);
     const prevExp = getPrevMonthExpenses();
     const prevTotal = prevExp.reduce((s, e) => s + e.amount, 0);
@@ -4678,7 +4692,7 @@ function computeHeuristicSavingsTips(monthExp, monthInc, prevExp) {
     const tips = [];
     const cats = getEffectiveCategories();
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
-    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
 
     // Savings rate
     if (totalIncome > 0) {
@@ -4996,7 +5010,7 @@ function extractJsonObject(text) {
 async function generateAiSavingsInsights(monthExp, monthInc, prevExp) {
     const cats = getEffectiveCategories();
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
-    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const byCat = groupByCategory(monthExp);
 
     // Three months of history lets the AI spot drifts rather than one-off
@@ -5299,7 +5313,7 @@ async function generateAiMonthNarrative(date) {
     const prevExp = getEffectiveMonthExpenses(prev);
     const prevInc = getEffectiveMonthIncomes(prev);
 
-    const totE = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totE = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const totI = monthInc.reduce((s, e) => s + e.amount, 0);
     const prevE = prevExp.reduce((s, e) => s + e.amount, 0);
     const prevI = prevInc.reduce((s, e) => s + e.amount, 0);
@@ -7640,7 +7654,10 @@ function saveExpense(event) {
         const last = expenses[expenses.length - 1];
         if (last && last.id === expense.id) {
             last.prepaidCardId = prepaidCardId;
-            addPrepaidSpend(prepaidCardId, last.amount, last.description || 'Consumo', last.date, last.id);
+            // Stamp the txId so deleting the expense can also drop the
+            // matching prepaid transaction (kept for future cleanup).
+            const txId = addPrepaidSpend(prepaidCardId, last.amount, last.description || 'Consumo', last.date, last.id);
+            if (txId) last.prepaidTxId = txId;
         }
     }
 
@@ -8355,36 +8372,71 @@ function getPrepaidBalance(cardId) {
     return (card.transactions || []).reduce((s, t) => s + (t.type === 'topup' ? t.amount : -t.amount), 0);
 }
 
+// Top-up = real cash leaving the user's wallet/bank. We create both:
+//  - a transaction on the card ledger so the prepaid balance goes up
+//  - a real expense flagged isPrepaidTopup so the dashboard/totals
+//    register the outflow this month. The two records reference each
+//    other (txId on the expense, expenseId on the transaction) so a
+//    later delete of either side can cascade.
 function addPrepaidTopup(cardId, amount, description, date) {
     const card = prepaidCards.find(c => c.id === cardId);
     if (!card) return;
+    const amt = parseFloat(amount);
+    const dateStr = date || new Date().toISOString().slice(0, 10);
+    const txId = generateId();
+    const expenseId = generateId();
     card.transactions = card.transactions || [];
     card.transactions.push({
-        id: generateId(),
+        id: txId,
         type: 'topup',
-        amount: parseFloat(amount),
+        amount: amt,
         description: description || 'Carregamento',
-        date: date || new Date().toISOString().slice(0, 10)
+        date: dateStr,
+        expenseId
+    });
+    expenses.push({
+        id: expenseId,
+        description: `Carregamento ${card.name}`,
+        amount: amt,
+        date: dateStr,
+        category: 'outros',
+        type: 'personal',
+        essential: true,
+        isPrepaidTopup: true,
+        prepaidCardId: cardId,
+        prepaidTxId: txId,
+        notes: description && description !== 'Carregamento' ? description : '',
+        createdAt: new Date().toISOString()
     });
     saveData();
     renderPrepaidCards();
     updateAll();
-    showToast(`+ ${formatCurrency(amount)} em ${card.name}`);
+    showToast(`+ ${formatCurrency(amt)} em ${card.name}`);
+}
+
+// True when an expense represents money actually leaving the user's
+// pocket this month. Top-ups count (real outflow at top-up time);
+// spends paid from a prepaid card balance don't (already accounted for
+// when the card was loaded).
+function expenseAffectsBalance(e) {
+    if (!e || !e.prepaidCardId) return true;
+    return !!e.isPrepaidTopup;
 }
 
 function addPrepaidSpend(cardId, amount, description, date, expenseId) {
     const card = prepaidCards.find(c => c.id === cardId);
-    if (!card) return false;
+    if (!card) return null;
+    const txId = generateId();
     card.transactions = card.transactions || [];
     card.transactions.push({
-        id: generateId(),
+        id: txId,
         type: 'spend',
         amount: parseFloat(amount),
         description: description || 'Consumo',
         date: date || new Date().toISOString().slice(0, 10),
         expenseId: expenseId || null
     });
-    return true;
+    return txId;
 }
 
 function createPrepaidCard(name, initialBalance, icon, color) {
@@ -8500,8 +8552,10 @@ function renderPrepaidCards() {
     const container = document.getElementById('prepaid-cards-list');
     if (!container) return;
     if (!prepaidCards.length) {
-        container.innerHTML = `<p class="empty-state" style="padding:10px 0">Sem cartões ainda. Útil para Lidl Plus, Via Verde, Bolt, gift cards: carregas uma vez e cada compra desconta automaticamente o saldo.</p>
-            <button onclick="showAddPrepaidPrompt()" class="btn btn-block" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Criar primeiro cartão</button>`;
+        // Compact empty state: single CTA button, no paragraph (the H3
+        // already conveys the section). Keeps the dashboard tidy when the
+        // user doesn't use prepaid cards.
+        container.innerHTML = `<button onclick="showAddPrepaidPrompt()" class="btn btn-block" style="background:#F3EFFF;color:#5A3BD8;border:1px dashed #B9A4F0;padding:8px;font-size:0.82rem"><i class="fas fa-plus"></i> Criar cartão (Lidl Plus, Via Verde, Bolt, gift cards…)</button>`;
         return;
     }
     container.innerHTML = prepaidCards.map(card => {
@@ -8514,10 +8568,12 @@ function renderPrepaidCards() {
                 <div style="font-size:0.72rem;color:var(--text-light)">${(card.transactions || []).length} transações</div></div>
                 <div style="text-align:right"><div style="font-weight:700;font-size:1.1rem;color:${color}">${formatCurrency(balance)}</div><div style="font-size:0.7rem;color:var(--text-light)">saldo</div></div>
             </div>
-            ${txs.length ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">${txs.map(t => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0">
-                <span style="color:var(--text-light)">${t.date}</span>
-                <span style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description}</span>
-                <span style="font-weight:600;color:${t.type === 'topup' ? 'var(--success)' : 'var(--danger)'}">${t.type === 'topup' ? '+' : '-'}${formatCurrency(t.amount)}</span>
+            ${txs.length ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">${txs.map(t => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0;align-items:center;gap:6px">
+                <span style="color:var(--text-light);min-width:74px">${t.date}</span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description}</span>
+                <span style="font-weight:600;color:${t.type === 'topup' ? 'var(--success)' : 'var(--danger)'};white-space:nowrap">${t.type === 'topup' ? '+' : '-'}${formatCurrency(t.amount)}</span>
+                <button onclick="event.stopPropagation();editPrepaidTransaction('${card.id}','${t.id}')" title="Editar" class="btn-icon" style="width:24px;height:24px;color:var(--primary);font-size:0.7rem"><i class="fas fa-pen"></i></button>
+                <button onclick="event.stopPropagation();deletePrepaidTransaction('${card.id}','${t.id}')" title="Apagar" class="btn-icon" style="width:24px;height:24px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
             </div>`).join('')}</div>` : ''}
             <div style="display:flex;gap:6px;margin-top:10px">
                 <button onclick="showPrepaidTopupPrompt('${card.id}')" class="btn btn-sm" style="flex:1;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i> Carregar</button>
@@ -8525,6 +8581,69 @@ function renderPrepaidCards() {
             </div>
         </div>`;
     }).join('');
+}
+
+// Removes a single transaction. If it's a top-up that has a linked
+// expense (same prepaidTxId), drop that expense too so the dashboard
+// totals don't keep counting an outflow that no longer exists. Spends
+// are linked to a user-created expense (the actual purchase) — we keep
+// the expense in place and just unlink it so the user can re-pair it
+// later if needed.
+function deletePrepaidTransaction(cardId, txId) {
+    const card = prepaidCards.find(c => c.id === cardId);
+    if (!card) return;
+    const tx = (card.transactions || []).find(t => t.id === txId);
+    if (!tx) return;
+    if (!confirm(`Apagar este movimento (${tx.type === 'topup' ? 'carregamento' : 'consumo'} de ${formatCurrency(tx.amount)})?`)) return;
+    if (tx.type === 'topup') {
+        const linked = expenses.findIndex(e => e.id === tx.expenseId || (e.prepaidTxId === tx.id && e.isPrepaidTopup));
+        if (linked >= 0) expenses.splice(linked, 1);
+    } else if (tx.type === 'spend') {
+        // Unlink any expense that pointed to this tx (don't delete it).
+        expenses.forEach(e => {
+            if (e.prepaidTxId === tx.id || e.id === tx.expenseId) {
+                e.prepaidCardId = null;
+                e.prepaidTxId = null;
+            }
+        });
+    }
+    card.transactions = card.transactions.filter(t => t.id !== txId);
+    saveData();
+    updateAll();
+    renderPrepaidCards();
+    showToast('Movimento apagado');
+}
+
+function editPrepaidTransaction(cardId, txId) {
+    const card = prepaidCards.find(c => c.id === cardId);
+    const tx = card?.transactions?.find(t => t.id === txId);
+    if (!card || !tx) return;
+    const v = prompt('Valor (EUR):', tx.amount);
+    if (v == null) return;
+    const n = parseFloat((v || '').replace(',', '.'));
+    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
+    const d = prompt('Data (YYYY-MM-DD):', tx.date);
+    if (d == null) return;
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : tx.date;
+    const note = prompt('Descrição:', tx.description) ?? tx.description;
+    tx.amount = n;
+    tx.date = date;
+    tx.description = note || tx.description;
+    // Sync the linked top-up expense if any
+    if (tx.type === 'topup') {
+        const linked = expenses.find(e => e.id === tx.expenseId);
+        if (linked) {
+            linked.amount = n;
+            linked.date = date;
+            linked.description = `Carregamento ${card.name}`;
+            linked.notes = note && note !== 'Carregamento' ? note : '';
+            linked.updatedAt = new Date().toISOString();
+        }
+    }
+    saveData();
+    updateAll();
+    renderPrepaidCards();
+    showToast('Movimento atualizado');
 }
 
 // Populates the "Pagar com cartão" select in the expense modal. Balance
@@ -8739,7 +8858,7 @@ function generateFullReport() {
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const monthInc = getEffectiveMonthIncomes(currentDate);
     const prevExp = getPrevMonthExpenses();
-    const totalExpenses = monthExp.reduce((s, e) => s + e.amount, 0);
+    const totalExpenses = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
     const prevTotal = prevExp.reduce((s, e) => s + e.amount, 0);
     const curr = groupByCategory(monthExp);
@@ -9826,6 +9945,10 @@ function formatMonthFile(date) {
 function groupByCategory(expenseList) {
     const result = {};
     expenseList.forEach(e => {
+        // Skip expenses paid from a prepaid card balance — that money was
+        // already counted when the card was topped up. Top-ups themselves
+        // (isPrepaidTopup) do contribute and fall through normally.
+        if (!expenseAffectsBalance(e)) return;
         result[e.category] = (result[e.category] || 0) + e.amount;
     });
     return result;
