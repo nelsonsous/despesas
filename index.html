@@ -305,7 +305,7 @@
                 <button id="receipt-scan-btn" onclick="document.getElementById('receipt-image-input').click()" class="action-chip action-chip-receipt" title="Scan de recibo">
                     <i class="fas fa-camera"></i><span>Recibo</span>
                 </button>
-                <input type="file" id="receipt-image-input" accept="image/*" capture="environment" style="display:none" onchange="onReceiptImageSelected(this)">
+                <input type="file" id="receipt-image-input" accept="image/*" style="display:none" onchange="onReceiptImageSelected(this)">
                 <button id="ai-dup-btn" onclick="runAiDuplicateCheck()" class="action-chip action-chip-ai" title="Analisar mês com IA">
                     <i class="fas fa-wand-magic-sparkles"></i><span>Analisar</span>
                 </button>
@@ -713,7 +713,7 @@
                     <div class="form-group">
                         <label><i class="fas fa-camera"></i> Anexar Fatura / Foto</label>
                         <div class="attachment-area">
-                            <input type="file" id="expense-attachment" accept="image/*,application/pdf" capture="environment" onchange="previewAttachment(event)">
+                            <input type="file" id="expense-attachment" accept="image/*,application/pdf" onchange="previewAttachment(event)">
                             <label for="expense-attachment" class="btn btn-secondary btn-block btn-sm">
                                 <i class="fas fa-camera"></i> Tirar Foto / Escolher Ficheiro
                             </label>
@@ -935,7 +935,7 @@
                     <div class="form-group">
                         <label><i class="fas fa-camera"></i> Anexar Comprovativo</label>
                         <div class="attachment-area">
-                            <input type="file" id="income-attachment" accept="image/*,application/pdf" capture="environment" onchange="previewIncomeAttachment(event)">
+                            <input type="file" id="income-attachment" accept="image/*,application/pdf" onchange="previewIncomeAttachment(event)">
                             <label for="income-attachment" class="btn btn-secondary btn-block btn-sm">
                                 <i class="fas fa-camera"></i> Tirar Foto / Escolher Ficheiro
                             </label>
