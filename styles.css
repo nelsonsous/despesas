@@ -890,6 +890,30 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 
 /* ===== Savings Analysis ===== */
 .savings-card { border-left: 4px solid var(--success); }
+.ri-section {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+.ri-section:last-child { border-bottom: none; }
+.ri-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #2A1F4F;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ri-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    font-size: 0.85rem;
+    border-bottom: 1px dashed var(--border);
+}
+.ri-row:last-child { border-bottom: none; }
+
 #app-lock-overlay {
     position: fixed;
     inset: 0;
