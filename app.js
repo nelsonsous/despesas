@@ -1736,6 +1736,22 @@ function loadData() {
     });
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
+    // Repair prepaid linkages where multiple expenses ended up sharing
+    // the same prepaidTxId (legacy duplicateExpense bug). Keep the first
+    // pairing and clear the rest so editing the tx no longer opens the
+    // wrong expense.
+    try {
+        const seenTx = new Set();
+        expenses.forEach(e => {
+            if (!e.prepaidTxId) return;
+            if (seenTx.has(e.prepaidTxId)) {
+                e.prepaidCardId = null;
+                e.prepaidTxId = null;
+            } else {
+                seenTx.add(e.prepaidTxId);
+            }
+        });
+    } catch {}
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
     const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
@@ -3401,6 +3417,12 @@ function duplicateExpense(id) {
     // edit afterwards if they actually want a different date.
     const dup = { ...orig, id: generateId(), description: newDesc, date: orig.date, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     delete dup.attachment;
+    // Don't clone prepaid linkage — otherwise the duplicate shares the same
+    // ledger tx with the original and editing one ends up opening the
+    // other. The user can re-link the card on the new expense if needed.
+    delete dup.prepaidCardId;
+    delete dup.prepaidTxId;
+    delete dup.isPrepaidTopup;
     expenses.push(dup);
     saveData();
     updateAll();
@@ -7950,34 +7972,68 @@ function getGoalsMonthlyContribution(yyyymm) {
 }
 
 function showAddGoalPrompt() {
-    const name = prompt('Nome do objetivo (ex: Férias 2026):');
-    if (!name || !name.trim()) return;
-    const target = parseFloat((prompt('Valor a poupar (EUR):') || '').replace(',', '.'));
-    if (!isFinite(target) || target <= 0) { showToast('Valor inválido'); return; }
-    const deadline = prompt('Data limite (YYYY-MM-DD, opcional):');
-    const monthlyTarget = parseFloat((prompt('Objetivo de contribuição mensal (EUR, opcional):') || '').replace(',', '.'));
-    const initial = parseFloat((prompt('Valor inicial já guardado (EUR, opcional):') || '').replace(',', '.'));
-    const goal = {
-        id: generateId(),
-        name: name.trim(),
-        target,
-        deadline: deadline && /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : null,
-        monthlyTarget: isFinite(monthlyTarget) && monthlyTarget > 0 ? monthlyTarget : null,
-        transactions: [],
-        color: '#5A3BD8',
-        createdAt: new Date().toISOString()
-    };
-    if (isFinite(initial) && initial > 0) {
-        goal.transactions.push({
-            id: generateId(), type: 'add', amount: initial,
-            date: new Date().toISOString().slice(0, 10),
-            note: 'Saldo inicial'
-        });
+    openGoalModal(null);
+}
+
+function openGoalModal(id) {
+    const modal = document.getElementById('modal-savings-goal');
+    if (!modal) return;
+    const g = id ? savingsGoals.find(x => x.id === id) : null;
+    document.getElementById('goal-modal-title').textContent = g ? `Editar: ${g.name}` : 'Novo objetivo';
+    document.getElementById('goal-form-id').value = g ? g.id : '';
+    document.getElementById('goal-form-name').value = g ? g.name : '';
+    document.getElementById('goal-form-target').value = g ? g.target : '';
+    document.getElementById('goal-form-deadline').value = g?.deadline || '';
+    document.getElementById('goal-form-monthly').value = g?.monthlyTarget || '';
+    document.getElementById('goal-form-initial').value = '';
+    // Initial balance only makes sense on creation; the user changes later
+    // values via the dedicated + / − buttons on the goal card.
+    document.getElementById('goal-form-initial-group').style.display = g ? 'none' : 'block';
+    modal.classList.add('active');
+    setTimeout(() => document.getElementById('goal-form-name')?.focus(), 100);
+}
+
+function submitSavingsGoal() {
+    const id = document.getElementById('goal-form-id').value;
+    const name = (document.getElementById('goal-form-name').value || '').trim();
+    if (!name) { showToast('Indica o nome'); return; }
+    const target = parseFloat((document.getElementById('goal-form-target').value || '').replace(',', '.'));
+    if (!isFinite(target) || target <= 0) { showToast('Valor a poupar inválido'); return; }
+    const deadline = document.getElementById('goal-form-deadline').value || null;
+    const monthlyVal = parseFloat((document.getElementById('goal-form-monthly').value || '').replace(',', '.'));
+    const monthlyTarget = isFinite(monthlyVal) && monthlyVal > 0 ? monthlyVal : null;
+    if (id) {
+        const g = savingsGoals.find(x => x.id === id);
+        if (!g) return;
+        g.name = name;
+        g.target = target;
+        g.deadline = deadline;
+        g.monthlyTarget = monthlyTarget;
+    } else {
+        const initial = parseFloat((document.getElementById('goal-form-initial').value || '').replace(',', '.'));
+        const goal = {
+            id: generateId(),
+            name,
+            target,
+            deadline,
+            monthlyTarget,
+            transactions: [],
+            color: '#5A3BD8',
+            createdAt: new Date().toISOString()
+        };
+        if (isFinite(initial) && initial > 0) {
+            goal.transactions.push({
+                id: generateId(), type: 'add', amount: initial,
+                date: new Date().toISOString().slice(0, 10),
+                note: 'Saldo inicial'
+            });
+        }
+        savingsGoals.push(goal);
     }
-    savingsGoals.push(goal);
     saveData();
     renderSavingsGoals();
-    showToast('Objetivo criado');
+    document.getElementById('modal-savings-goal').classList.remove('active');
+    showToast(id ? 'Objetivo atualizado' : 'Objetivo criado');
 }
 
 function addToGoal(id) {
@@ -8074,8 +8130,8 @@ function renderSavingsGoals() {
         }
         const barColor = pct >= 100 ? 'var(--success)' : warn ? 'var(--danger)' : 'var(--primary)';
         return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
-                <div style="font-weight:600;font-size:0.92rem">${g.name}</div>
+            <div onclick="openGoalModal('${g.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer">
+                <div style="font-weight:600;font-size:0.92rem">${g.name} <i class="fas fa-pen" style="font-size:0.65rem;color:var(--text-light);margin-left:4px"></i></div>
                 <div style="font-size:0.78rem;color:var(--text-light)">${formatCurrency(balance)} / ${formatCurrency(g.target)}</div>
             </div>
             <div style="height:8px;background:#EEE7FF;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};transition:width 0.3s"></div></div>
@@ -8632,17 +8688,14 @@ function renderPrepaidCards() {
         container.innerHTML = `<button onclick="showAddPrepaidPrompt()" class="btn btn-block" style="background:#F3EFFF;color:#5A3BD8;border:1px dashed #B9A4F0;padding:8px;font-size:0.82rem"><i class="fas fa-plus"></i> Criar cartão (Lidl Plus, Via Verde, Bolt, gift cards…)</button>`;
         return;
     }
+    const collapsed = getPrepaidCollapsed();
     container.innerHTML = prepaidCards.map(card => {
         const balance = getPrepaidBalance(card.id);
         const txs = [...(card.transactions || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
         const color = balance > 0 ? 'var(--success)' : balance < 0 ? 'var(--danger)' : 'var(--text-light)';
-        return `<div style="background:#fff;border:1px solid var(--border);border-left:4px solid ${card.color || '#5A3BD8'};border-radius:10px;padding:12px;margin-bottom:10px">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-                <div><div style="font-weight:700;font-size:0.95rem"><i class="fas ${card.icon || 'fa-credit-card'}" style="color:${card.color || '#5A3BD8'}"></i> ${card.name}</div>
-                <div style="font-size:0.72rem;color:var(--text-light)">${(card.transactions || []).length} transações</div></div>
-                <div style="text-align:right"><div style="font-weight:700;font-size:1.1rem;color:${color}">${formatCurrency(balance)}</div><div style="font-size:0.7rem;color:var(--text-light)">saldo</div></div>
-            </div>
-            ${txs.length ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">${txs.map(t => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0;align-items:center;gap:6px">
+        const isCollapsed = !!collapsed[card.id];
+        const chev = isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up';
+        const detailsHtml = isCollapsed ? '' : `${txs.length ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">${txs.map(t => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0;align-items:center;gap:6px">
                 <span style="color:var(--text-light);min-width:74px">${t.date}</span>
                 <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description}</span>
                 <span style="font-weight:600;color:${t.type === 'topup' ? 'var(--success)' : 'var(--danger)'};white-space:nowrap">${t.type === 'topup' ? '+' : '-'}${formatCurrency(t.amount)}</span>
@@ -8650,11 +8703,34 @@ function renderPrepaidCards() {
                 <button onclick="event.stopPropagation();deletePrepaidTransaction('${card.id}','${t.id}')" title="Apagar" class="btn-icon" style="width:24px;height:24px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
             </div>`).join('')}</div>` : ''}
             <div style="display:flex;gap:6px;margin-top:10px">
-                <button onclick="showPrepaidTopupPrompt('${card.id}')" class="btn btn-sm" style="flex:1;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i> Carregar</button>
-                <button onclick="deletePrepaidCard('${card.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
+                <button onclick="event.stopPropagation();showPrepaidTopupPrompt('${card.id}')" class="btn btn-sm" style="flex:1;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i> Carregar</button>
+                <button onclick="event.stopPropagation();deletePrepaidCard('${card.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
+            </div>`;
+        // Tap on the header (everything except the action buttons)
+        // toggles collapsed state. Lets the user keep many cards visible
+        // without each one taking the full vertical real estate.
+        return `<div style="background:#fff;border:1px solid var(--border);border-left:4px solid ${card.color || '#5A3BD8'};border-radius:10px;padding:12px;margin-bottom:10px">
+            <div onclick="togglePrepaidCard('${card.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer">
+                <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:0.95rem"><i class="fas ${card.icon || 'fa-credit-card'}" style="color:${card.color || '#5A3BD8'}"></i> ${card.name}</div>
+                <div style="font-size:0.72rem;color:var(--text-light)">${(card.transactions || []).length} transações · toca para ${isCollapsed ? 'expandir' : 'colapsar'}</div></div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div style="text-align:right"><div style="font-weight:700;font-size:1.1rem;color:${color}">${formatCurrency(balance)}</div><div style="font-size:0.7rem;color:var(--text-light)">saldo</div></div>
+                    <i class="fas ${chev}" style="color:var(--text-light);font-size:0.8rem"></i>
+                </div>
             </div>
+            ${detailsHtml}
         </div>`;
     }).join('');
+}
+
+function getPrepaidCollapsed() {
+    try { return JSON.parse(localStorage.getItem('vanessa_prepaid_collapsed') || '{}') || {}; } catch { return {}; }
+}
+function togglePrepaidCard(cardId) {
+    const map = getPrepaidCollapsed();
+    map[cardId] = !map[cardId];
+    localStorage.setItem('vanessa_prepaid_collapsed', JSON.stringify(map));
+    renderPrepaidCards();
 }
 
 // Removes a single transaction. If it's a top-up that has a linked
@@ -8700,8 +8776,13 @@ function editPrepaidTransaction(cardId, txId) {
     const tx = card?.transactions?.find(t => t.id === txId);
     if (!card || !tx) return;
     if (tx.type === 'spend') {
-        // Find the linked expense and open the standard editor.
-        const expId = tx.expenseId || expenses.find(e => e.prepaidTxId === txId)?.id;
+        // Source of truth is the bidirectional link: the expense whose
+        // prepaidTxId matches *this* tx. We prefer that over tx.expenseId
+        // because the latter can drift if duplicates ever copied the
+        // pointer or if a tx was retargeted by hand.
+        const byBackref = expenses.find(e => e.prepaidTxId === txId);
+        const fallback = tx.expenseId ? expenses.find(e => e.id === tx.expenseId) : null;
+        const expId = byBackref?.id || fallback?.id;
         if (!expId) { showToast('Despesa associada não encontrada'); return; }
         editExpense(expId);
         return;
