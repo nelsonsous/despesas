@@ -9606,17 +9606,17 @@ function renderFixedList() {
             : '';
         const typeLabel = child ? child.name : 'Pessoal';
         return `
-            <div class="fixed-item">
-                <div class="fixed-icon"><i class="fas ${cat.icon}"></i></div>
-                <div class="fixed-info">
-                    <div class="fixed-desc">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
-                    <div class="fixed-meta">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
+            <div class="fixed-item" style="flex-wrap:wrap;padding:12px;gap:10px">
+                <div class="fixed-icon" style="width:38px;height:38px"><i class="fas ${cat.icon}"></i></div>
+                <div class="fixed-info" style="flex:1;min-width:0">
+                    <div class="fixed-desc" style="font-size:0.92rem">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
+                    <div class="fixed-meta" style="font-size:0.74rem">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
                 </div>
-                <div class="fixed-amount">${formatCurrency(f.amount)}</div>
-                <div class="expense-actions">
-                    <button class="btn-icon" onclick="editFixed('${f.id}')" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
-                    <button class="btn-icon" onclick="duplicateFixed('${f.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>
-                    <button class="btn-icon" onclick="confirmDeleteFixed('${f.id}')" style="color:var(--danger)"><i class="fas fa-trash"></i></button>
+                <div class="fixed-amount" style="font-size:1rem;font-weight:700;white-space:nowrap">${formatCurrency(f.amount)}</div>
+                <div style="flex-basis:100%;display:flex;gap:6px;padding-top:8px;border-top:1px dashed var(--border)">
+                    <button onclick="editFixed('${f.id}')" class="btn btn-sm" style="flex:1;background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);padding:8px"><i class="fas fa-pen"></i> Editar</button>
+                    <button onclick="duplicateFixed('${f.id}')" class="btn btn-sm" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:8px 12px" title="Duplicar"><i class="fas fa-copy"></i></button>
+                    <button onclick="confirmDeleteFixed('${f.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2;padding:8px 12px" title="Apagar"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
         `;
