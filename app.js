@@ -2487,10 +2487,16 @@ function updateDashboard() {
 
     const pendingIncomes = fixedIncPending + futureRegularInc;
 
-    // Projected totals and balance
+    // Projected totals and balance. Net contributions to savings goals
+    // count as committed money out — money the user already moved into
+    // the savings buckets — so we subtract them from the projected
+    // balance. Same logic as a bank app showing "available cash" after
+    // a transfer to savings.
     const projectedIncome = totalIncome + pendingIncomes;
     const projectedExpenses = totalExpenses + pendingExpenses;
-    const projectedBalance = projectedIncome - projectedExpenses;
+    const balanceMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+    const savingsThisMonthForBalance = getGoalsMonthlyContribution(balanceMonthKey);
+    const projectedBalance = projectedIncome - projectedExpenses - Math.max(0, savingsThisMonthForBalance);
     const available = projectedBalance;
 
     // Balance KPI
@@ -8156,8 +8162,8 @@ function submitSavingsGoal() {
         savingsGoals.push(goal);
     }
     saveData();
-    renderSavingsGoals();
     document.getElementById('modal-savings-goal').classList.remove('active');
+    updateAll();
     showToast(id ? 'Objetivo atualizado' : 'Objetivo criado');
 }
 
@@ -8200,8 +8206,11 @@ function submitGoalTx() {
     g.transactions = g.transactions || [];
     g.transactions.push({ id: generateId(), type, amount: amt, date, note });
     saveData();
-    renderSavingsGoals();
     document.getElementById('modal-goal-tx').classList.remove('active');
+    // Full re-render so the dashboard pill, the patrimonio total and the
+    // saldo projetado all reflect the change immediately. Without this the
+    // user only saw the goal card update.
+    updateAll();
     if (type === 'add' && getGoalBalance(g) >= g.target) {
         showToast(`🎉 Objetivo "${g.name}" atingido!`);
     } else {
@@ -8215,7 +8224,7 @@ function deleteGoal(id) {
     if (!confirm(`Apagar objetivo "${g.name}"? Histórico de transações perdido.`)) return;
     savingsGoals = savingsGoals.filter(x => x.id !== id);
     saveData();
-    renderSavingsGoals();
+    updateAll();
 }
 
 function showGoalHistory(id) {
