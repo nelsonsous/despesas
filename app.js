@@ -1276,6 +1276,9 @@ function renderSalaryCycle() {
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
     loadAiData();
+    // Kick off a profile build on cold start. Runs async-ish against
+    // localStorage-only data — fast enough to not block init.
+    try { recomputeUserProfile(); } catch {}
     applyAppTitle();
     applyHouseholdMode();
     setDefaultDate();
@@ -1364,6 +1367,9 @@ function saveData() {
     localStorage.setItem(FIXED_INCOME_STATUS_KEY, JSON.stringify(fixedIncomeStatus));
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
+    // Best-effort: refresh the consumption profile after every save so AI
+    // analyses reflect the latest habits on the next call.
+    try { recomputeUserProfile(); } catch {}
 }
 
 // ===== EFFECTIVE CATEGORIES (default + custom) =====
@@ -4564,6 +4570,7 @@ Top estabelecimentos (com total, nº de visitas e média por visita): ${JSON.str
 
 Histórico recente (mais recente primeiro):
 ${JSON.stringify(history)}
+${userProfilePromptBlock()}
 
 Responde só com o JSON array.`;
 
@@ -4585,7 +4592,163 @@ Responde só com o JSON array.`;
 const _aiNarrativeCache = {}; // { "YYYY-MM": { text, at } }
 const _aiCategoryCache = new Map(); // description -> {category, essential}
 
+const USER_PROFILE_KEY = 'user_profile_v1';
+
 function aiMonthKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+// Rolls up the last 12 months of data into a compact "consumption profile".
+// Persists in localStorage so it's loaded instantly on cold start; is kept
+// fresh via recomputeUserProfile() after any data change. Every AI prompt
+// attaches this so analyses build on the user's historical habits instead
+// of just the current month's snapshot.
+function recomputeUserProfile() {
+    try {
+        const cats = getEffectiveCategories();
+        const MONTHS_BACK = 12;
+        const monthly = [];
+        const categoryTotals = {};    // catId -> { total, monthsSeen[], months: {YYYY-MM: total} }
+        const merchantTotals = {};    // merchant -> { count, total, category }
+        let weekendTotal = 0, weekdayTotal = 0;
+        const weekendDays = new Set(), weekdayDays = new Set();
+
+        for (let i = 0; i < MONTHS_BACK; i++) {
+            const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+            const exp = getEffectiveMonthExpenses(d);
+            const inc = getEffectiveMonthIncomes(d);
+            if (exp.length === 0 && inc.length === 0) continue;
+            const totE = exp.reduce((s, e) => s + e.amount, 0);
+            const totI = inc.reduce((s, e) => s + e.amount, 0);
+            const nonEss = exp.filter(e => e.essential === false).reduce((s, e) => s + e.amount, 0);
+            const mKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            monthly.push({ mKey, totE, totI, nonEss });
+
+            // Category roll-up (raw, per-month, so we can detect trends later)
+            Object.entries(groupByCategory(exp)).forEach(([c, v]) => {
+                if (!categoryTotals[c]) categoryTotals[c] = { total: 0, months: {} };
+                categoryTotals[c].total += v;
+                categoryTotals[c].months[mKey] = v;
+            });
+
+            // Merchant roll-up (only for variable expenses, brand-known)
+            exp.filter(e => !e.isFixedExpense).forEach(e => {
+                const m = extractMerchant(e);
+                if (!m) return;
+                const k = m;
+                if (!merchantTotals[k]) merchantTotals[k] = { count: 0, total: 0, category: cats[e.category]?.label || e.category };
+                merchantTotals[k].count++;
+                merchantTotals[k].total += e.amount;
+
+                const d2 = new Date(e.date);
+                const wd = d2.getDay();
+                if (wd === 0 || wd === 6) { weekendTotal += e.amount; weekendDays.add(e.date); }
+                else { weekdayTotal += e.amount; weekdayDays.add(e.date); }
+            });
+        }
+
+        if (monthly.length === 0) {
+            const empty = { meses_analisados: 0, ultima_actualizacao: new Date().toISOString() };
+            localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(empty));
+            return empty;
+        }
+
+        const avgE = monthly.reduce((s, m) => s + m.totE, 0) / monthly.length;
+        const avgI = monthly.reduce((s, m) => s + m.totI, 0) / monthly.length;
+        const avgNonEss = monthly.reduce((s, m) => s + m.nonEss, 0) / monthly.length;
+
+        // Trend: linear direction by comparing first and last halves (min 4 months to be meaningful).
+        const trendFor = (series) => {
+            const months = Object.keys(series.months).sort();
+            if (months.length < 4) return 'estavel';
+            const half = Math.floor(months.length / 2);
+            const oldAvg = months.slice(0, half).reduce((s, m) => s + series.months[m], 0) / half;
+            const newAvg = months.slice(half).reduce((s, m) => s + series.months[m], 0) / (months.length - half);
+            if (newAvg > oldAvg * 1.2) return 'a subir';
+            if (newAvg < oldAvg * 0.8) return 'a descer';
+            return 'estavel';
+        };
+
+        const topCategories = Object.entries(categoryTotals)
+            .map(([c, v]) => ({
+                categoria: cats[c]?.label || c,
+                media_mensal: Math.round((v.total / monthly.length) * 100) / 100,
+                tendencia: trendFor(v)
+            }))
+            .sort((a, b) => b.media_mensal - a.media_mensal)
+            .slice(0, 10);
+
+        const monthsCount = Math.max(1, monthly.length);
+        const topMerchants = Object.entries(merchantTotals)
+            .map(([name, v]) => ({
+                estabelecimento: name,
+                categoria: v.category,
+                visitas_por_mes: Math.round((v.count / monthsCount) * 10) / 10,
+                ticket_medio: Math.round((v.total / v.count) * 100) / 100,
+                gasto_total: Math.round(v.total * 100) / 100
+            }))
+            .sort((a, b) => b.gasto_total - a.gasto_total)
+            .slice(0, 10);
+
+        const weekendAvg = weekendDays.size ? weekendTotal / weekendDays.size : 0;
+        const weekdayAvg = weekdayDays.size ? weekdayTotal / weekdayDays.size : 0;
+        const weekendPattern = weekendAvg > weekdayAvg * 1.4 ? 'elevado'
+            : weekendAvg < weekdayAvg * 0.7 ? 'baixo' : 'normal';
+
+        const profile = {
+            meses_analisados: monthly.length,
+            ultima_actualizacao: new Date().toISOString(),
+            media_mensal: {
+                gastos: Math.round(avgE * 100) / 100,
+                rendimento: Math.round(avgI * 100) / 100,
+                poupanca: Math.round((avgI - avgE) * 100) / 100,
+                taxa_poupanca_pct: avgI > 0 ? Math.round((avgI - avgE) / avgI * 100) : 0,
+                nao_essencial: Math.round(avgNonEss * 100) / 100
+            },
+            categorias_habituais: topCategories,
+            estabelecimentos_habituais: topMerchants,
+            padroes: {
+                fim_de_semana: weekendPattern,
+                gasto_medio_dia_util: Math.round(weekdayAvg * 100) / 100,
+                gasto_medio_dia_fim_semana: Math.round(weekendAvg * 100) / 100,
+                categorias_em_subida: topCategories.filter(c => c.tendencia === 'a subir').map(c => c.categoria).slice(0, 3),
+                categorias_em_descida: topCategories.filter(c => c.tendencia === 'a descer').map(c => c.categoria).slice(0, 3)
+            }
+        };
+        localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
+        return profile;
+    } catch (e) {
+        console.warn('Could not recompute user profile:', e?.message || e);
+        return null;
+    }
+}
+
+// Returns the cached profile; refreshes if older than 6h. Returns null when
+// we've never had enough data to build one.
+function getUserProfile() {
+    try {
+        const raw = localStorage.getItem(USER_PROFILE_KEY);
+        if (raw) {
+            const p = JSON.parse(raw);
+            const age = Date.now() - new Date(p.ultima_actualizacao || 0).getTime();
+            if (age < 6 * 60 * 60 * 1000) return p;
+        }
+    } catch {}
+    return recomputeUserProfile();
+}
+
+// Short prompt fragment — callers prepend this to any AI prompt so the
+// model sees the user's long-term habits. Kept tiny so it doesn't eclipse
+// the per-call data.
+function userProfilePromptBlock() {
+    const p = getUserProfile();
+    if (!p || !p.meses_analisados) return '';
+    return `\n\nPerfil de consumo do utilizador (${p.meses_analisados} meses de histórico):
+${JSON.stringify({
+    media_mensal: p.media_mensal,
+    categorias_habituais: p.categorias_habituais,
+    estabelecimentos_habituais: p.estabelecimentos_habituais,
+    padroes: p.padroes
+})}`;
+}
 
 function renderAiInsightsCard() {
     const card = document.getElementById('ai-insights-card');
@@ -4685,14 +4848,16 @@ Podes gastar (budget): ${dailyBudget.toFixed(2)}/dia nos próximos ${daysLeft} d
 Contexto do mês de calendário (secundário):
 Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)}
 Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)}
-Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}`;
+Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}
+${userProfilePromptBlock()}`;
     } else {
-        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
+        prompt = `És um consultor financeiro em Português de Portugal. Escreve 2 a 3 frases que resumam o mês de ${monthLabel}. Tom direto, amigável, PT-PT. Inclui pelo menos um valor concreto em EUR. Destaca o que é mais digno de nota (categoria que subiu/desceu, poupança, padrão incomum). Usa o perfil histórico para dizer se o mês está dentro do normal ou destoa. Evita ser genérico. Devolve APENAS o texto, sem aspas nem markdown, podes usar <strong>…</strong>.
 
 Dados (EUR):
 Este mês: gastos ${totE.toFixed(2)}, rendimento ${totI.toFixed(2)} (poupança ${(totI-totE).toFixed(2)})
 Mês anterior: gastos ${prevE.toFixed(2)}, rendimento ${prevI.toFixed(2)} (poupança ${(prevI-prevE).toFixed(2)})
-Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}`;
+Top variações por categoria (atual vs anterior): ${JSON.stringify(topDeltas)}
+${userProfilePromptBlock()}`;
     }
 
     const raw = await callAIText(prompt);
@@ -4744,7 +4909,8 @@ Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
 Pergunta: "${question.replace(/"/g, "'")}"
 
 Despesas (últimos meses):
-${JSON.stringify(slim)}`;
+${JSON.stringify(slim)}
+${userProfilePromptBlock()}`;
 
     const raw = await callAIText(prompt);
     return (raw || 'Sem resposta.').replace(/```/g, '').trim().slice(0, 800);
@@ -4765,7 +4931,8 @@ async function aiSuggestCategory(description) {
     const prompt = `Categoriza esta descrição de despesa. Devolve APENAS JSON: {"categoria":"<id>","essencial":true|false,"confianca":0..1}. Sem texto extra.
 Descrição: "${description.replace(/"/g, "'")}"
 Categorias disponíveis (usa o id exato): ${JSON.stringify(catList)}
-Exemplos recentes do utilizador: ${JSON.stringify(recent)}`;
+Exemplos recentes do utilizador: ${JSON.stringify(recent)}
+${userProfilePromptBlock()}`;
     try {
         const raw = await callAIText(prompt);
         const obj = extractJsonObject(raw);
@@ -4822,8 +4989,9 @@ async function runAiDuplicateCheck() {
             cat: cats[e.category]?.label || e.category
         }));
         if (data.length < 3) { showToast('Sem despesas suficientes para analisar'); return; }
-        const prompt = `Analisa estas despesas de um mês e devolve APENAS um JSON array com entradas suspeitas (duplicados prováveis, valores fora do padrão, categoria provavelmente errada). Formato por item: {"id":"…","motivo":"…","acao":"rever"|"apagar"|"recategorizar"}. Se nada suspeito, devolve []. Máx. 8 itens. Sem markdown.
-Despesas: ${JSON.stringify(data)}`;
+        const prompt = `Analisa estas despesas de um mês e devolve APENAS um JSON array com entradas suspeitas (duplicados prováveis, valores fora do padrão do histórico, categoria provavelmente errada). Formato por item: {"id":"…","motivo":"…","acao":"rever"|"apagar"|"recategorizar"}. Se nada suspeito, devolve []. Máx. 8 itens. Sem markdown.
+Despesas: ${JSON.stringify(data)}
+${userProfilePromptBlock()}`;
         const raw = await callAIText(prompt);
         const parsed = extractJsonArray(raw);
         showAiDuplicatesModal(parsed);
@@ -4935,8 +5103,9 @@ async function runAiSalaryScenario() {
         const monthExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense);
         const byCat = Object.entries(groupByCategory(monthExp)).sort((a,b) => b[1]-a[1]).slice(0,6)
             .map(([c,v]) => ({ cat: cats[c]?.label || c, valor: Math.round(v*100)/100 }));
-        const prompt = `Sugere 3 cenários realistas de poupança para o mês, em Português de Portugal. Cada cenário: nome, o que mudar, e quanto poupa (EUR). Devolve APENAS JSON array: [{"nome":"…","acao":"…","poupa_eur":N}]. Sem markdown, máx. 3.
-Categorias do mês: ${JSON.stringify(byCat)}`;
+        const prompt = `Sugere 3 cenários realistas de poupança para o mês, em Português de Portugal. Cada cenário: nome, o que mudar, e quanto poupa (EUR). Adapta as sugestões aos hábitos históricos do utilizador (não sugerir cortes em categorias em que mal gasta). Devolve APENAS JSON array: [{"nome":"…","acao":"…","poupa_eur":N}]. Sem markdown, máx. 3.
+Categorias do mês: ${JSON.stringify(byCat)}
+${userProfilePromptBlock()}`;
         const raw = await callAIText(prompt);
         const parsed = extractJsonArray(raw);
         if (!ans) return;
