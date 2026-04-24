@@ -2150,6 +2150,55 @@ function getPartnerMonthStats(date, name) {
             entries.push({ expense: e, ...r });
         }
     });
+    // Active fixed expenses with mix-partner settings are also "with" the
+    // partner — include them so summary/report reflect rent, gym, etc.
+    const activeFixed = getActiveFixedForMonth(date);
+    activeFixed.forEach(f => {
+        if (!f.mixPartnerName || f.mixPartnerName.toLowerCase() !== nameLower) return;
+        if (!f.mixPartnerPct) return;
+        if (isFixedSkipped(f.id, date)) return;
+        const st = getFixedStatusForMonth(f.id, date);
+        const base = (st && st.amount) || f.amount;
+        const pct = parseFloat(f.mixPartnerPct) || 0;
+        if (!(pct > 0 && pct < 100)) return;
+        const attributed = base * pct / 100;
+        let owed = 0, paid = 0;
+        if (f.mixPartnerSplit) {
+            const splitPct = parseFloat(f.mixPartnerSplitPct) || 100;
+            const share = attributed * splitPct / 100;
+            if (st?.mixPartnerPaid) paid = share; else owed = share;
+        }
+        totals.involved += base;
+        totals.attributed += attributed;
+        totals.owed += owed;
+        totals.paid += paid;
+        // Build a display-friendly pseudo-expense so the detail list can render it
+        // without bespoke code paths. Uses the month key for a stable date label.
+        const monthKey = getFixedMonthKey(date);
+        const [y, m] = monthKey.split('-').map(Number);
+        const maxDay = new Date(y, m, 0).getDate();
+        const day = Math.min(f.dayOfMonth || 1, maxDay);
+        const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        entries.push({
+            expense: {
+                id: `fixed_${f.id}_${monthKey}`,
+                description: f.description + ' (fixa)',
+                amount: base,
+                fullAmount: base,
+                date: dateStr,
+                category: f.category,
+                mixPartnerName: f.mixPartnerName,
+                mixPartnerPct: f.mixPartnerPct,
+                mixPartnerSplit: f.mixPartnerSplit,
+                mixPartnerPaid: !!st?.mixPartnerPaid,
+                isFixedExpense: true
+            },
+            involved: base,
+            attributed,
+            owed,
+            paid
+        });
+    });
     return { totals, entries };
 }
 
