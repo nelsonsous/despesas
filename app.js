@@ -894,15 +894,21 @@ function renderPendingExpenses() {
     const renderItem = (e) => {
         const cat = cats[e.category] || cats.outros;
         const match = findMatchingFixedForPending(e);
+        // When there's no exact fixed match but the AI flagged this email
+        // as a recurring bill (EDP, MEO, água…), surface a purple "Promover"
+        // chip instead of the small icon-only button so the user notices.
+        const fixedHint = !match && (e.fixedHint || e.isRecurring);
         const matchBtn = match
             ? `<button onclick="approvePendingAsFixedMatch('${e.id}','${match.id}')" title="Encaixar em ${match.description} (fixa)" style="background:#E3F2FD;color:#1565C0;border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:0.7rem"><i class="fas fa-link"></i> ${match.description.slice(0, 10)}</button>`
-            : `<button onclick="approvePendingAsFixed('${e.id}')" title="Promover a despesa fixa" style="background:#EDE7F6;color:var(--primary);border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-rotate"></i></button>`;
+            : fixedHint
+                ? `<button onclick="approvePendingAsFixed('${e.id}')" title="Esta parece uma fatura recorrente — promover a fixa" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:0.7rem"><i class="fas fa-rotate"></i> Fixa?</button>`
+                : `<button onclick="approvePendingAsFixed('${e.id}')" title="Promover a despesa fixa" style="background:#EDE7F6;color:var(--primary);border:none;border-radius:8px;padding:6px 9px;cursor:pointer;flex-shrink:0"><i class="fas fa-rotate"></i></button>`;
         return `<div style="background:white;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
                 <div style="width:30px;height:30px;border-radius:8px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;color:var(--primary);flex-shrink:0;font-size:0.8rem"><i class="fas ${cat.icon}"></i></div>
                 <div style="flex:1;min-width:0">
                     <div style="font-size:0.83rem;font-weight:600">${e.description}${e.merchant && e.merchant !== e.description ? ` <span style="font-weight:400;color:var(--text-light);font-size:0.75rem">(${e.merchant})</span>` : ''}</div>
-                    <div style="font-size:0.7rem;color:var(--text-light)">${e.date}${e.confidence ? ` &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} conf.</span>` : ''}</div>
+                    <div style="font-size:0.7rem;color:var(--text-light)">${e.date}${e.confidence ? ` &middot; <span style="color:${confColor(e.confidence)}">${e.confidence === 'high' ? 'alta' : e.confidence === 'medium' ? 'media' : 'baixa'} conf.</span>` : ''}${fixedHint ? ' &middot; <span style="color:#5A3BD8;font-weight:600">recorrente</span>' : ''}</div>
                 </div>
                 <div style="font-size:0.85rem;font-weight:700;color:var(--danger);white-space:nowrap">-${formatCurrency(e.amount)}</div>
             </div>
@@ -1776,21 +1782,36 @@ function loadData() {
     });
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
-    // Repair prepaid linkages where multiple expenses ended up sharing
-    // the same prepaidTxId (legacy duplicateExpense bug). Keep the first
-    // pairing and clear the rest so editing the tx no longer opens the
-    // wrong expense.
+    // Repair prepaid linkages corrupted by the legacy duplicateExpense bug
+    // (or any historical state where the back-references drifted). The
+    // editor resolves spends via the bidirectional "expense.prepaidTxId
+    // === tx.id" link, so the data must be 1:1 in both directions or we
+    // open the wrong expense.
     try {
-        const seenTx = new Set();
+        // 1) Drop expense pointers that don't match any tx (orphan links).
+        const validTxIds = new Set();
+        prepaidCards.forEach(c => (c.transactions || []).forEach(t => validTxIds.add(t.id)));
+        // 2) Group expenses by prepaidTxId. Where N>1, clear all so we
+        //    don't silently keep the wrong pairing — better orphaned and
+        //    visible than wrongly linked.
+        const byTx = new Map();
         expenses.forEach(e => {
             if (!e.prepaidTxId) return;
-            if (seenTx.has(e.prepaidTxId)) {
-                e.prepaidCardId = null;
-                e.prepaidTxId = null;
-            } else {
-                seenTx.add(e.prepaidTxId);
+            if (!validTxIds.has(e.prepaidTxId)) {
+                e.prepaidCardId = null; e.prepaidTxId = null; return;
             }
+            if (!byTx.has(e.prepaidTxId)) byTx.set(e.prepaidTxId, []);
+            byTx.get(e.prepaidTxId).push(e);
         });
+        byTx.forEach((list) => {
+            if (list.length > 1) list.forEach(e => { e.prepaidCardId = null; e.prepaidTxId = null; });
+        });
+        // 3) Re-stamp tx.expenseId from the surviving back-references so
+        //    deleting a tx still finds and removes the matching expense.
+        prepaidCards.forEach(c => (c.transactions || []).forEach(t => {
+            const back = expenses.find(e => e.prepaidTxId === t.id);
+            t.expenseId = back ? back.id : null;
+        }));
     } catch {}
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
@@ -7743,7 +7764,35 @@ function saveExpense(event) {
     const newPrepaidCardId = document.getElementById('expense-prepaid-card')?.value || null;
     const target = expenses.find(x => x.id === expense.id);
     if (target && !target.isPrepaidTopup) {
-        syncPrepaidSpendForExpense(target, newPrepaidCardId);
+        // Soft block: don't allow a spend to push the card balance below
+        // zero. Compute the would-be balance excluding the current tx if
+        // we're editing (so editing the same expense up/down works).
+        if (newPrepaidCardId) {
+            const card = prepaidCards.find(c => c.id === newPrepaidCardId);
+            if (card) {
+                const currentBalance = getPrepaidBalance(newPrepaidCardId);
+                const ownContribution = (() => {
+                    if (target.prepaidCardId !== newPrepaidCardId || !target.prepaidTxId) return 0;
+                    const oldTx = (card.transactions || []).find(t => t.id === target.prepaidTxId);
+                    return oldTx?.type === 'spend' ? oldTx.amount : 0;
+                })();
+                const projected = currentBalance + ownContribution - target.amount;
+                if (projected < 0) {
+                    showToast(`Saldo insuficiente em ${card.name} (${formatCurrency(currentBalance + ownContribution)}). Carrega o cartão antes ou usa outro método.`);
+                    // Strip the card so the expense still saves but isn't
+                    // tied to the card, instead of hard-blocking the save.
+                    const sel = document.getElementById('expense-prepaid-card');
+                    if (sel) sel.value = '';
+                    syncPrepaidSpendForExpense(target, null);
+                } else {
+                    syncPrepaidSpendForExpense(target, newPrepaidCardId);
+                }
+            } else {
+                syncPrepaidSpendForExpense(target, newPrepaidCardId);
+            }
+        } else {
+            syncPrepaidSpendForExpense(target, null);
+        }
     }
 
     saveData();
@@ -8842,15 +8891,18 @@ function editPrepaidTransaction(cardId, txId) {
     const tx = card?.transactions?.find(t => t.id === txId);
     if (!card || !tx) return;
     if (tx.type === 'spend') {
-        // Source of truth is the bidirectional link: the expense whose
-        // prepaidTxId matches *this* tx. We prefer that over tx.expenseId
-        // because the latter can drift if duplicates ever copied the
-        // pointer or if a tx was retargeted by hand.
-        const byBackref = expenses.find(e => e.prepaidTxId === txId);
-        const fallback = tx.expenseId ? expenses.find(e => e.id === tx.expenseId) : null;
-        const expId = byBackref?.id || fallback?.id;
-        if (!expId) { showToast('Despesa associada não encontrada'); return; }
-        editExpense(expId);
+        // Sole source of truth: the expense whose prepaidTxId matches THIS
+        // tx. We deliberately don't fall back to tx.expenseId because that
+        // pointer can be stale (duplicates, edits) and the bug we keep
+        // hitting is "tap -10€ row → opens -100€ expense" caused by
+        // exactly that fallback. If the back-reference is missing, tell
+        // the user the link is broken instead of guessing.
+        const linked = expenses.find(e => e.prepaidTxId === txId);
+        if (!linked) {
+            showToast('Despesa associada não encontrada — link partido. Apaga e recria a despesa.');
+            return;
+        }
+        editExpense(linked.id);
         return;
     }
     // Top-up: prefill the topup modal in edit mode.
