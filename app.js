@@ -1536,13 +1536,6 @@ function renderSecuritySettingsUI() {
             bioBtn.onclick = setupBiometricLock;
         }
     }
-    // One-time migration hint: older credentials (credVersion != 2) trigger
-    // the iOS passkey sheet before Face ID. Suggest re-activating to get
-    // straight biometric.
-    const migHint = document.getElementById('security-bio-migration');
-    if (migHint) {
-        migHint.style.display = (cfg.biometricId && cfg.credVersion !== 2) ? 'block' : 'none';
-    }
     if (pinBtn) {
         if (cfg.pinHash) {
             pinBtn.innerHTML = '<i class="fas fa-check"></i> PIN definido — tocar para remover';
