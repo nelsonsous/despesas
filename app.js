@@ -62,9 +62,11 @@ function getSpousePct() {
     return isNaN(v) ? 50 : Math.max(0, Math.min(100, v));
 }
 const TEMPLATES_KEY = 'vanessa_templates';
+const PREPAID_KEY = 'vanessa_prepaid_cards';
 const BUDGETS_KEY = 'vanessa_budgets';
 let expenseTemplates = [];   // { id, description, amount, category, type, split, essential, icon }
 let categoryBudgets = {};    // { category: maxAmount }
+let prepaidCards = [];       // { id, name, icon, color, createdAt, transactions: [{id, type:'topup'|'spend', amount, description, date, expenseId?}] }
 
 function getUserName() {
     return localStorage.getItem(USER_NAME_KEY) || '';
@@ -1700,6 +1702,8 @@ function loadData() {
     expenseTemplates = tplData ? JSON.parse(tplData) : [];
     const budData = localStorage.getItem(BUDGETS_KEY);
     categoryBudgets = budData ? JSON.parse(budData) : {};
+    const prepaidData = localStorage.getItem(PREPAID_KEY);
+    prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
     const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
@@ -1718,6 +1722,7 @@ function saveData() {
     localStorage.setItem(FIXED_INCOME_STATUS_KEY, JSON.stringify(fixedIncomeStatus));
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
+    localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
     // Best-effort: refresh the consumption profile after every save so AI
     // analyses reflect the latest habits on the next call.
     try { recomputeUserProfile(); } catch {}
@@ -2465,6 +2470,9 @@ function updateDashboard() {
     renderSalaryCycle();
     renderPartnerSummary();
     renderAiInsightsCard();
+    const prepaidCard = document.getElementById('prepaid-cards-card');
+    if (prepaidCard) prepaidCard.style.display = prepaidCards.length ? 'block' : 'none';
+    renderPrepaidCards();
 }
 
 // Compact partner summary on the dashboard. Shows the month's partner-involved
@@ -6753,6 +6761,12 @@ function showAddExpense() {
     window._editingExpenseId = null;
     const promoBtn = document.getElementById('promote-to-fixed-btn');
     if (promoBtn) promoBtn.style.display = 'none';
+    // Prepaid cards: show select only when the user has at least one card.
+    const prepaidGrp = document.getElementById('expense-prepaid-group');
+    if (prepaidGrp) prepaidGrp.style.display = prepaidCards.length ? 'block' : 'none';
+    populatePrepaidSelect();
+    const psel = document.getElementById('expense-prepaid-card');
+    if (psel) psel.value = '';
     document.getElementById('expense-date').valueAsDate = new Date();
     document.getElementById('laura-split-group').style.display = 'none';
     document.getElementById('paid-by-father-group').style.display = 'none';
@@ -7220,6 +7234,11 @@ function editExpense(id) {
     window._editingExpenseId = e.id;
     const promoBtn = document.getElementById('promote-to-fixed-btn');
     if (promoBtn) promoBtn.style.display = 'block';
+    const prepaidGrp = document.getElementById('expense-prepaid-group');
+    if (prepaidGrp) prepaidGrp.style.display = prepaidCards.length ? 'block' : 'none';
+    populatePrepaidSelect();
+    const psel = document.getElementById('expense-prepaid-card');
+    if (psel) psel.value = e.prepaidCardId || '';
     document.getElementById('expense-desc').value = e.description;
     document.getElementById('expense-amount').value = e.amount;
     document.getElementById('expense-date').value = e.date;
@@ -7526,6 +7545,19 @@ function saveExpense(event) {
     lastCat.expense = expense.category;
     localStorage.setItem(LAST_CAT_KEY, JSON.stringify(lastCat));
 
+    // If the user picked a prepaid card, register a "spend" transaction
+    // on the card so the balance stays in sync. We stamp prepaidCardId on
+    // the expense so editing the expense later can still pair up with its
+    // original ledger entry (used for delete cleanup down the line).
+    const prepaidCardId = document.getElementById('expense-prepaid-card')?.value;
+    if (prepaidCardId) {
+        const last = expenses[expenses.length - 1];
+        if (last && last.id === expense.id) {
+            last.prepaidCardId = prepaidCardId;
+            addPrepaidSpend(prepaidCardId, last.amount, last.description || 'Consumo', last.date, last.id);
+        }
+    }
+
     saveData();
     closeModal();
     pendingAttachment = null;
@@ -7782,6 +7814,145 @@ function promoteExpenseToFixed(id) {
     document.getElementById('fixed-modal').classList.add('active');
     // Flag so saveFixed can prompt "apagar a despesa original?" after save.
     window._expensePromotedToFixedSourceId = id;
+}
+
+// ===== PREPAID CARDS =====
+// Reloadable cards / vouchers / digital wallets: user tops up once, then
+// every purchase paid with the card decrements its balance. Kept simple:
+// balance is derived from the transactions ledger (no mutable field), so
+// the source of truth is always replayable.
+function getPrepaidBalance(cardId) {
+    const card = prepaidCards.find(c => c.id === cardId);
+    if (!card) return 0;
+    return (card.transactions || []).reduce((s, t) => s + (t.type === 'topup' ? t.amount : -t.amount), 0);
+}
+
+function addPrepaidTopup(cardId, amount, description, date) {
+    const card = prepaidCards.find(c => c.id === cardId);
+    if (!card) return;
+    card.transactions = card.transactions || [];
+    card.transactions.push({
+        id: generateId(),
+        type: 'topup',
+        amount: parseFloat(amount),
+        description: description || 'Carregamento',
+        date: date || new Date().toISOString().slice(0, 10)
+    });
+    saveData();
+    renderPrepaidCards();
+    updateAll();
+    showToast(`+ ${formatCurrency(amount)} em ${card.name}`);
+}
+
+function addPrepaidSpend(cardId, amount, description, date, expenseId) {
+    const card = prepaidCards.find(c => c.id === cardId);
+    if (!card) return false;
+    card.transactions = card.transactions || [];
+    card.transactions.push({
+        id: generateId(),
+        type: 'spend',
+        amount: parseFloat(amount),
+        description: description || 'Consumo',
+        date: date || new Date().toISOString().slice(0, 10),
+        expenseId: expenseId || null
+    });
+    return true;
+}
+
+function createPrepaidCard(name, initialBalance, icon, color) {
+    const card = {
+        id: generateId(),
+        name: name.trim(),
+        icon: icon || 'fa-credit-card',
+        color: color || '#5A3BD8',
+        createdAt: new Date().toISOString(),
+        transactions: []
+    };
+    if (initialBalance && initialBalance > 0) {
+        card.transactions.push({
+            id: generateId(),
+            type: 'topup',
+            amount: parseFloat(initialBalance),
+            description: 'Saldo inicial',
+            date: new Date().toISOString().slice(0, 10)
+        });
+    }
+    prepaidCards.push(card);
+    saveData();
+    renderPrepaidCards();
+    return card;
+}
+
+function deletePrepaidCard(id) {
+    const card = prepaidCards.find(c => c.id === id);
+    if (!card) return;
+    if (!confirm(`Apagar cartão ${card.name}? Histórico de transações perdido; despesas ligadas continuam no app.`)) return;
+    prepaidCards = prepaidCards.filter(c => c.id !== id);
+    saveData();
+    renderPrepaidCards();
+    updateAll();
+}
+
+function showAddPrepaidPrompt() {
+    const name = prompt('Nome do cartão (ex: Lidl Plus, Via Verde, Bolt):');
+    if (!name || !name.trim()) return;
+    const bal = prompt('Saldo inicial (deixa em branco para zero):');
+    const parsed = bal ? parseFloat(bal.replace(',', '.')) : 0;
+    createPrepaidCard(name, isFinite(parsed) ? parsed : 0);
+    showToast('Cartão criado');
+}
+
+function showPrepaidTopupPrompt(cardId) {
+    const amt = prompt('Valor a carregar (EUR):');
+    if (!amt) return;
+    const n = parseFloat(amt.replace(',', '.'));
+    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
+    addPrepaidTopup(cardId, n, 'Carregamento', new Date().toISOString().slice(0, 10));
+}
+
+function renderPrepaidCards() {
+    const container = document.getElementById('prepaid-cards-list');
+    if (!container) return;
+    if (!prepaidCards.length) {
+        container.innerHTML = '<p class="empty-state" style="padding:16px 0">Sem cartões. Cria um para começar a registar carregamentos e consumos.</p>';
+        return;
+    }
+    container.innerHTML = prepaidCards.map(card => {
+        const balance = getPrepaidBalance(card.id);
+        const txs = [...(card.transactions || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+        const color = balance > 0 ? 'var(--success)' : balance < 0 ? 'var(--danger)' : 'var(--text-light)';
+        return `<div style="background:#fff;border:1px solid var(--border);border-left:4px solid ${card.color || '#5A3BD8'};border-radius:10px;padding:12px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <div><div style="font-weight:700;font-size:0.95rem"><i class="fas ${card.icon || 'fa-credit-card'}" style="color:${card.color || '#5A3BD8'}"></i> ${card.name}</div>
+                <div style="font-size:0.72rem;color:var(--text-light)">${(card.transactions || []).length} transações</div></div>
+                <div style="text-align:right"><div style="font-weight:700;font-size:1.1rem;color:${color}">${formatCurrency(balance)}</div><div style="font-size:0.7rem;color:var(--text-light)">saldo</div></div>
+            </div>
+            ${txs.length ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">${txs.map(t => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0">
+                <span style="color:var(--text-light)">${t.date}</span>
+                <span style="flex:1;margin:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description}</span>
+                <span style="font-weight:600;color:${t.type === 'topup' ? 'var(--success)' : 'var(--danger)'}">${t.type === 'topup' ? '+' : '-'}${formatCurrency(t.amount)}</span>
+            </div>`).join('')}</div>` : ''}
+            <div style="display:flex;gap:6px;margin-top:10px">
+                <button onclick="showPrepaidTopupPrompt('${card.id}')" class="btn btn-sm" style="flex:1;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i> Carregar</button>
+                <button onclick="deletePrepaidCard('${card.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// Populates the "Pagar com cartão" select in the expense modal. Balance
+// next to each entry tells the user at-a-glance whether there's enough.
+function populatePrepaidSelect() {
+    const sel = document.getElementById('expense-prepaid-card');
+    if (!sel) return;
+    const current = sel.value;
+    const options = ['<option value="">— Nenhum —</option>'];
+    prepaidCards.forEach(c => {
+        const bal = getPrepaidBalance(c.id);
+        options.push(`<option value="${c.id}">${c.name} (${formatCurrency(bal)})</option>`);
+    });
+    sel.innerHTML = options.join('');
+    if (current && prepaidCards.some(c => c.id === current)) sel.value = current;
 }
 
 function deleteExpense() {

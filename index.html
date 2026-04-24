@@ -194,6 +194,14 @@
             <!-- Partner summary (separated mode) -->
             <div class="card" id="partner-summary-card" style="display:none;border-left:4px solid #E91E63"></div>
 
+            <!-- Prepaid cards / wallets -->
+            <div class="card" id="prepaid-cards-card" style="display:none">
+                <h3 style="display:flex;justify-content:space-between;align-items:center"><span><i class="fas fa-credit-card" style="color:#5A3BD8"></i> Cartões de carregamento</span>
+                    <button onclick="showAddPrepaidPrompt()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-plus"></i> Novo</button>
+                </h3>
+                <div id="prepaid-cards-list"></div>
+            </div>
+
             <!-- Category Donut Chart -->
             <div class="card donut-section" id="category-donut-container"></div>
 
@@ -705,6 +713,14 @@
                     <div class="form-group" style="display:none">
                         <input type="text" id="expense-with" value="">
                     </div>
+                    <div class="form-group" id="expense-prepaid-group" style="display:none">
+                        <label>Pagar com cartão de carregamento (opcional)</label>
+                        <select id="expense-prepaid-card">
+                            <option value="">— Nenhum —</option>
+                        </select>
+                        <small class="field-hint">Se escolheres um cartão, o valor é abatido ao saldo e registado como consumo.</small>
+                    </div>
+
                     <div class="form-group">
                         <label>Notas (opcional)</label>
                         <textarea id="expense-notes" rows="2" placeholder="Notas adicionais..."></textarea>
