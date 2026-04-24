@@ -8421,21 +8421,79 @@ function deletePrepaidCard(id) {
     updateAll();
 }
 
+// Opens the create-card modal with sensible defaults (today's date for the
+// initial top-up, blank name/balance) and focuses the name input.
 function showAddPrepaidPrompt() {
-    const name = prompt('Nome do cartão (ex: Lidl Plus, Via Verde, Bolt):');
-    if (!name || !name.trim()) return;
-    const bal = prompt('Saldo inicial (deixa em branco para zero):');
-    const parsed = bal ? parseFloat(bal.replace(',', '.')) : 0;
-    createPrepaidCard(name, isFinite(parsed) ? parsed : 0);
+    const modal = document.getElementById('modal-prepaid-create');
+    if (!modal) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const nameEl = document.getElementById('prepaid-create-name');
+    const balEl = document.getElementById('prepaid-create-balance');
+    const dateEl = document.getElementById('prepaid-create-date');
+    if (nameEl) nameEl.value = '';
+    if (balEl) balEl.value = '';
+    if (dateEl) dateEl.value = today;
+    modal.classList.add('active');
+    setTimeout(() => nameEl?.focus(), 100);
+}
+
+function submitNewPrepaid() {
+    const name = (document.getElementById('prepaid-create-name')?.value || '').trim();
+    if (!name) { showToast('Indica um nome'); return; }
+    const bal = parseFloat((document.getElementById('prepaid-create-balance')?.value || '0').replace(',', '.'));
+    const date = document.getElementById('prepaid-create-date')?.value || new Date().toISOString().slice(0, 10);
+    const card = {
+        id: generateId(),
+        name,
+        icon: 'fa-credit-card',
+        color: '#5A3BD8',
+        createdAt: new Date().toISOString(),
+        transactions: []
+    };
+    if (isFinite(bal) && bal > 0) {
+        card.transactions.push({
+            id: generateId(),
+            type: 'topup',
+            amount: bal,
+            description: 'Saldo inicial',
+            date
+        });
+    }
+    prepaidCards.push(card);
+    saveData();
+    renderPrepaidCards();
+    document.getElementById('modal-prepaid-create')?.classList.remove('active');
     showToast('Cartão criado');
 }
 
+// Opens the top-up modal with the date prefilled to today (editable) and
+// the card's name shown so the user knows which card they're charging.
 function showPrepaidTopupPrompt(cardId) {
-    const amt = prompt('Valor a carregar (EUR):');
-    if (!amt) return;
-    const n = parseFloat(amt.replace(',', '.'));
-    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
-    addPrepaidTopup(cardId, n, 'Carregamento', new Date().toISOString().slice(0, 10));
+    const card = prepaidCards.find(c => c.id === cardId);
+    if (!card) return;
+    const modal = document.getElementById('modal-prepaid-topup');
+    if (!modal) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const balance = getPrepaidBalance(cardId);
+    document.getElementById('prepaid-topup-card-id').value = cardId;
+    document.getElementById('prepaid-topup-card-info').innerHTML =
+        `<strong>${card.name}</strong> · saldo atual ${formatCurrency(balance)}`;
+    document.getElementById('prepaid-topup-amount').value = '';
+    document.getElementById('prepaid-topup-date').value = today;
+    document.getElementById('prepaid-topup-note').value = '';
+    modal.classList.add('active');
+    setTimeout(() => document.getElementById('prepaid-topup-amount')?.focus(), 100);
+}
+
+function submitPrepaidTopup() {
+    const cardId = document.getElementById('prepaid-topup-card-id')?.value;
+    if (!cardId) return;
+    const amt = parseFloat((document.getElementById('prepaid-topup-amount')?.value || '').replace(',', '.'));
+    if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
+    const date = document.getElementById('prepaid-topup-date')?.value || new Date().toISOString().slice(0, 10);
+    const note = (document.getElementById('prepaid-topup-note')?.value || '').trim() || 'Carregamento';
+    addPrepaidTopup(cardId, amt, note, date);
+    document.getElementById('modal-prepaid-topup')?.classList.remove('active');
 }
 
 function renderPrepaidCards() {
