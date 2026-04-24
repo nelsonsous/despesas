@@ -1495,13 +1495,30 @@ function getFixedIncomeStatusForMonth(fixedIncomeId, date) {
     return fixedIncomeStatus.find(s => s.fixedIncomeId === fixedIncomeId && s.month === monthKey);
 }
 
+// Returns the actual payment date for a fixed income in the given calendar
+// month, honouring its paymentMode (fixed-day / last-working-day /
+// working-day-after), same 3 modes as the global salary configuration.
+function getFixedIncomePaymentDate(fi, year, month) {
+    const mode = fi.paymentMode || 'fixed-day';
+    if (mode === 'last-working-day') {
+        const lastDay = new Date(year, month + 1, 0);
+        return shiftBackwardToWorkingDay(lastDay);
+    }
+    const maxDay = new Date(year, month + 1, 0).getDate();
+    const clampedDay = Math.min(fi.dayOfMonth || 1, maxDay);
+    const target = new Date(year, month, clampedDay);
+    if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
+    return target;
+}
+
 function getEffectiveFixedIncomeStatus(fi, date) {
     const explicit = getFixedIncomeStatusForMonth(fi.id, date);
     if (explicit) return explicit;
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-    if (isCurrentMonth && today.getDate() >= fi.dayOfMonth) {
-        return { status: 'recebido', auto: true };
+    if (isCurrentMonth) {
+        const payDate = getFixedIncomePaymentDate(fi, today.getFullYear(), today.getMonth());
+        if (today >= payDate) return { status: 'recebido', auto: true };
     }
     return { status: 'pendente', auto: false };
 }
@@ -1672,17 +1689,15 @@ function getEffectiveMonthExpenses(date) {
 function getPaidFixedIncomesAsIncome(date) {
     const active = getActiveFixedIncomesForMonth(date);
     const monthKey = getFixedMonthKey(date);
-    const [y, m] = monthKey.split('-').map(Number);
     return active
         .filter(fi => getEffectiveFixedIncomeStatus(fi, date).status === 'recebido')
         .map(fi => {
-            const maxDay = new Date(y, m, 0).getDate();
-            const day = Math.min(fi.dayOfMonth, maxDay);
+            const payDate = getFixedIncomePaymentDate(fi, date.getFullYear(), date.getMonth());
             return {
                 id: `fixedinc_${fi.id}_${monthKey}`,
                 description: fi.description,
                 amount: getEffectiveFixedIncomeAmount(fi, date),
-                date: `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`,
+                date: toLocalDateStr(payDate),
                 category: fi.category || 'ordenado',
                 isFixedIncome: true,
                 fixedIncomeId: fi.id
@@ -1859,8 +1874,11 @@ function updateDashboard() {
     const activeFixedInc = getActiveFixedIncomesForMonth(currentDate);
     const todayDay = today.getDate();
     const fixedIncPending = isPastMonth ? 0 : activeFixedInc.filter(fi => {
-        // If "only count on day", don't project before the day arrives
-        if (fi.onlyOnDay && todayDay < fi.dayOfMonth) return false;
+        // If "only count on day", don't project before the actual pay date arrives.
+        if (fi.onlyOnDay) {
+            const payDate = getFixedIncomePaymentDate(fi, today.getFullYear(), today.getMonth());
+            if (today < payDate) return false;
+        }
         return getEffectiveFixedIncomeStatus(fi, currentDate).status !== 'recebido';
     }).reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
 
@@ -2868,8 +2886,9 @@ function renderIncomeTab() {
             const amount = getEffectiveFixedIncomeAmount(fi, currentDate);
             const varBadge = fi.isVariable ? `<span style="font-size:0.65rem;color:#2E7D32;font-weight:600;background:#E8F5E9;padding:1px 5px;border-radius:4px">~</span>` : '';
             const varEdit = fi.isVariable ? `<button onclick="event.stopPropagation();editFixedIncomeAmount('${fi.id}', currentDate)" class="btn-icon" style="color:#2E7D32;padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
-            const todayDayInc = new Date().getDate();
-            const waitingForDay = fi.onlyOnDay && !isReceived && todayDayInc < fi.dayOfMonth;
+            const today2 = new Date();
+            const payDate2 = getFixedIncomePaymentDate(fi, today2.getFullYear(), today2.getMonth());
+            const waitingForDay = fi.onlyOnDay && !isReceived && today2 < payDate2;
             return `
                 <div class="fixed-month-item" style="${waitingForDay ? 'opacity:0.6' : ''}">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:#E8F5E9;color:#2E7D32;flex-shrink:0">
@@ -2877,7 +2896,7 @@ function renderIncomeTab() {
                     </div>
                     <div style="flex:1;min-width:0">
                         <div style="font-size:0.85rem;font-weight:600">${fi.description} ${varBadge}</div>
-                        <div style="font-size:0.72rem;color:var(--text-light)">Dia ${fi.dayOfMonth}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda dia' : ''}</div>
+                        <div style="font-size:0.72rem;color:var(--text-light)">${fi.paymentMode === 'last-working-day' ? 'último dia útil' : fi.paymentMode === 'working-day-after' ? `1.º dia útil após dia ${fi.dayOfMonth}` : `Dia ${fi.dayOfMonth}`}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda dia' : ''}</div>
                     </div>
                     ${varEdit}
                     <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
@@ -5556,6 +5575,9 @@ function showAddFixedIncome() {
     document.getElementById('fixed-income-form').reset();
     const now = new Date();
     document.getElementById('fixed-income-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const modeEl = document.querySelector('input[name="fi-pay-mode"][value="fixed-day"]');
+    if (modeEl) modeEl.checked = true;
+    updateFixedIncomeDayVisibility();
     document.getElementById('modal-fixed-income').classList.add('active');
 }
 
@@ -5572,19 +5594,31 @@ function editFixedIncome(id) {
     document.getElementById('fixed-income-notes').value = fi.notes || '';
     document.getElementById('fixed-income-is-variable').checked = fi.isVariable || false;
     document.getElementById('fixed-income-only-on-day').checked = fi.onlyOnDay || false;
+    const mode = fi.paymentMode || 'fixed-day';
+    const modeEl = document.querySelector(`input[name="fi-pay-mode"][value="${mode}"]`);
+    if (modeEl) modeEl.checked = true;
+    updateFixedIncomeDayVisibility();
     populateCategorySelects();
     document.getElementById('fixed-income-category').value = fi.category || 'ordenado';
     document.getElementById('modal-fixed-income').classList.add('active');
 }
 
+function updateFixedIncomeDayVisibility() {
+    const mode = document.querySelector('input[name="fi-pay-mode"]:checked')?.value || 'fixed-day';
+    const wrap = document.getElementById('fixed-income-day-wrap');
+    if (wrap) wrap.style.display = mode === 'last-working-day' ? 'none' : '';
+}
+
 function saveFixedIncome(event) {
     event.preventDefault();
     const id = document.getElementById('fixed-income-id').value;
+    const payMode = document.querySelector('input[name="fi-pay-mode"]:checked')?.value || 'fixed-day';
     const fi = {
         id: id || generateId(),
         description: document.getElementById('fixed-income-desc').value.trim(),
         amount: parseFloat(document.getElementById('fixed-income-amount').value),
-        dayOfMonth: parseInt(document.getElementById('fixed-income-day').value),
+        dayOfMonth: parseInt(document.getElementById('fixed-income-day').value) || 1,
+        paymentMode: payMode,
         category: document.getElementById('fixed-income-category').value,
         startDate: document.getElementById('fixed-income-start').value,
         endDate: document.getElementById('fixed-income-end').value || null,

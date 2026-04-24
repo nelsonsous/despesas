@@ -1186,9 +1186,26 @@
                         <input type="number" id="fixed-income-amount" step="0.01" min="0.01" required placeholder="0,00">
                     </div>
                     <div class="form-group">
-                        <label>Dia do mes em que entra</label>
-                        <input type="number" id="fixed-income-day" min="1" max="31" required placeholder="Ex: 25" value="25">
-                        <small class="field-hint">Marca-se como recebido automaticamente nesse dia</small>
+                        <label>Quando é recebido</label>
+                        <div class="radio-group" style="flex-wrap:wrap;gap:10px">
+                            <label class="radio-label">
+                                <input type="radio" name="fi-pay-mode" value="fixed-day" checked onchange="updateFixedIncomeDayVisibility()">
+                                <span>Dia fixo</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="fi-pay-mode" value="working-day-after" onchange="updateFixedIncomeDayVisibility()">
+                                <span>1.º dia útil após dia X</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="fi-pay-mode" value="last-working-day" onchange="updateFixedIncomeDayVisibility()">
+                                <span>Último dia útil do mês</span>
+                            </label>
+                        </div>
+                        <div id="fixed-income-day-wrap" style="margin-top:10px">
+                            <label style="font-size:0.78rem">Dia do mês</label>
+                            <input type="number" id="fixed-income-day" min="1" max="31" placeholder="Ex: 25" value="25">
+                        </div>
+                        <small class="field-hint">Marca-se como recebido automaticamente quando chegar a data.</small>
                     </div>
                     <div class="form-group">
                         <label>Categoria</label>
