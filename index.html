@@ -402,6 +402,9 @@
             <!-- Salary Cycle Report (between-salaries analysis) -->
             <div class="card" id="salary-cycle-report" style="display:none"></div>
 
+            <!-- Partner spending (separated mode) -->
+            <div class="card" id="partner-spending-card" style="display:none"></div>
+
             <!-- Savings Analysis -->
             <div class="card savings-card">
                 <h3><i class="fas fa-piggy-bank"></i> Analise de Poupanca</h3>
@@ -608,6 +611,17 @@
                                 <div class="toggle-card-desc">Junta varias compras numa so entrada (ex: Mercadona, Via Verde, cafes). Podes adicionar entradas ao longo do mes.</div>
                             </div>
                         </label>
+                    </div>
+                    <div class="form-group" id="partner-quick-group" style="display:none">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                            <input type="checkbox" id="partner-quick-with">
+                            <span id="partner-quick-label" style="font-size:0.88rem">Com <span id="partner-quick-name">Namorado/a</span></span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
+                            <input type="checkbox" id="partner-quick-split" onchange="applyPartnerSplitShortcut()">
+                            <span style="font-size:0.88rem">Dividir esta despesa com o/a namorado/a</span>
+                        </label>
+                        <small class="field-hint">O "Com" junta o nome em "Com quem?" para reporting. O "Dividir" preenche automaticamente uma linha em "Dividir com alguém" com a % configurada.</small>
                     </div>
                     <div class="form-group">
                         <label>Com quem? (opcional)</label>
@@ -854,6 +868,13 @@
                         <label style="margin-top:8px">% a cargo do conjuge</label>
                         <input type="number" id="profile-spouse-pct" min="0" max="100" value="50">
                         <small class="field-hint">Ex: 50 = cada um paga metade das despesas partilhadas</small>
+                    </div>
+                    <div class="form-group" id="partner-settings" style="display:none">
+                        <label>Nome do namorado/a (opcional)</label>
+                        <input type="text" id="profile-partner-name" placeholder="Ex: João, Maria..." maxlength="30">
+                        <label style="margin-top:8px">% a cargo do namorado/a (quando dividem)</label>
+                        <input type="number" id="profile-partner-pct" min="0" max="100" value="50">
+                        <small class="field-hint">Mostra-te um toque rápido "Com [nome]" e "Dividir com [nome]" no formulário de despesa, e um card "Gasto com [nome]" nos Relatórios.</small>
                     </div>
                     <div class="form-group" id="salary-day-setting">
                         <label>Quando recebes o salário</label>
