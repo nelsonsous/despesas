@@ -3884,15 +3884,33 @@ function markFixedCoParentPaidSilent(fixedId, date, paidByCoParent) {
 }
 
 function renderChildrenTab() {
+    // Family tab header logic — partner block, then children block.
+    // Each section's header only renders when there's something to show.
+    const partnerHdr = document.getElementById('family-partner-header');
+    const childrenHdr = document.getElementById('family-children-header');
+    const partnerLabel = document.getElementById('family-partner-header-label');
+    const partnerName = getPartnerName();
+    const showPartner = !isMarriedMode() && !!partnerName;
+    if (partnerHdr) partnerHdr.style.display = showPartner ? 'block' : 'none';
+    if (showPartner && partnerLabel) partnerLabel.textContent = `Gastos com ${partnerName}`;
+    if (childrenHdr) childrenHdr.style.display = children.length ? 'block' : 'none';
+    // Partner summary card itself is rendered by renderPartnerSummary() —
+    // it lives inside #family-partner-section so calling it here keeps the
+    // tab in sync when the user switches months.
+    renderPartnerSummary();
+
     const container = document.getElementById('children-content');
     if (!container) return;
     if (!children.length) {
+        // Show the empty state only when neither partner nor children exist.
+        // Otherwise the partner card alone is the page.
+        if (showPartner) { container.innerHTML = ''; return; }
         container.innerHTML = `
             <div class="empty-state" style="padding:40px 20px">
-                <i class="fas fa-children" style="font-size:2rem;color:var(--text-muted);margin-bottom:12px"></i>
-                <p style="margin-bottom:12px">Nao tem filhos configurados</p>
+                <i class="fas fa-users" style="font-size:2rem;color:var(--text-muted);margin-bottom:12px"></i>
+                <p style="margin-bottom:12px">Nao tem familiares configurados</p>
                 <button onclick="showSettingsModal();setTimeout(()=>switchSettingsTab('children'),100)" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> Adicionar Filho
+                    <i class="fas fa-plus"></i> Adicionar filho ou conjuge
                 </button>
             </div>
         `;
@@ -8143,41 +8161,52 @@ function submitSavingsGoal() {
     showToast(id ? 'Objetivo atualizado' : 'Objetivo criado');
 }
 
-function addToGoal(id) {
-    const g = savingsGoals.find(x => x.id === id);
-    if (!g) return;
-    const v = prompt(`Adicionar à poupança "${g.name}" (atual ${formatCurrency(getGoalBalance(g))}):`);
-    if (v == null) return;
-    const n = parseFloat(v.replace(',', '.'));
-    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
-    const note = prompt('Nota (opcional):') || '';
-    g.transactions = g.transactions || [];
-    g.transactions.push({
-        id: generateId(), type: 'add', amount: n,
-        date: new Date().toISOString().slice(0, 10), note
-    });
-    saveData();
-    renderSavingsGoals();
-    if (getGoalBalance(g) >= g.target) showToast(`🎉 Objetivo "${g.name}" atingido!`);
+function addToGoal(id)    { openGoalTxModal(id, 'add'); }
+function removeFromGoal(id) { openGoalTxModal(id, 'remove'); }
+
+function openGoalTxModal(goalId, type) {
+    const g = savingsGoals.find(x => x.id === goalId);
+    const modal = document.getElementById('modal-goal-tx');
+    if (!g || !modal) return;
+    const balance = getGoalBalance(g);
+    const isAdd = type === 'add';
+    document.getElementById('goal-tx-title').innerHTML = isAdd
+        ? '<i class="fas fa-plus" style="color:var(--success)"></i> Adicionar à poupança'
+        : '<i class="fas fa-minus" style="color:#E65100"></i> Retirar da poupança';
+    document.getElementById('goal-tx-info').innerHTML =
+        `<strong>${g.name}</strong> · saldo atual ${formatCurrency(balance)} / ${formatCurrency(g.target)}`;
+    document.getElementById('goal-tx-goal-id').value = goalId;
+    document.getElementById('goal-tx-type').value = type;
+    document.getElementById('goal-tx-amount').value = '';
+    document.getElementById('goal-tx-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('goal-tx-note').value = '';
+    modal.classList.add('active');
+    setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
 }
 
-function removeFromGoal(id) {
-    const g = savingsGoals.find(x => x.id === id);
+function submitGoalTx() {
+    const goalId = document.getElementById('goal-tx-goal-id').value;
+    const type = document.getElementById('goal-tx-type').value;
+    const g = savingsGoals.find(x => x.id === goalId);
     if (!g) return;
-    const cur = getGoalBalance(g);
-    const v = prompt(`Retirar da poupança "${g.name}" (atual ${formatCurrency(cur)}):`);
-    if (v == null) return;
-    const n = parseFloat(v.replace(',', '.'));
-    if (!isFinite(n) || n <= 0) { showToast('Valor inválido'); return; }
-    if (n > cur && !confirm('O valor a retirar excede o saldo. Continuar?')) return;
-    const note = prompt('Nota (opcional):') || '';
+    const amt = parseFloat((document.getElementById('goal-tx-amount').value || '').replace(',', '.'));
+    if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
+    const date = document.getElementById('goal-tx-date').value || new Date().toISOString().slice(0, 10);
+    const note = (document.getElementById('goal-tx-note').value || '').trim();
+    const balance = getGoalBalance(g);
+    if (type === 'remove' && amt > balance) {
+        if (!confirm(`Vais retirar ${formatCurrency(amt)} mas só tens ${formatCurrency(balance)}. Continuar (saldo fica negativo)?`)) return;
+    }
     g.transactions = g.transactions || [];
-    g.transactions.push({
-        id: generateId(), type: 'remove', amount: n,
-        date: new Date().toISOString().slice(0, 10), note
-    });
+    g.transactions.push({ id: generateId(), type, amount: amt, date, note });
     saveData();
     renderSavingsGoals();
+    document.getElementById('modal-goal-tx').classList.remove('active');
+    if (type === 'add' && getGoalBalance(g) >= g.target) {
+        showToast(`🎉 Objetivo "${g.name}" atingido!`);
+    } else {
+        showToast(type === 'add' ? `+ ${formatCurrency(amt)} em ${g.name}` : `− ${formatCurrency(amt)} de ${g.name}`);
+    }
 }
 
 function deleteGoal(id) {
