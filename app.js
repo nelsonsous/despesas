@@ -3490,7 +3490,7 @@ function renderPartnerSpending() {
                     ? (partnerSplitEntry.paid
                         ? `<span style="color:var(--success);font-weight:600">✓ ${formatCurrency(partnerSplitEntry.amount)} pago</span>`
                         : `<span style="color:var(--danger);font-weight:600">🕐 ${formatCurrency(partnerSplitEntry.amount)} por receber</span>`)
-                    : (e.mixPartnerPct
+                    : (e.mixPartnerPct && e.mixPartnerSplit
                         ? (e.mixPartnerPaid
                             ? `<span style="color:var(--success);font-weight:600">✓ parte recebida</span>`
                             : `<span style="color:var(--danger);font-weight:600">🕐 parte por receber</span>`)
