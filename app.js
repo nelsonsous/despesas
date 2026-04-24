@@ -3241,6 +3241,9 @@ function renderExpenses() {
                         class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
                         ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
                     </button>
+                    <button onclick="event.stopPropagation();editFixed('${f.id}')" class="btn-icon" style="color:var(--primary);padding:4px;margin-left:2px" title="Editar despesa fixa">
+                        <i class="fas fa-pen"></i>
+                    </button>
                     <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px;margin-left:2px" title="Ignorar este mês">
                         <i class="fas fa-ban"></i>
                     </button>
