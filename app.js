@@ -123,7 +123,7 @@ let pendingExpenses = [];
 const PENDING_KEY = 'vanessa_pending_ai';
 const AI_CFG_KEY = 'vanessa_ai_cfg';
 
-let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
+let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', mistralKey: '', mistralModel: 'mistral-small-latest', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
 let _googleTokenClient = null;
 let _googleAccessToken = null;
 
@@ -140,6 +140,8 @@ function saveAiSettings() {
     const grokModel = document.getElementById('ai-grok-model')?.value.trim();
     const groqKey = document.getElementById('ai-groq-key')?.value.trim();
     const groqModel = document.getElementById('ai-groq-model')?.value.trim();
+    const mistralKey = document.getElementById('ai-mistral-key')?.value.trim();
+    const mistralModel = document.getElementById('ai-mistral-model')?.value.trim();
     const provider = document.querySelector('input[name="ai-provider"]:checked')?.value;
     const cid = document.getElementById('ai-google-client-id')?.value.trim();
     const ownContactsEl = document.getElementById('ai-own-contacts');
@@ -148,6 +150,8 @@ function saveAiSettings() {
     if (grokModel) aiCfg.grokModel = grokModel;
     if (groqKey) aiCfg.groqKey = groqKey;
     if (groqModel) aiCfg.groqModel = groqModel;
+    if (mistralKey) aiCfg.mistralKey = mistralKey;
+    if (mistralModel) aiCfg.mistralModel = mistralModel;
     if (provider) aiCfg.aiProvider = provider;
     if (ownContactsEl) aiCfg.ownContacts = ownContactsEl.value.trim();
     if (cid) aiCfg.googleClientId = cid;
@@ -168,6 +172,8 @@ function renderAiSettingsUI() {
     const grokModelEl = document.getElementById('ai-grok-model');
     const groqKeyEl = document.getElementById('ai-groq-key');
     const groqModelEl = document.getElementById('ai-groq-model');
+    const mistralKeyEl = document.getElementById('ai-mistral-key');
+    const mistralModelEl = document.getElementById('ai-mistral-model');
     const cidEl = document.getElementById('ai-google-client-id');
     const autoEl = document.getElementById('ai-auto-sync');
     const fromEl = document.getElementById('ai-sync-from');
@@ -177,6 +183,8 @@ function renderAiSettingsUI() {
     if (grokModelEl) grokModelEl.value = aiCfg.grokModel || 'grok-4-fast';
     if (groqKeyEl && aiCfg.groqKey) groqKeyEl.value = aiCfg.groqKey;
     if (groqModelEl) groqModelEl.value = aiCfg.groqModel || 'llama-3.3-70b-versatile';
+    if (mistralKeyEl && aiCfg.mistralKey) mistralKeyEl.value = aiCfg.mistralKey;
+    if (mistralModelEl) mistralModelEl.value = aiCfg.mistralModel || 'mistral-small-latest';
     const providerEl = document.querySelector(`input[name="ai-provider"][value="${aiCfg.aiProvider || 'gemini'}"]`);
     if (providerEl) providerEl.checked = true;
     // Toggle provider-specific blocks. If the wrapper IDs aren't in the DOM
@@ -192,6 +200,7 @@ function renderAiSettingsUI() {
     showBlock('ai-gemini-block', 'ai-gemini-key', provider === 'gemini');
     showBlock('ai-grok-block', 'ai-grok-key', provider === 'grok');
     showBlock('ai-groq-block', 'ai-groq-key', provider === 'groq');
+    showBlock('ai-mistral-block', 'ai-mistral-key', provider === 'mistral');
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
     const ownEl = document.getElementById('ai-own-contacts');
     if (ownEl && aiCfg.ownContacts !== undefined) ownEl.value = aiCfg.ownContacts;
@@ -446,6 +455,9 @@ function callGrokOnce(prompt) {
 }
 function callGroqOnce(prompt) {
     return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt);
+}
+function callMistralOnce(prompt) {
+    return callOpenAICompatibleOnce('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, aiCfg.mistralModel || 'mistral-small-latest', prompt);
 }
 
 const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
@@ -4469,28 +4481,56 @@ function renderSavingsTips(container, tips, loading) {
 }
 
 function hasAnyAiKey() {
-    const p = aiCfg.aiProvider || 'gemini';
-    if (p === 'gemini') return !!aiCfg.geminiKey;
-    if (p === 'grok') return !!aiCfg.grokKey;
-    if (p === 'groq') return !!aiCfg.groqKey;
-    return false;
+    // Any configured provider unlocks the AI features — the dispatcher
+    // handles picking the right one at call time.
+    return !!(aiCfg.geminiKey || aiCfg.groqKey || aiCfg.grokKey || aiCfg.mistralKey);
 }
 
-// Single entry point for "text in, text out" AI calls. Handles provider
-// dispatch (Gemini/Grok/Groq) and error normalisation so each feature can
-// stay short.
+// Single entry point for "text in, text out" AI calls. Picks the user's
+// preferred provider first, then falls back through any other providers
+// with a key configured when the preferred one errors (quota, 429, network).
+// Every call site benefits — narrative, savings tips, NL query, auto-cat,
+// scenarios, duplicates, fixas suggestion, share-message drafting.
 async function callAIText(prompt) {
-    const provider = aiCfg.aiProvider || 'gemini';
-    if (provider === 'grok') {
-        const data = await callGrokOnce(prompt);
-        return data?.choices?.[0]?.message?.content || '';
+    const order = aiProviderFallbackOrder();
+    if (!order.length) throw new Error('Sem chave de IA configurada');
+    const errors = [];
+    for (const provider of order) {
+        try {
+            if (provider === 'gemini') {
+                const data = await callGeminiOnce(prompt);
+                return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            }
+            if (provider === 'groq') {
+                const data = await callGroqOnce(prompt);
+                return data?.choices?.[0]?.message?.content || '';
+            }
+            if (provider === 'grok') {
+                const data = await callGrokOnce(prompt);
+                return data?.choices?.[0]?.message?.content || '';
+            }
+            if (provider === 'mistral') {
+                const data = await callMistralOnce(prompt);
+                return data?.choices?.[0]?.message?.content || '';
+            }
+        } catch (e) {
+            errors.push(`${provider}: ${e?.message || e}`);
+            // Keep trying — next provider in the fallback chain.
+        }
     }
-    if (provider === 'groq') {
-        const data = await callGroqOnce(prompt);
-        return data?.choices?.[0]?.message?.content || '';
-    }
-    const data = await callGeminiOnce(prompt);
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    throw new Error(errors.join(' | ') || 'Todas as IAs falharam');
+}
+
+// Ordered list of providers to try: user's preferred first, then anything
+// else that has a key. Used by callAIText and runReceiptOcr.
+function aiProviderFallbackOrder() {
+    const preferred = aiCfg.aiProvider || 'gemini';
+    const hasKey = { gemini: !!aiCfg.geminiKey, groq: !!aiCfg.groqKey, grok: !!aiCfg.grokKey, mistral: !!aiCfg.mistralKey };
+    const order = [];
+    if (hasKey[preferred]) order.push(preferred);
+    // Free tiers first in the fallback so we burn paid quota last.
+    ['groq', 'mistral', 'gemini', 'grok'].forEach(p => { if (hasKey[p] && !order.includes(p)) order.push(p); });
+    return order;
 }
 
 // Tries to parse a JSON object from the AI response, tolerating code fences
@@ -5177,24 +5217,26 @@ function callGroqVision(b64, mime, prompt) {
 function callGrokVision(b64, mime, prompt) {
     return callOpenAIVision('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, 'grok-2-vision-latest', b64, mime, prompt);
 }
+function callMistralVision(b64, mime, prompt) {
+    // Pixtral is Mistral's multimodal line; the small variant is in the
+    // free tier and has no trouble with receipts.
+    return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt);
+}
 
 // Dispatch OCR to whatever provider is configured — starts with the user's
 // selected one; on quota/failure falls back to another provider that has
-// a key. Matters because Gemini free tier runs out, Groq is generous.
+// a key. Matters because Gemini free tier runs out, Groq/Mistral are
+// generous.
 async function runReceiptOcr(base64Data, mimeType, prompt) {
+    const order = aiProviderFallbackOrder();
+    if (!order.length) throw new Error('Sem chave de IA configurada (Gemini, Groq, Mistral ou Grok).');
     const tried = [];
-    const order = [];
-    const preferred = aiCfg.aiProvider || 'gemini';
-    const byKey = { gemini: !!aiCfg.geminiKey, groq: !!aiCfg.groqKey, grok: !!aiCfg.grokKey };
-    if (byKey[preferred]) order.push(preferred);
-    ['groq', 'gemini', 'grok'].forEach(p => { if (byKey[p] && !order.includes(p)) order.push(p); });
-    if (!order.length) throw new Error('Sem chave de IA configurada (Gemini, Groq ou Grok).');
-
     for (const provider of order) {
         try {
-            if (provider === 'gemini') return { text: await callGeminiVision(base64Data, mimeType, prompt), provider };
-            if (provider === 'groq')   return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
-            if (provider === 'grok')   return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'gemini')  return { text: await callGeminiVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'groq')    return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'grok')    return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'mistral') return { text: await callMistralVision(base64Data, mimeType, prompt), provider };
         } catch (e) {
             tried.push(`${provider}: ${e?.message || e}`);
         }
@@ -5205,8 +5247,8 @@ async function runReceiptOcr(base64Data, mimeType, prompt) {
 async function onReceiptImageSelected(input) {
     const file = input?.files?.[0];
     if (!file) return;
-    if (!(aiCfg.geminiKey || aiCfg.groqKey || aiCfg.grokKey)) {
-        showToast('Scan de recibo requer chave Gemini, Groq ou Grok');
+    if (!hasAnyAiKey()) {
+        showToast('Scan de recibo requer chave Gemini, Groq, Mistral ou Grok');
         input.value = '';
         return;
     }
