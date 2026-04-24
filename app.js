@@ -4444,13 +4444,11 @@ function updateMixPartnerUI(expense) {
     const cb = document.getElementById('mix-with-partner');
     const pct = document.getElementById('mix-partner-pct');
     const splitCb = document.getElementById('mix-partner-split');
-    const splitPct = document.getElementById('mix-partner-split-pct');
     const paidCb = document.getElementById('mix-partner-paid');
     const has = !!(expense && expense.mixPartnerPct);
     if (cb) cb.checked = has;
     if (pct) pct.value = expense?.mixPartnerPct || 50;
     if (splitCb) splitCb.checked = !!(expense && expense.mixPartnerSplit);
-    if (splitPct) splitPct.value = expense?.mixPartnerSplitPct || getPartnerPct();
     if (paidCb) paidCb.checked = !!(expense && expense.mixPartnerPaid);
     toggleMixWithPartner();
     toggleMixPartnerSplit();
@@ -4693,14 +4691,11 @@ function updateFixedMixPartnerUI(f) {
     const cb = document.getElementById('fixed-mix-with-partner');
     const pct = document.getElementById('fixed-mix-partner-pct');
     const splitCb = document.getElementById('fixed-mix-partner-split');
-    const splitPct = document.getElementById('fixed-mix-partner-split-pct');
     const has = !!(f && f.mixPartnerPct);
     if (cb) cb.checked = has;
     if (pct) pct.value = f?.mixPartnerPct || 50;
     if (splitCb) splitCb.checked = !!(f && f.mixPartnerSplit);
-    if (splitPct) splitPct.value = f?.mixPartnerSplitPct || getPartnerPct();
     toggleFixedMixPartner();
-    toggleFixedMixPartnerSplit();
 }
 
 function populateFixedSplitsUI(f) {
@@ -4945,9 +4940,8 @@ function saveExpense(event) {
         ? (parseFloat(document.getElementById('mix-partner-pct')?.value) || 0)
         : 0;
     const mixPartnerSplitOn = mixWithPartnerOn && !!document.getElementById('mix-partner-split')?.checked;
-    const mixPartnerSplitPct = mixPartnerSplitOn
-        ? (parseFloat(document.getElementById('mix-partner-split-pct')?.value) || 50)
-        : null;
+    // The same attribution % is what the partner owes — no second field.
+    const mixPartnerSplitPct = mixPartnerSplitOn ? 100 : null;
     const mixPartnerPaidOn = mixPartnerSplitOn && !!document.getElementById('mix-partner-paid')?.checked;
     if (mixWithPartnerOn && mixPartnerPct > 0 && !withPeople.some(p => p.toLowerCase() === partnerName.toLowerCase())) {
         withPeople.push(partnerName);
@@ -5944,9 +5938,8 @@ function saveFixed(event) {
         ? (parseFloat(document.getElementById('fixed-mix-partner-pct')?.value) || 0)
         : 0;
     const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
-    const mixPartnerSplitPct = mixPartnerSplitOn
-        ? (parseFloat(document.getElementById('fixed-mix-partner-split-pct')?.value) || 50)
-        : null;
+    // Same % as the attribution — the partner owes her full attributed portion.
+    const mixPartnerSplitPct = mixPartnerSplitOn ? 100 : null;
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
