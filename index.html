@@ -953,7 +953,7 @@
                     <p class="settings-desc">Sincroniza despesas automaticamente a partir dos emails do Gmail usando IA (Gemini ou Grok).</p>
 
                     <div class="form-group">
-                        <label>Provedor de IA</label>
+                        <label>Provedor de IA principal</label>
                         <div class="radio-group" style="flex-wrap:wrap">
                             <label class="radio-label">
                                 <input type="radio" name="ai-provider" value="gemini" checked onchange="saveAiSettings()">
@@ -964,11 +964,15 @@
                                 <span>Groq (grátis)</span>
                             </label>
                             <label class="radio-label">
+                                <input type="radio" name="ai-provider" value="mistral" onchange="saveAiSettings()">
+                                <span>Mistral (grátis)</span>
+                            </label>
+                            <label class="radio-label">
                                 <input type="radio" name="ai-provider" value="grok" onchange="saveAiSettings()">
                                 <span>Grok (xAI)</span>
                             </label>
                         </div>
-                        <small class="field-hint">Groq ≠ Grok. Groq é uma plataforma de inferência rápida com tier grátis generoso (Llama 3). Grok é o modelo da xAI (Elon Musk), pago.</small>
+                        <small class="field-hint">Podes configurar chaves de vários providers em simultâneo. A app usa sempre o principal primeiro; se esgotar quota ou falhar, cai automaticamente para qualquer outro com chave configurada.</small>
                     </div>
 
                     <div id="ai-gemini-block" class="form-group">
@@ -984,6 +988,15 @@
                         <label style="margin-top:10px">Modelo</label>
                         <input type="text" id="ai-groq-model" placeholder="llama-3.3-70b-versatile" value="llama-3.3-70b-versatile">
                         <small class="field-hint">Default: <code>llama-3.3-70b-versatile</code> (melhor). Mais rápidos: <code>llama-3.1-8b-instant</code>, <code>gemma2-9b-it</code>.</small>
+                    </div>
+
+                    <div id="ai-mistral-block" class="form-group" style="display:none">
+                        <label>Chave API Mistral <a href="https://console.mistral.ai/api-keys" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter grátis)</a></label>
+                        <input type="password" id="ai-mistral-key" placeholder="..." autocomplete="off">
+                        <small class="field-hint">Grátis em <code>console.mistral.ai</code>. Tier "La Plateforme" dá 1 req/s e 500k tokens/min. Vision via modelos Pixtral.</small>
+                        <label style="margin-top:10px">Modelo (texto)</label>
+                        <input type="text" id="ai-mistral-model" placeholder="mistral-small-latest" value="mistral-small-latest">
+                        <small class="field-hint">Default: <code>mistral-small-latest</code> (grátis, muito bom). Mais rápido: <code>ministral-8b-latest</code>. Mais capaz: <code>mistral-large-latest</code> (pago).</small>
                     </div>
 
                     <div id="ai-grok-block" class="form-group" style="display:none">
