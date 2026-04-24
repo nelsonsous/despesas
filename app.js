@@ -5088,6 +5088,111 @@ Contexto: ${JSON.stringify(context)}`;
     try { return (await callAIText(prompt)).trim(); } catch { return null; }
 }
 
+// ----- Receipt OCR (photo → expense) -----
+// Uses Gemini multimodal (vision) to extract fields from a receipt photo.
+// Silently no-op if the user isn't on Gemini or hasn't set a key.
+async function callGeminiVision(base64Data, mimeType, prompt) {
+    if (!aiCfg.geminiKey) throw new Error('Chave Gemini não configurada');
+    const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiCfg.geminiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: mimeType, data: base64Data } }
+                    ]
+                }],
+                generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
+            })
+        }
+    );
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Erro Gemini');
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+function fileToBase64Gemini(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const res = reader.result || '';
+            // Drop the "data:<mime>;base64," prefix; Gemini only wants the
+            // raw base64 payload.
+            const comma = res.indexOf(',');
+            resolve({ data: comma >= 0 ? res.slice(comma + 1) : res, type: file.type || 'image/jpeg' });
+        };
+        reader.onerror = () => reject(new Error('Não consegui ler a imagem'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function onReceiptImageSelected(input) {
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (!aiCfg.geminiKey) {
+        showToast('Scan de recibo requer chave Gemini');
+        input.value = '';
+        return;
+    }
+    const btn = document.getElementById('receipt-scan-btn');
+    const originalHtml = btn?.innerHTML;
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A ler recibo…'; }
+    try {
+        const { data, type } = await fileToBase64Gemini(file);
+        const cats = getEffectiveCategories();
+        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+        const today = new Date().toISOString().slice(0, 10);
+        const prompt = `Extrai os dados deste recibo/fatura. Devolve APENAS JSON: {"descricao":"nome curto do estabelecimento","valor":N,"data":"YYYY-MM-DD","estabelecimento":"…","categoria":"<id exato>","essencial":true|false,"confianca":0..1,"notas":"…"}. Se não conseguires, devolve {"erro":"razão"}. Sem markdown.
+Categorias (usa o id exato): ${JSON.stringify(catList)}
+Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
+        const raw = await callGeminiVision(data, type, prompt);
+        const obj = extractJsonObject(raw);
+        if (!obj || obj.erro) {
+            showToast(obj?.erro || 'Não consegui ler o recibo');
+            return;
+        }
+        prefillExpenseFromReceipt(obj);
+        showToast('Recibo lido — verifica os campos');
+    } catch (e) {
+        showToast(`Erro: ${e?.message || e}`);
+    } finally {
+        if (btn && originalHtml != null) { btn.disabled = false; btn.innerHTML = originalHtml; }
+        input.value = '';
+    }
+}
+
+// Opens the "Nova despesa" modal and drops the extracted fields into it.
+// The user still reviews and confirms — we never auto-save.
+function prefillExpenseFromReceipt(obj) {
+    showAddExpense();
+    setTimeout(() => {
+        const descEl = document.getElementById('expense-desc');
+        const amtEl = document.getElementById('expense-amount');
+        const dateEl = document.getElementById('expense-date');
+        const catEl = document.getElementById('expense-category');
+        const notesEl = document.getElementById('expense-notes');
+        if (descEl && obj.descricao) descEl.value = String(obj.descricao).slice(0, 60);
+        if (amtEl && typeof obj.valor === 'number') amtEl.value = obj.valor;
+        if (dateEl && obj.data && /^\d{4}-\d{2}-\d{2}$/.test(obj.data)) dateEl.value = obj.data;
+        const cats = getEffectiveCategories();
+        if (catEl && obj.categoria && cats[obj.categoria]) catEl.value = obj.categoria;
+        if (notesEl) {
+            const pieces = [];
+            if (obj.estabelecimento && (!obj.descricao || !obj.descricao.toLowerCase().includes(String(obj.estabelecimento).toLowerCase()))) pieces.push(obj.estabelecimento);
+            if (obj.notas) pieces.push(obj.notas);
+            if (pieces.length) notesEl.value = pieces.join(' · ');
+        }
+        // Essential radio
+        if (typeof obj.essencial === 'boolean') {
+            const radio = document.querySelector(`input[name="essential"][value="${obj.essencial ? 'yes' : 'no'}"]`);
+            if (radio) radio.checked = true;
+        }
+    }, 120);
+}
+
 // ----- Salary cycle "what if" scenario -----
 async function runAiSalaryScenario() {
     if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }

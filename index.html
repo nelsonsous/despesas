@@ -278,8 +278,12 @@
             <!-- Quick Add Bar -->
             <div id="quick-add-bar" style="display:none"></div>
 
-            <!-- Compact PDF import chip -->
+            <!-- Compact PDF import + receipt scan chips -->
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                <button id="receipt-scan-btn" onclick="document.getElementById('receipt-image-input').click()" style="padding:6px 12px;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;border-radius:20px;cursor:pointer;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+                    <i class="fas fa-camera"></i> Scan recibo
+                </button>
+                <input type="file" id="receipt-image-input" accept="image/*" capture="environment" style="display:none" onchange="onReceiptImageSelected(this)">
                 <button id="ai-dup-btn" onclick="runAiDuplicateCheck()" style="padding:6px 12px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;border-radius:20px;cursor:pointer;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:6px">
                     <i class="fas fa-wand-magic-sparkles"></i> Analisar com IA
                 </button>
