@@ -666,10 +666,12 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 }
 .expense-meta {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     font-size: 0.75rem;
     color: var(--text-light);
     margin-top: 2px;
+    row-gap: 4px;
 }
 .expense-amount {
     font-size: 1rem;
