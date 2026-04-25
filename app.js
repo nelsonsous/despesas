@@ -1782,6 +1782,39 @@ function loadData() {
     });
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
+    // Backfill missing top-up expenses. Cards created on older versions
+    // pushed top-up transactions straight to the ledger without creating
+    // the matching "Carregamento ..." expense — so the saldo never saw
+    // the cash out. For each top-up that lacks an expense pair, create
+    // one now and stamp the cross-references.
+    try {
+        const existingPair = new Set();
+        expenses.forEach(e => { if (e.isPrepaidTopup && e.prepaidTxId) existingPair.add(e.prepaidTxId); });
+        prepaidCards.forEach(card => {
+            (card.transactions || []).forEach(t => {
+                if (t.type !== 'topup') return;
+                if (existingPair.has(t.id)) return;
+                if (t.expenseId && expenses.find(e => e.id === t.expenseId && e.isPrepaidTopup)) return;
+                const expenseId = generateId();
+                expenses.push({
+                    id: expenseId,
+                    description: `Carregamento ${card.name}`,
+                    amount: parseFloat(t.amount) || 0,
+                    date: t.date || new Date().toISOString().slice(0, 10),
+                    category: 'outros',
+                    type: 'personal',
+                    essential: true,
+                    isPrepaidTopup: true,
+                    prepaidCardId: card.id,
+                    prepaidTxId: t.id,
+                    notes: t.description && t.description !== 'Carregamento' ? t.description : '',
+                    createdAt: new Date().toISOString()
+                });
+                t.expenseId = expenseId;
+            });
+        });
+    } catch {}
+
     // Repair prepaid linkages corrupted by the legacy duplicateExpense bug
     // (or any historical state where the back-references drifted). The
     // editor resolves spends via the bidirectional "expense.prepaidTxId
@@ -8702,29 +8735,79 @@ function createPrepaidCard(name, initialBalance, icon, color) {
         createdAt: new Date().toISOString(),
         transactions: []
     };
-    if (initialBalance && initialBalance > 0) {
-        card.transactions.push({
-            id: generateId(),
-            type: 'topup',
-            amount: parseFloat(initialBalance),
-            description: 'Saldo inicial',
-            date: new Date().toISOString().slice(0, 10)
-        });
-    }
     prepaidCards.push(card);
-    saveData();
-    renderPrepaidCards();
+    // Same accounting fix as submitNewPrepaid: a non-zero initial balance
+    // has to flow through addPrepaidTopup so the matching "Carregamento"
+    // expense is created and the dashboard sees the cash out.
+    if (initialBalance && initialBalance > 0) {
+        addPrepaidTopup(card.id, parseFloat(initialBalance), 'Saldo inicial', new Date().toISOString().slice(0, 10));
+    } else {
+        saveData();
+        renderPrepaidCards();
+    }
     return card;
 }
 
+// Cascade delete: when the card goes away, the dashboard totals must
+// reflect that the top-ups never happened (we delete the linked
+// "Carregamento ..." expenses) and that any consumption paid via the
+// card now stops being a hidden line item — the spend expenses get
+// their prepaidCardId stripped so they re-enter the regular monthly
+// totals via expenseAffectsBalance.
 function deletePrepaidCard(id) {
     const card = prepaidCards.find(c => c.id === id);
     if (!card) return;
-    if (!confirm(`Apagar cartão ${card.name}? Histórico de transações perdido; despesas ligadas continuam no app.`)) return;
+    const txs = card.transactions || [];
+    const topupExpenseIds = new Set();
+    txs.forEach(t => { if (t.type === 'topup' && t.expenseId) topupExpenseIds.add(t.expenseId); });
+    const spendCount = txs.filter(t => t.type === 'spend').length;
+    const lines = [];
+    lines.push(`Apagar cartão ${card.name}?`);
+    lines.push('');
+    lines.push(`• Remove os ${txs.length} movimentos do cartão`);
+    if (topupExpenseIds.size) lines.push(`• Apaga também ${topupExpenseIds.size} carregamento(s) registado(s) como despesa`);
+    if (spendCount) lines.push(`• Os ${spendCount} consumo(s) passam a contar como despesas normais nos totais mensais`);
+    if (!confirm(lines.join('\n'))) return;
+    // Drop top-up expenses (the dashboard outflow they represent must go).
+    expenses = expenses.filter(e => !topupExpenseIds.has(e.id));
+    // Unlink any consumption expenses pointing to this card so they stop
+    // being hidden by expenseAffectsBalance.
+    expenses.forEach(e => {
+        if (e.prepaidCardId === id) {
+            e.prepaidCardId = null;
+            e.prepaidTxId = null;
+        }
+    });
     prepaidCards = prepaidCards.filter(c => c.id !== id);
     saveData();
     renderPrepaidCards();
     updateAll();
+    showToast('Cartão apagado');
+}
+
+// Lightweight rename for prepaid cards. Changing the name also updates
+// the description on every linked top-up expense so the dashboard rows
+// stay in sync ("Carregamento Lidl Plus" → "Carregamento Lidl"). Date,
+// amount and color are unchanged.
+function editPrepaidCard(id) {
+    const card = prepaidCards.find(c => c.id === id);
+    if (!card) return;
+    const newName = prompt('Novo nome do cartão:', card.name);
+    if (newName == null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) { showToast('Nome inválido'); return; }
+    const oldName = card.name;
+    card.name = trimmed;
+    expenses.forEach(e => {
+        if (e.isPrepaidTopup && e.prepaidCardId === id) {
+            e.description = `Carregamento ${trimmed}`;
+            e.updatedAt = new Date().toISOString();
+        }
+    });
+    saveData();
+    renderPrepaidCards();
+    updateAll();
+    showToast(`Cartão renomeado: ${oldName} → ${trimmed}`);
 }
 
 // Opens the create-card modal with sensible defaults (today's date for the
@@ -8756,18 +8839,18 @@ function submitNewPrepaid() {
         createdAt: new Date().toISOString(),
         transactions: []
     };
-    if (isFinite(bal) && bal > 0) {
-        card.transactions.push({
-            id: generateId(),
-            type: 'topup',
-            amount: bal,
-            description: 'Saldo inicial',
-            date
-        });
-    }
     prepaidCards.push(card);
-    saveData();
-    renderPrepaidCards();
+    // Route the initial balance through addPrepaidTopup so the
+    // accompanying "Carregamento ..." expense is created — that's what
+    // makes the dashboard saldo register the real cash out. Without
+    // this, the card showed 4000€ but the dashboard didn't notice the
+    // money had left the wallet.
+    if (isFinite(bal) && bal > 0) {
+        addPrepaidTopup(card.id, bal, 'Saldo inicial', date);
+    } else {
+        saveData();
+        renderPrepaidCards();
+    }
     document.getElementById('modal-prepaid-create')?.classList.remove('active');
     showToast('Cartão criado');
 }
@@ -8857,6 +8940,7 @@ function renderPrepaidCards() {
             </div>`).join('')}</div>` : ''}
             <div style="display:flex;gap:6px;margin-top:10px">
                 <button onclick="event.stopPropagation();showPrepaidTopupPrompt('${card.id}')" class="btn btn-sm" style="flex:1;background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9"><i class="fas fa-plus"></i> Carregar</button>
+                <button onclick="event.stopPropagation();editPrepaidCard('${card.id}')" class="btn btn-sm" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25)" title="Renomear"><i class="fas fa-pen"></i></button>
                 <button onclick="event.stopPropagation();deletePrepaidCard('${card.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2"><i class="fas fa-trash"></i></button>
             </div>`;
         // Tap on the header (everything except the action buttons)
