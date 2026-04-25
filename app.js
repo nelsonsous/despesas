@@ -1273,9 +1273,15 @@ function renderSalaryCycle() {
     const cycleFixed = b.expPending;
     const salaryIncome = b.incReceived;
 
+    // Money committed to savings goals during this cycle. Treated as
+    // already-spent for the cycle balance + projection (same accounting
+    // as expense outflows). Range is the cycle, not the calendar month,
+    // because cycles often span two months.
+    const cycleSavings = Math.max(0, getGoalsContributionInRange(cycleStart, cycleEnd));
+
     const totalBudget = salaryIncome || (spentSinceSalary + cycleFixed + 500);
-    const available = totalBudget - spentSinceSalary - cycleFixed;
-    const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed) / totalBudget) * 100) : 0;
+    const available = totalBudget - spentSinceSalary - cycleFixed - cycleSavings;
+    const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed + cycleSavings) / totalBudget) * 100) : 0;
 
     // Day counters — for past/future cycles show the whole cycle as "done"
     const daysTotal = Math.max(1, Math.round((cycleEnd - cycleStart) / 86400000) + 1);
@@ -1286,7 +1292,7 @@ function renderSalaryCycle() {
     // Daily spending rate (variable only — fixed doesn't reflect daily behaviour)
     const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
     const projectedVar = dailyVarRate * daysLeft;
-    const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar);
+    const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
 
     // Top category within the cycle
     const topCat = Object.entries(b.expByCategory).sort((a, b) => b[1] - a[1])[0];
@@ -2458,7 +2464,13 @@ function updateDashboard() {
     const monthInc = getEffectiveMonthIncomes(currentDate);
     const totalExpenses = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
-    const balance = totalIncome - totalExpenses;
+    // Savings deposits are committed money out, so they shrink the
+    // monthly saldo just like any expense. Removals from a goal don't
+    // ADD to balance (we cap at zero) — that money was already counted
+    // when it was first deposited.
+    const monthKeyForBalance = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+    const savingsThisMonth = Math.max(0, getGoalsMonthlyContribution(monthKeyForBalance));
+    const balance = totalIncome - totalExpenses - savingsThisMonth;
     const personal = monthExp.filter(e => e.type === 'personal').reduce((s, e) => s + e.amount, 0);
     const childrenTotal = monthExp.filter(e => children.some(c => c.id === e.type)).reduce((s, e) => s + e.amount, 0);
     let splitAmount = 0;
@@ -2520,16 +2532,11 @@ function updateDashboard() {
 
     const pendingIncomes = fixedIncPending + futureRegularInc;
 
-    // Projected totals and balance. Net contributions to savings goals
-    // count as committed money out — money the user already moved into
-    // the savings buckets — so we subtract them from the projected
-    // balance. Same logic as a bank app showing "available cash" after
-    // a transfer to savings.
+    // Projected totals reuse the same savingsThisMonth computed earlier
+    // so the saldo, the projected saldo and the savings pill all agree.
     const projectedIncome = totalIncome + pendingIncomes;
     const projectedExpenses = totalExpenses + pendingExpenses;
-    const balanceMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
-    const savingsThisMonthForBalance = getGoalsMonthlyContribution(balanceMonthKey);
-    const projectedBalance = projectedIncome - projectedExpenses - Math.max(0, savingsThisMonthForBalance);
+    const projectedBalance = projectedIncome - projectedExpenses - savingsThisMonth;
     const available = projectedBalance;
 
     // Balance KPI
@@ -2537,15 +2544,17 @@ function updateDashboard() {
     animateNumber(document.getElementById('kpi-expenses'), totalExpenses);
     // Net contribution to savings goals this month (adds − removes). Only
     // shows up as a hero pill when the user actually moved money in/out
-    // this month so the dashboard isn't cluttered for non-users.
-    const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
-    const savingsThisMonth = getGoalsMonthlyContribution(monthKey);
+    // this month so the dashboard isn't cluttered for non-users. Uses
+    // the SIGNED contribution (negative on net removal) so the pill
+    // can show "+ 200" or "− 50". The balance deduction stays clamped
+    // at zero (savingsThisMonth above), but the pill is informational.
+    const savingsPillValue = getGoalsMonthlyContribution(monthKeyForBalance);
     const savingsPill = document.getElementById('kpi-savings-pill');
     const savingsEl = document.getElementById('kpi-savings');
     if (savingsPill && savingsEl) {
-        if (savingsThisMonth !== 0) {
+        if (savingsPillValue !== 0) {
             savingsPill.style.display = '';
-            savingsEl.textContent = `${savingsThisMonth > 0 ? '+' : ''}${formatCurrency(savingsThisMonth)}`;
+            savingsEl.textContent = `${savingsPillValue > 0 ? '+' : ''}${formatCurrency(savingsPillValue)}`;
         } else {
             savingsPill.style.display = 'none';
         }
@@ -8131,6 +8140,19 @@ function getGoalsMonthlyContribution(yyyymm) {
     let total = 0;
     savingsGoals.forEach(g => (g.transactions || []).forEach(t => {
         if ((t.date || '').startsWith(yyyymm)) total += (t.type === 'add' ? t.amount : -t.amount);
+    }));
+    return total;
+}
+
+// Same idea but bound by an arbitrary date range — needed for the salary
+// cycle which may span two calendar months (e.g. 22 Apr → 21 May). Used
+// to deduct committed savings from the cycle's available + projection.
+function getGoalsContributionInRange(start, end) {
+    let total = 0;
+    savingsGoals.forEach(g => (g.transactions || []).forEach(t => {
+        if (!t.date) return;
+        const d = new Date(t.date);
+        if (d >= start && d <= end) total += (t.type === 'add' ? t.amount : -t.amount);
     }));
     return total;
 }
