@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v128';
+const APP_VERSION = 'v129';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -3424,7 +3424,7 @@ function renderExpenses() {
     if (filterType) filtered = filtered.filter(e => e.type === filterType);
     filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    const otherTotal = filtered.reduce((s, e) => s + e.amount, 0);
+    const otherTotal = filtered.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
     const otherTotalEl = document.getElementById('other-expenses-total');
     if (otherTotalEl) otherTotalEl.textContent = filtered.length > 0 ? `(${filtered.length}) ${formatCurrency(otherTotal)}` : '';
 
@@ -3484,11 +3484,11 @@ function renderPrepaidGroupRow(cardId, items) {
                 <div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                         <div class="expense-desc">${cardName} <span style="font-size:0.65rem;color:#5A3BD8;background:#EEE7FF;padding:1px 5px;border-radius:4px;font-weight:700">cartão</span></div>
-                        <div class="expense-amount" style="color:var(--text);flex-shrink:0">${formatCurrency(topupTotal)}</div>
+                        <div class="expense-amount" style="color:var(--text);flex-shrink:0" title="Carregamentos do mês — os consumos já estão incluídos">${formatCurrency(topupTotal)}</div>
                     </div>
                     <div class="expense-meta" style="margin-top:4px">
-                        <span><i class="fas fa-arrow-up" style="color:var(--success);font-size:0.65rem"></i> ${topups.length} carregamento${topups.length === 1 ? '' : 's'} ${formatCurrency(topupTotal)}</span>
-                        <span><i class="fas fa-arrow-down" style="color:var(--danger);font-size:0.65rem"></i> ${spends.length} consumo${spends.length === 1 ? '' : 's'} ${formatCurrency(spendTotal)}</span>
+                        <span><i class="fas fa-arrow-up" style="color:var(--success);font-size:0.65rem"></i> ${topups.length} carreg. ${formatCurrency(topupTotal)}</span>
+                        <span><i class="fas fa-arrow-down" style="color:var(--text-light);font-size:0.65rem"></i> ${spends.length} consumo${spends.length === 1 ? '' : 's'} ${formatCurrency(spendTotal)} <span style="font-size:0.65rem;opacity:0.7">(já no carreg.)</span></span>
                         ${balanceTxt ? `<span style="color:var(--text-light)">${balanceTxt}</span>` : ''}
                         <i class="fas fa-chevron-${isOpen ? 'up' : 'down'}" style="color:var(--text-light);font-size:0.7rem;margin-left:auto"></i>
                     </div>
@@ -3958,7 +3958,7 @@ function renderIncomeTab() {
                         <i class="fas ${cat.icon || 'fa-coins'}"></i>
                     </div>
                     <div>
-                        <div class="fixed-month-desc">${fi.description} ${varBadge}</div>
+                        <div class="fixed-month-desc">${fi.description} ${varBadge}${(() => { const cpChild = fi.coParentChildId ? children.find(c => c.id === fi.coParentChildId) : null; return cpChild ? ` <span style="font-size:0.65rem;color:#5A3BD8;background:#EEE7FF;padding:1px 5px;border-radius:4px;font-weight:600">${cpChild.coParentName || 'co-prog.'} → ${cpChild.name}</span>` : ''; })()}</div>
                         <div class="fixed-month-meta"><span class="meta-day" style="color:#2E7D32">${modeLabel}</span>${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
                     </div>
                     <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
@@ -4106,7 +4106,14 @@ function renderChildrenTab() {
         const splitExp = childExp.filter(e => e.split);
         const splitTotal = splitExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
         const coParentShare = splitTotal * (child.splitPct / 100);
-        const coParentPaid = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
+        const coParentPaidFromExpenses = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
+        // Co-parent payments registered as fixed incomes tagged with this child:
+        // count them as already-paid contributions for this month.
+        const coParentIncomeReceived = getActiveFixedIncomesForMonth(currentDate)
+            .filter(fi => fi.coParentChildId === child.id
+                && getEffectiveFixedIncomeStatus(fi, currentDate).status === 'recebido')
+            .reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
+        const coParentPaid = coParentPaidFromExpenses + coParentIncomeReceived;
         const coParentPending = coParentShare - coParentPaid;
         const vanessaPays = total - coParentPaid;
 
@@ -10282,6 +10289,13 @@ function showAddFixedIncome() {
     const modeEl = document.querySelector('input[name="fi-pay-mode"][value="fixed-day"]');
     if (modeEl) modeEl.checked = true;
     updateFixedIncomeDayVisibility();
+    populateFixedIncomeCoParentChildren();
+    const cpGrp = document.getElementById('fixed-income-coparent-group');
+    const cpCb = document.getElementById('fixed-income-coparent-on');
+    const cpFields = document.getElementById('fixed-income-coparent-fields');
+    if (cpGrp) cpGrp.style.display = children.length ? 'block' : 'none';
+    if (cpCb) cpCb.checked = false;
+    if (cpFields) cpFields.style.display = 'none';
     document.getElementById('modal-fixed-income').classList.add('active');
 }
 
@@ -10306,7 +10320,28 @@ function editFixedIncome(id) {
     updateFixedIncomeDayVisibility();
     populateCategorySelects();
     document.getElementById('fixed-income-category').value = fi.category || 'ordenado';
+    populateFixedIncomeCoParentChildren();
+    const cpGrp = document.getElementById('fixed-income-coparent-group');
+    const cpCb = document.getElementById('fixed-income-coparent-on');
+    const cpFields = document.getElementById('fixed-income-coparent-fields');
+    const cpSel = document.getElementById('fixed-income-coparent-child');
+    if (cpGrp) cpGrp.style.display = children.length ? 'block' : 'none';
+    if (cpCb) cpCb.checked = !!fi.coParentChildId;
+    if (cpFields) cpFields.style.display = fi.coParentChildId ? 'block' : 'none';
+    if (cpSel && fi.coParentChildId) cpSel.value = fi.coParentChildId;
     document.getElementById('modal-fixed-income').classList.add('active');
+}
+
+function populateFixedIncomeCoParentChildren() {
+    const sel = document.getElementById('fixed-income-coparent-child');
+    if (!sel) return;
+    sel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}${c.coParentName ? ` (${c.coParentName})` : ''}</option>`).join('');
+}
+
+function toggleFixedIncomeCoParent() {
+    const cb = document.getElementById('fixed-income-coparent-on');
+    const fields = document.getElementById('fixed-income-coparent-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
 }
 
 function updateFixedIncomeDayVisibility() {
@@ -10332,6 +10367,9 @@ function saveFixedIncome(event) {
         isVariable: document.getElementById('fixed-income-is-variable').checked,
         onlyOnDay: document.getElementById('fixed-income-only-on-day').checked,
         manualMark: document.getElementById('fixed-income-manual-mark')?.checked || false,
+        coParentChildId: (document.getElementById('fixed-income-coparent-on')?.checked
+            ? (document.getElementById('fixed-income-coparent-child')?.value || null)
+            : null),
         updatedAt: new Date().toISOString()
     };
     if (id) {
