@@ -95,12 +95,7 @@ function applyAppTitle() {
     document.title = title;
     const headerEl = document.getElementById('header-title');
     if (headerEl) headerEl.textContent = title;
-    // Update the standalone version badge so it always reflects the live JS.
-    const tag = document.getElementById('app-version-tag');
-    if (tag) tag.textContent = APP_VERSION;
 }
-
-const APP_VERSION = 'v135';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
