@@ -9725,18 +9725,22 @@ function renderFixedList() {
             ? `<span style="font-size:0.65rem;color:#fff;background:var(--primary);padding:1px 5px;border-radius:4px;margin-left:4px" title="${fixedSplits.map(s => `${s.name}: ${formatCurrency(s.amount)}`).join(' · ')}"><i class="fas fa-user-group"></i> ${fixedSplits.length}</span>`
             : '';
         const typeLabel = child ? child.name : 'Pessoal';
+        // Compact two-line layout: top row is icon + desc/meta + amount,
+        // bottom row is a small toolbar with editar/duplicar/apagar. Buttons
+        // are intentionally short (5×9 padding) so they don't dominate the
+        // row vertically the way the previous chunky 1-line buttons did.
         return `
-            <div class="fixed-item" style="flex-wrap:wrap;padding:12px;gap:10px">
-                <div class="fixed-icon" style="width:38px;height:38px"><i class="fas ${cat.icon}"></i></div>
+            <div class="fixed-item" style="flex-wrap:wrap;padding:10px 12px;gap:8px">
+                <div class="fixed-icon" style="width:34px;height:34px"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info" style="flex:1;min-width:0">
-                    <div class="fixed-desc" style="font-size:0.92rem">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
-                    <div class="fixed-meta" style="font-size:0.74rem">Dia ${f.dayOfMonth} &middot; ${typeLabel} &middot; desde ${f.startDate}${endLabel}</div>
+                    <div class="fixed-desc" style="font-size:0.88rem">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
+                    <div class="fixed-meta" style="font-size:0.7rem">Dia ${f.dayOfMonth} &middot; ${typeLabel}${endLabel ? ` &middot; desde ${f.startDate}${endLabel}` : ` &middot; desde ${f.startDate}`}</div>
                 </div>
-                <div class="fixed-amount" style="font-size:1rem;font-weight:700;white-space:nowrap">${formatCurrency(f.amount)}</div>
-                <div style="flex-basis:100%;display:flex;gap:6px;padding-top:8px;border-top:1px dashed var(--border)">
-                    <button onclick="editFixed('${f.id}')" class="btn btn-sm" style="flex:1;background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);padding:8px"><i class="fas fa-pen"></i> Editar</button>
-                    <button onclick="duplicateFixed('${f.id}')" class="btn btn-sm" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:8px 12px" title="Duplicar"><i class="fas fa-copy"></i></button>
-                    <button onclick="confirmDeleteFixed('${f.id}')" class="btn btn-sm" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2;padding:8px 12px" title="Apagar"><i class="fas fa-trash"></i></button>
+                <div class="fixed-amount" style="font-size:0.95rem;font-weight:700;white-space:nowrap">${formatCurrency(f.amount)}</div>
+                <div style="flex-basis:100%;display:flex;gap:5px;justify-content:flex-end">
+                    <button onclick="editFixed('${f.id}')" class="btn-icon" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);padding:5px 12px;font-size:0.75rem;border-radius:6px;font-weight:600;display:inline-flex;align-items:center;gap:4px"><i class="fas fa-pen"></i> Editar</button>
+                    <button onclick="duplicateFixed('${f.id}')" class="btn-icon" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;padding:5px 9px;font-size:0.75rem;border-radius:6px" title="Duplicar"><i class="fas fa-copy"></i></button>
+                    <button onclick="confirmDeleteFixed('${f.id}')" class="btn-icon" style="background:#FFEBEE;color:#C62828;border:1px solid #FFCDD2;padding:5px 9px;font-size:0.75rem;border-radius:6px" title="Apagar"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
         `;
