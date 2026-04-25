@@ -310,7 +310,7 @@
                 <button id="receipt-scan-btn" onclick="document.getElementById('receipt-image-input').click()" class="action-chip action-chip-receipt" title="Scan de recibo">
                     <i class="fas fa-camera"></i><span>Recibo</span>
                 </button>
-                <input type="file" id="receipt-image-input" accept="image/*" style="display:none" onchange="onReceiptImageSelected(this)">
+                <input type="file" id="receipt-image-input" accept="image/*,application/pdf" style="display:none" onchange="onReceiptImageSelected(this)">
                 <button id="ai-dup-btn" onclick="runAiDuplicateCheck()" class="action-chip action-chip-ai" title="Analisar mês com IA">
                     <i class="fas fa-wand-magic-sparkles"></i><span>Analisar</span>
                 </button>
