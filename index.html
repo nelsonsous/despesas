@@ -26,6 +26,7 @@
         <!-- Header -->
         <header class="app-header">
             <h1 id="header-title">Despesas</h1>
+            <div id="app-version-tag" style="position:absolute;top:6px;right:8px;font-size:0.55rem;font-weight:600;color:#fff;background:rgba(0,0,0,0.25);padding:2px 6px;border-radius:6px;letter-spacing:0.5px;z-index:10">v127</div>
             <div class="header-actions">
                 <button onclick="document.getElementById('ai-pdf-input-global').click()" class="btn-icon" title="Importar extrato PDF"><i class="fas fa-file-pdf"></i></button>
                 <button onclick="showSettingsModal()" class="btn-icon" title="Definicoes"><i class="fas fa-gear"></i></button>
@@ -688,6 +689,17 @@
                             <input type="checkbox" id="paid-by-father">
                             <span id="paid-by-father-label">Co-progenitor ja pagou a parte dele</span>
                         </label>
+                    </div>
+                    <div class="form-group" id="split-pct-override-group" style="display:none">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                            <input type="checkbox" id="split-pct-override-on" onchange="toggleSplitPctOverride()">
+                            <span>% diferente só para esta despesa</span>
+                        </label>
+                        <div id="split-pct-override-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <label style="font-size:0.78rem">% a cargo de <span id="split-pct-override-name">co-progenitor</span></label>
+                            <input type="number" id="split-pct-override" min="1" max="100" step="1" placeholder="50">
+                            <small class="field-hint">Substitui a % por defeito do filho só nesta despesa.</small>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label><input type="checkbox" id="split-with-other" onchange="toggleSplitWithOther()"> Dividir com alguém</label>
@@ -1600,6 +1612,17 @@
                                 <span class="radio-custom"></span> Nao
                             </label>
                         </div>
+                        <div style="margin-top:10px">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                <input type="checkbox" id="fixed-split-pct-override-on" onchange="toggleFixedSplitPctOverride()">
+                                <span style="font-size:0.85rem">% diferente só para esta despesa</span>
+                            </label>
+                            <div id="fixed-split-pct-override-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                                <label style="font-size:0.78rem">% a cargo de <span id="fixed-split-pct-override-name">co-progenitor</span></label>
+                                <input type="number" id="fixed-split-pct-override" min="1" max="100" step="1" placeholder="50">
+                                <small class="field-hint">Substitui a % por defeito do filho só nesta despesa fixa.</small>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Data de inicio</label>
@@ -1705,6 +1728,10 @@
                     <div class="form-group">
                         <label><input type="checkbox" id="fixed-income-only-on-day"> So contar no saldo quando chegar o dia</label>
                         <small class="field-hint">Nao projecta a receita antes do dia &mdash; so aparece no saldo quando for recebida</small>
+                    </div>
+                    <div class="form-group">
+                        <label><input type="checkbox" id="fixed-income-manual-mark"> Marcar manualmente como recebida</label>
+                        <small class="field-hint">Nao marca automaticamente como recebida quando chega o dia &mdash; tens de carregar no badge para confirmar.</small>
                     </div>
                     <div class="form-group">
                         <label>Notas (opcional)</label>

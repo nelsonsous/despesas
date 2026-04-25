@@ -1,4 +1,4 @@
-const CACHE_NAME = 'despesas-v121';
+const CACHE_NAME = 'despesas-v127';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
@@ -7,15 +7,26 @@ const ASSETS = [
     '/despesas/manifest.json'
 ];
 
-// Install
+// Force fresh fetch of the app shell so HTTP cache (browser layer) cannot
+// hand us a stale app.js / index.html. GitHub Pages may set Cache-Control
+// headers that survive a SW update otherwise.
+function freshRequest(req) {
+    if (req.method !== 'GET') return req;
+    const url = new URL(req.url);
+    const isAppShell = /\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
+    if (!isAppShell) return req;
+    return new Request(req.url, { method: 'GET', cache: 'no-store', credentials: req.credentials });
+}
+
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+        caches.open(CACHE_NAME).then(cache =>
+            Promise.all(ASSETS.map(a => fetch(a, { cache: 'no-store' }).then(r => cache.put(a, r))))
+        )
     );
     self.skipWaiting();
 });
 
-// Activate — clear old caches and reload all clients so they get the new version immediately
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then(keys =>
@@ -26,10 +37,9 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch - Network first, fallback to cache
 self.addEventListener('fetch', (event) => {
     event.respondWith(
-        fetch(event.request)
+        fetch(freshRequest(event.request))
             .then(response => {
                 const clone = response.clone();
                 caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
