@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v133';
+const APP_VERSION = 'v134';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -3430,7 +3430,7 @@ function renderExpenses() {
         const fixedGroupedHtml = [];
         const fixedInlineHtml = [];
         for (const [k, items] of fixedByCat) {
-            if (items.length >= 2) fixedGroupedHtml.push(renderCategoryGroupRow(k, items, 'fixed'));
+            if (items.length >= 2) fixedGroupedHtml.push(renderCategoryGroupRow(k, items, 'fixed', f => renderFixedItem(f, false)));
             else fixedInlineHtml.push(renderFixedItem(items[0], false));
         }
         fixedList.innerHTML = [
@@ -3485,7 +3485,7 @@ function renderExpenses() {
     const groupedHtml = [];
     const inlineHtml = [];
     for (const [k, items] of byCategory) {
-        if (items.length >= 2) groupedHtml.push(renderCategoryGroupRow(k, items, 'var'));
+        if (items.length >= 2) groupedHtml.push(renderCategoryGroupRow(k, items, 'var', e => renderExpenseItem(e)));
         else inlineHtml.push(renderExpenseItem(items[0]));
     }
     // Sort the category groups by total desc so the heaviest sit on top.
@@ -3501,14 +3501,15 @@ function renderExpenses() {
 // Generic "category group" row used by both variable and fixed expense
 // lists. Shows category icon + label + total + count, expandable to
 // reveal the underlying rows. kind is 'var' or 'fixed' so the toggle
-// state and inner row renderer match the section.
-function renderCategoryGroupRow(catKey, items, kind) {
+// state matches the section. The caller passes the per-row renderer
+// since renderFixedItem is a closure inside renderExpenses (it captures
+// currentDate-dependent state and the cats lookup).
+function renderCategoryGroupRow(catKey, items, kind, renderItem) {
     const cats = getEffectiveCategories();
     const cat = cats[catKey] || cats.outros;
     const total = items.filter(e => kind === 'fixed' ? true : expenseAffectsBalance(e)).reduce((s, e) => s + (e.amount || 0), 0);
     const groupKey = `cat-${kind}-${catKey}`;
     const isOpen = (window._categoryGroupOpen || {})[groupKey];
-    const renderItem = kind === 'fixed' ? (f => renderFixedItem(f, false)) : (e => renderExpenseItem(e));
     const innerRows = items.map(renderItem).join('');
     const accent = cat.color || '#9E9E9E';
     return `
