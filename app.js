@@ -9784,104 +9784,232 @@ function buildDemoDataset() {
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth();
+    const today = now.getDate();
     const monthKey = `${y}-${String(m + 1).padStart(2, '0')}`;
-    const prevDate = new Date(y, m - 1, 1);
-    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-    const dStr = (day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(Math.min(day, new Date(y, m + 1, 0).getDate())).padStart(2, '0')}`;
     const id = () => Math.random().toString(36).slice(2, 11);
+    // Format YYYY-MM-DD clamping the day to the month's last valid day.
+    const dStrAt = (year, month, day) => {
+        const last = new Date(year, month + 1, 0).getDate();
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`;
+    };
+    const dStr = (day) => dStrAt(y, m, day);
+    // Walk back N full months from current and return [{y,m,monthKey}].
+    const monthsBack = (n) => {
+        const out = [];
+        for (let i = n; i >= 0; i--) {
+            const d = new Date(y, m - i, 1);
+            out.push({
+                y: d.getFullYear(),
+                m: d.getMonth(),
+                monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                isCurrent: i === 0
+            });
+        }
+        return out;
+    };
+    // 6 prior months + current month = 7 months total of activity.
+    const months = monthsBack(6);
 
     const childA = id();
     const childB = id();
     const cardId = id();
-    const topupTxId = id();
-    const topupExpenseId = id();
-    const goalId = id();
-    const goalDepositTxId = id();
+    const goalFeriasId = id();
+    const goalCarroId = id();
 
+    // Fictional Portuguese names so it doesn't look like personal data.
     const children = [
-        { id: childA, name: 'Eduarda', coParentName: 'Silvia', splitPct: 50, hasSplit: true },
-        { id: childB, name: 'Carolina', coParentName: 'João', splitPct: 50, hasSplit: true }
+        { id: childA, name: 'Madalena', coParentName: 'Rui', splitPct: 50, hasSplit: true },
+        { id: childB, name: 'Tomás', coParentName: 'Inês', splitPct: 50, hasSplit: true }
     ];
 
+    const fId = {
+        renda: id(), edp: id(), nos: id(), aguas: id(), gas: id(), gym: id(),
+        escolaA: id(), atvB: id(), seguroAuto: id()
+    };
     const fixedExpenses = [
-        { id: id(), description: 'Renda casa', amount: 650, dayOfMonth: 5, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2025-01', endDate: null, notes: 'Senhorio: Sr. Antunes' },
-        { id: id(), description: 'EDP eletricidade', amount: 78, dayOfMonth: 12, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2025-01', endDate: null },
-        { id: id(), description: 'NOS internet+TV', amount: 41.99, dayOfMonth: 8, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2025-01', endDate: null },
-        { id: id(), description: 'Águas de Cascais', amount: 23.5, dayOfMonth: 20, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2025-01', endDate: null },
-        { id: id(), description: 'Ginásio Holmes Place', amount: 49.9, dayOfMonth: 1, category: 'lazer', type: 'personal', split: false, isVariable: false, startDate: '2025-06', endDate: null },
-        { id: id(), description: 'Escola Eduarda', amount: 280, dayOfMonth: 5, category: 'educacao', type: childA, split: true, isVariable: false, startDate: '2025-09', endDate: null },
-        { id: id(), description: 'Atividades Carolina', amount: 95, dayOfMonth: 5, category: 'educacao', type: childB, split: true, isVariable: false, startDate: '2025-09', endDate: null }
+        { id: fId.renda, description: 'Renda casa', amount: 650, dayOfMonth: 5, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2024-01', endDate: null, notes: 'Senhorio: Sr. Antunes' },
+        { id: fId.edp, description: 'EDP eletricidade', amount: 78, dayOfMonth: 12, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2024-01', endDate: null },
+        { id: fId.nos, description: 'NOS internet+TV', amount: 41.99, dayOfMonth: 8, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2024-01', endDate: null },
+        { id: fId.aguas, description: 'Águas de Cascais', amount: 23.5, dayOfMonth: 20, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2024-01', endDate: null },
+        { id: fId.gas, description: 'Galp Gás', amount: 31, dayOfMonth: 15, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2024-01', endDate: null },
+        { id: fId.gym, description: 'Ginásio Holmes Place', amount: 49.9, dayOfMonth: 1, category: 'lazer', type: 'personal', split: false, isVariable: false, startDate: '2024-06', endDate: null },
+        { id: fId.escolaA, description: 'Escola Madalena', amount: 280, dayOfMonth: 5, category: 'educacao', type: childA, split: true, isVariable: false, startDate: '2024-09', endDate: null },
+        { id: fId.atvB, description: 'Atividades Tomás', amount: 95, dayOfMonth: 5, category: 'educacao', type: childB, split: true, isVariable: false, startDate: '2024-09', endDate: null },
+        { id: fId.seguroAuto, description: 'Seguro automóvel', amount: 38.5, dayOfMonth: 10, category: 'transportes', type: 'personal', split: false, isVariable: false, startDate: '2024-01', endDate: null }
     ];
 
+    const incomeIds = { salario: id(), subsidio: id(), copagA: id() };
     const fixedIncomes = [
-        { id: id(), description: 'Salário', amount: 2700, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'ordenado', startDate: '2024-01', endDate: null, isVariable: false, onlyOnDay: false, manualMark: false },
-        { id: id(), description: 'Subsídio Refeição', amount: 183, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'subsidio_refeicao', startDate: '2024-01', endDate: null, isVariable: true, onlyOnDay: false, manualMark: false },
-        { id: id(), description: 'Pagamento Silvia (Eduarda)', amount: 25.5, dayOfMonth: 1, paymentMode: 'fixed-day', category: `pag_${childA}`, startDate: '2025-01', endDate: null, isVariable: false, onlyOnDay: true, manualMark: true, coParentChildId: childA }
+        { id: incomeIds.salario, description: 'Salário', amount: 2700, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'ordenado', startDate: '2023-01', endDate: null, isVariable: false, onlyOnDay: false, manualMark: false },
+        { id: incomeIds.subsidio, description: 'Subsídio Refeição', amount: 183, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'subsidio_refeicao', startDate: '2023-01', endDate: null, isVariable: true, onlyOnDay: false, manualMark: false },
+        { id: incomeIds.copagA, description: 'Pagamento Rui (Madalena)', amount: 25.5, dayOfMonth: 1, paymentMode: 'fixed-day', category: `pag_${childA}`, startDate: '2024-01', endDate: null, isVariable: false, onlyOnDay: true, manualMark: true, coParentChildId: childA }
     ];
 
-    const expenses = [
-        // Variable expenses spread across the current month
-        { id: id(), description: 'Auchan', amount: 47.85, date: dStr(2), category: 'supermercado', type: 'personal', essential: true },
-        { id: id(), description: 'Mercadona', amount: 32.4, date: dStr(8), category: 'supermercado', type: 'personal', essential: true },
-        { id: id(), description: 'Pingo Doce', amount: 28.6, date: dStr(15), category: 'supermercado', type: 'personal', essential: true },
-        { id: id(), description: 'Continente', amount: 65.2, date: dStr(20), category: 'supermercado', type: 'personal', essential: true },
-        { id: id(), description: 'Almoço Honest Greens', amount: 12.5, date: dStr(3), category: 'restaurantes', type: 'personal', essential: false },
-        { id: id(), description: 'Jantar Vitaminas', amount: 24, date: dStr(10), category: 'restaurantes', type: 'personal', essential: false },
-        { id: id(), description: 'Café com colegas', amount: 4.5, date: dStr(14), category: 'restaurantes', type: 'personal', essential: false },
-        { id: id(), description: 'Galp combustível', amount: 55, date: dStr(6), category: 'combustivel', type: 'personal', essential: true },
-        { id: id(), description: 'Galp combustível', amount: 50, date: dStr(19), category: 'combustivel', type: 'personal', essential: true },
-        { id: id(), description: 'Farmácia Costa', amount: 18.3, date: dStr(11), category: 'farmacia', type: 'personal', essential: true },
-        { id: id(), description: 'Médico Eduarda', amount: 35, date: dStr(7), category: 'saude', type: childA, split: true, paidByFather: false, essential: true },
-        { id: id(), description: 'Sapatilhas Carolina', amount: 42.9, date: dStr(13), category: 'roupa', type: childB, split: true, paidByFather: false, essential: false },
-        { id: id(), description: 'Cinema NOS', amount: 9.5, date: dStr(17), category: 'lazer', type: 'personal', essential: false },
-        // Prepaid card top-up + spends
-        { id: topupExpenseId, description: 'Carregamento Via Verde', amount: 50, date: dStr(1), category: 'transportes', type: 'personal', essential: true, isPrepaidTopup: true, prepaidCardId: cardId, prepaidTxId: topupTxId },
-        { id: id(), description: 'Portagem A5', amount: 4.85, date: dStr(4), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() },
-        { id: id(), description: 'Portagem A1', amount: 8.7, date: dStr(11), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() },
-        { id: id(), description: 'Estacionamento EMEL', amount: 3.2, date: dStr(16), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() }
-    ];
-    // Fill in the prepaid card transactions matching the expense ledger.
+    // Fixed status: mark all past months' fixed expenses as paid; current
+    // month only those whose day already arrived. Same for fixed incomes
+    // (recebido). For the co-parent income, mark recebido on every past
+    // month (and current if day passed).
+    const fixedStatus = [];
+    const fixedIncomeStatus = [];
+    months.forEach(({ y: yy, m: mm, monthKey: mk, isCurrent }) => {
+        fixedExpenses.forEach(f => {
+            if (f.startDate > mk) return;
+            const dayHere = Math.min(f.dayOfMonth, new Date(yy, mm + 1, 0).getDate());
+            const realized = !isCurrent || today >= dayHere;
+            if (realized) {
+                // Slight per-month variation for variable fixas
+                const status = { fixedId: f.id, month: mk, status: 'pago', paidByFather: false };
+                if (f.isVariable) {
+                    const swing = ((mk.charCodeAt(5) + mk.charCodeAt(6)) % 11) - 5; // -5..+5
+                    status.amount = Math.round((f.amount + swing) * 100) / 100;
+                }
+                fixedStatus.push(status);
+            }
+        });
+        fixedIncomes.forEach(fi => {
+            if (fi.startDate > mk) return;
+            const dayHere = Math.min(fi.dayOfMonth, new Date(yy, mm + 1, 0).getDate());
+            const realized = !isCurrent || today >= dayHere;
+            if (realized) fixedIncomeStatus.push({ fixedIncomeId: fi.id, month: mk, status: 'recebido' });
+        });
+    });
+
+    // Variable expenses across all months. Pattern repeats but with
+    // jitter so each month feels real. Days picked to spread.
+    const expenses = [];
+    const supermercadoTemplates = ['Auchan', 'Mercadona', 'Pingo Doce', 'Continente', 'Lidl'];
+    const restauranteTemplates = ['Honest Greens', 'Vitaminas', 'Café Versailles', 'Tasca da Esquina', 'A Cevicheria'];
+
+    months.forEach(({ y: yy, m: mm, monthKey: mk, isCurrent }) => {
+        const dHere = (day) => dStrAt(yy, mm, day);
+        const monthHash = parseInt(mk.replace('-', ''), 10);
+        const lastValidDay = isCurrent ? today : new Date(yy, mm + 1, 0).getDate();
+        const okDay = (d) => d <= lastValidDay;
+
+        // ---- Grouped expense: Mercado Mensal (4 weekly entries) ----
+        const grpId = id();
+        const grpEntries = [
+            { date: dHere(3), amount: 47.85, notes: supermercadoTemplates[monthHash % 5] },
+            { date: dHere(10), amount: 32.4, notes: supermercadoTemplates[(monthHash + 1) % 5] },
+            { date: dHere(17), amount: 28.6, notes: supermercadoTemplates[(monthHash + 2) % 5] },
+            { date: dHere(24), amount: 65.2, notes: supermercadoTemplates[(monthHash + 3) % 5] }
+        ].filter(e => okDay(parseInt(e.date.slice(-2), 10)));
+        if (grpEntries.length) {
+            expenses.push({
+                id: grpId,
+                description: 'Mercado mensal',
+                amount: grpEntries.reduce((s, e) => s + e.amount, 0),
+                date: grpEntries[grpEntries.length - 1].date,
+                category: 'supermercado',
+                type: 'personal',
+                essential: true,
+                isGrouped: true,
+                entries: grpEntries
+            });
+        }
+
+        // Restaurantes: 2-3 per month
+        if (okDay(6))  expenses.push({ id: id(), description: restauranteTemplates[monthHash % 5], amount: 12.5 + (monthHash % 7), date: dHere(6), category: 'restaurantes', type: 'personal', essential: false });
+        if (okDay(14)) expenses.push({ id: id(), description: restauranteTemplates[(monthHash + 2) % 5], amount: 24.0 + (monthHash % 5), date: dHere(14), category: 'restaurantes', type: 'personal', essential: false });
+        if (okDay(21)) expenses.push({ id: id(), description: 'Café com colegas', amount: 4.5, date: dHere(21), category: 'restaurantes', type: 'personal', essential: false });
+
+        // Combustível: 2 per month
+        if (okDay(7))  expenses.push({ id: id(), description: 'Galp combustível', amount: 55, date: dHere(7), category: 'combustivel', type: 'personal', essential: true });
+        if (okDay(20)) expenses.push({ id: id(), description: 'Galp combustível', amount: 50, date: dHere(20), category: 'combustivel', type: 'personal', essential: true });
+
+        // Saúde / farmácia
+        if (okDay(11)) expenses.push({ id: id(), description: 'Farmácia Costa', amount: 18.3, date: dHere(11), category: 'farmacia', type: 'personal', essential: true });
+        if (okDay(8))  expenses.push({ id: id(), description: 'Médico Madalena', amount: 35, date: dHere(8), category: 'saude', type: childA, split: true, paidByFather: monthHash % 2 === 0, essential: true });
+
+        // Roupa filhos (esporádico)
+        if (mm % 3 === 1 && okDay(13)) expenses.push({ id: id(), description: 'Sapatilhas Tomás', amount: 42.9, date: dHere(13), category: 'roupa', type: childB, split: true, paidByFather: false, essential: false });
+
+        // Lazer
+        if (okDay(18)) expenses.push({ id: id(), description: 'Cinema NOS', amount: 9.5, date: dHere(18), category: 'lazer', type: 'personal', essential: false });
+    });
+
+    // ---- Prepaid card "Via Verde" with topup + spends across months ----
+    const prepaidTxs = [];
+    months.forEach(({ y: yy, m: mm, isCurrent }) => {
+        const dHere = (day) => dStrAt(yy, mm, day);
+        const lastValidDay = isCurrent ? today : new Date(yy, mm + 1, 0).getDate();
+        const okDay = (d) => d <= lastValidDay;
+        if (!okDay(2)) return;
+        // Top-up at start of month
+        const topupTxId = id(); const topupExpenseId = id();
+        prepaidTxs.push({ tx: { id: topupTxId, type: 'topup', amount: 50, description: 'Carregamento Via Verde', date: dHere(2), expenseId: topupExpenseId } });
+        expenses.push({ id: topupExpenseId, description: 'Carregamento Via Verde', amount: 50, date: dHere(2), category: 'transportes', type: 'personal', essential: true, isPrepaidTopup: true, prepaidCardId: cardId, prepaidTxId: topupTxId });
+        // Spends
+        const spends = [
+            { day: 5, amount: 4.85, description: 'Portagem A5' },
+            { day: 12, amount: 8.7, description: 'Portagem A1' },
+            { day: 17, amount: 3.2, description: 'Estacionamento EMEL' },
+            { day: 23, amount: 4.85, description: 'Portagem A5' }
+        ].filter(s => okDay(s.day));
+        spends.forEach(s => {
+            const txId = id(); const expId = id();
+            prepaidTxs.push({ tx: { id: txId, type: 'spend', amount: s.amount, description: s.description, date: dHere(s.day), expenseId: expId } });
+            expenses.push({ id: expId, description: s.description, amount: s.amount, date: dHere(s.day), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: txId });
+        });
+    });
     const prepaidCards = [{
         id: cardId,
         name: 'Via Verde',
         color: '#FF6F00',
         icon: 'fa-road',
-        transactions: [
-            { id: topupTxId, type: 'topup', amount: 50, description: 'Carregamento Via Verde', date: dStr(1), expenseId: topupExpenseId },
-            ...expenses.filter(e => e.prepaidCardId === cardId && !e.isPrepaidTopup)
-                .map(e => ({ id: e.prepaidTxId, type: 'spend', amount: e.amount, description: e.description, date: e.date, expenseId: e.id }))
-        ]
+        transactions: prepaidTxs.map(p => p.tx)
     }];
 
-    const goalTxId1 = id(), goalTxId2 = id();
-    const savingsGoals = [{
-        id: goalId,
-        name: 'Férias Verão 2026',
-        target: 2000,
-        targetDate: `${y}-08-31`,
-        icon: 'fa-umbrella-beach',
-        color: '#00BCD4',
-        transactions: [
-            { id: goalTxId1, type: 'deposit', amount: 200, date: `${prevMonthKey}-25`, notes: 'Reforço mensal' },
-            { id: goalTxId2, type: 'deposit', amount: 150, date: dStr(15), notes: 'Reforço mensal' }
-        ]
-    }];
-
-    const incomes = []; // No variable incomes — fixed cover the demo
-
-    // Mark current-month fixed expenses as paid (auto via day passed) + the
-    // co-parent receita as recebido so the family tab populates immediately.
-    const today = now.getDate();
-    const fixedStatus = fixedExpenses
-        .filter(f => today >= f.dayOfMonth)
-        .map(f => ({ fixedId: f.id, month: monthKey, status: 'pago', paidByFather: false }));
-    const fixedIncomeStatus = [
-        { fixedIncomeId: fixedIncomes[2].id, month: monthKey, status: 'recebido' }
+    // ---- Savings goals: Férias + Carro Novo with monthly add txs ----
+    const goalsTxsForMonth = (goalId, perMonth) =>
+        months.map(({ monthKey: mk }, i) => ({
+            id: id(),
+            type: 'add',
+            amount: perMonth,
+            date: `${mk}-25`,
+            note: 'Reforço mensal'
+        }));
+    const savingsGoals = [
+        {
+            id: goalFeriasId,
+            name: 'Férias Verão',
+            target: 2000,
+            deadline: `${y}-08-31`,
+            icon: 'fa-umbrella-beach',
+            color: '#00BCD4',
+            transactions: goalsTxsForMonth(goalFeriasId, 200),
+            createdAt: `${months[0].monthKey}-01T00:00:00.000Z`
+        },
+        {
+            id: goalCarroId,
+            name: 'Fundo de emergência',
+            target: 5000,
+            deadline: `${y + 1}-12-31`,
+            icon: 'fa-shield-halved',
+            color: '#9C27B0',
+            transactions: goalsTxsForMonth(goalCarroId, 100),
+            createdAt: `${months[0].monthKey}-01T00:00:00.000Z`
+        }
     ];
 
+    // ---- Net worth: realistic assets/liabilities ----
+    const netWorth = {
+        assets: [
+            { name: 'Conta à ordem (BPI)', amount: 4200 },
+            { name: 'Depósito a prazo', amount: 12000 },
+            { name: 'Carro (valor estimado)', amount: 8500 },
+            { name: 'PPR Allianz', amount: 6300 }
+        ],
+        liabilities: [
+            { name: 'Crédito habitação', amount: 78000 },
+            { name: 'Cartão crédito (saldo)', amount: 420 }
+        ],
+        updatedAt: new Date().toISOString()
+    };
+
     return {
-        expenses, incomes, fixedExpenses, fixedIncomes, fixedStatus, fixedIncomeStatus,
-        children, prepaidCards, savingsGoals
+        expenses, incomes: [], fixedExpenses, fixedIncomes,
+        fixedStatus, fixedIncomeStatus, children, prepaidCards, savingsGoals, netWorth
     };
 }
 
@@ -9897,6 +10025,7 @@ function loadDemoData() {
     children = demo.children;
     prepaidCards = demo.prepaidCards;
     savingsGoals = demo.savingsGoals;
+    netWorth = demo.netWorth;
     // Switch to separated mode so the co-parent split features are visible.
     localStorage.setItem(HOUSEHOLD_MODE_KEY, 'separated');
     localStorage.setItem(USER_NAME_KEY, 'Demo');
@@ -9907,7 +10036,7 @@ function loadDemoData() {
 }
 
 function wipeAllData() {
-    if (!confirm('⚠️ Apagar TODOS os dados (despesas, receitas, fixas, cartões, poupanças, filhos)?\n\nIsto não tem volta. Exporta primeiro se ainda precisas dos dados.')) return;
+    if (!confirm('⚠️ Apagar TODOS os dados (despesas, receitas, fixas, cartões, poupanças, filhos, património)?\n\nIsto não tem volta. Exporta primeiro se ainda precisas dos dados.')) return;
     if (!confirm('Última confirmação: vais perder tudo. Continuar?')) return;
     expenses = [];
     incomes = [];
@@ -9918,6 +10047,7 @@ function wipeAllData() {
     children = [];
     prepaidCards = [];
     savingsGoals = [];
+    netWorth = { assets: [], liabilities: [], updatedAt: null };
     saveData();
     closeSettingsModal();
     updateAll();
