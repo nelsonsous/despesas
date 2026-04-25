@@ -3364,7 +3364,7 @@ function renderExpenses() {
                     </div>
                     <div>
                         <div class="fixed-month-desc">${f.description} ${varBadge}</div>
-                        <div class="fixed-month-meta">Dia ${f.dayOfMonth} &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
+                        <div class="fixed-month-meta"><span class="meta-day">Dia ${f.dayOfMonth}</span> &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
                     <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
                         ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}`
@@ -3874,7 +3874,7 @@ function renderIncomeTab() {
                     </div>
                     <div>
                         <div class="fixed-month-desc">${fi.description} ${varBadge}</div>
-                        <div class="fixed-month-meta">${modeLabel}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
+                        <div class="fixed-month-meta"><span class="meta-day" style="color:#2E7D32">${modeLabel}</span>${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
                     </div>
                     <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
                     <div style="flex-basis:100%;display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:6px">
@@ -5646,7 +5646,8 @@ async function answerAiMoneyQuestion(question) {
 
     const today = new Date().toISOString().slice(0,10);
     const prompt = `${AI_SYSTEM_PROMPT}
-Responde à pergunta do utilizador com base nas despesas abaixo. Hoje é ${today}. Formato: 1-3 frases curtas. Sem listas salvo necessidade. Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
+Responde à pergunta do utilizador com base nas despesas abaixo. Hoje é ${today}.
+ESCREVE TEXTO CORRIDO em PT-PT (1-3 frases curtas). NÃO devolvas JSON, NÃO uses chaves {} nem aspas, NÃO devolvas listas. Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
 
 Pergunta: "${question.replace(/"/g, "'")}"
 
@@ -5655,7 +5656,9 @@ ${JSON.stringify(slim)}
 ${userProfilePromptBlock()}`;
 
     const raw = await callAIText(prompt);
-    return (raw || 'Sem resposta.').replace(/```/g, '').trim().slice(0, 800);
+    // Same sanitiser the cycle narrative uses — turns the occasional
+    // stray JSON ({"media_habitual":23.83}) into a usable sentence.
+    return sanitizeNarrative(raw || 'Sem resposta.').slice(0, 800);
 }
 
 // ----- Auto-categorize from description -----
@@ -10494,7 +10497,14 @@ function animateNumber(el, to, formatter = formatCurrency, duration = 500) {
 
 function formatDate(dateStr) {
     const d = new Date(dateStr);
-    return d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    if (isNaN(d)) return dateStr;
+    // Drop the year when the row is from the current year — it's just
+    // visual noise. The full DD/MM/YYYY form sticks around for older
+    // rows so context stays clear.
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString('pt-PT', sameYear
+        ? { day: '2-digit', month: '2-digit' }
+        : { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function formatMonthFile(date) {
