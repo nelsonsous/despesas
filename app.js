@@ -5932,11 +5932,50 @@ async function onReceiptImageSelected(input) {
     const btn = document.getElementById('receipt-scan-btn');
     const originalHtml = btn?.innerHTML;
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A ler recibo…'; }
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
     try {
-        const { data, type } = await resizeImageForOcr(file);
+        // Branch by file type so the chip works for both photos and the
+        // PDF faturas the user gets via email (EDP, Meo, NOS, seguros…).
+        // For PDFs we extract the text via pdf.js and ask the text AI;
+        // for images we keep the vision flow.
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
         const today = new Date().toISOString().slice(0, 10);
+        if (isPdf) {
+            // Read raw bytes for pdf.js
+            const buf = await file.arrayBuffer();
+            await waitForPdfLib();
+            const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+            const out = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                let prevY = null;
+                const line = [];
+                for (const it of content.items) {
+                    const y = it.transform?.[5];
+                    if (prevY !== null && Math.abs(y - prevY) > 3) { out.push(line.join(' ')); line.length = 0; }
+                    line.push(it.str);
+                    prevY = y;
+                }
+                if (line.length) out.push(line.join(' '));
+                out.push('');
+            }
+            const text = out.join('\n').trim();
+            if (!text || text.length < 30) { showToast('PDF parece vazio ou ilegível'); return; }
+            const promptPdf = `${AI_SYSTEM_PROMPT}
+Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility). Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
+
+TEXTO:
+${text.slice(0, 8000)}`;
+            const raw = await callAIText(promptPdf);
+            const obj = extractJsonObject(raw);
+            if (!obj || obj.erro) { showToast(obj?.erro || 'Não consegui ler o PDF'); return; }
+            prefillExpenseFromReceipt(obj);
+            showToast('PDF lido — verifica os campos');
+            return;
+        }
+        const { data, type } = await resizeImageForOcr(file);
         const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):
 {
   "descricao": "nome curto do estabelecimento",
