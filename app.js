@@ -94,8 +94,12 @@ function applyAppTitle() {
     const title = getAppTitle();
     document.title = title;
     const headerEl = document.getElementById('header-title');
-    if (headerEl) headerEl.textContent = title;
+    if (headerEl) {
+        headerEl.innerHTML = `${title} <span style="font-size:0.55rem;font-weight:400;opacity:0.75;margin-left:4px;vertical-align:middle">${APP_VERSION}</span>`;
+    }
 }
+
+const APP_VERSION = 'v126';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
