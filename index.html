@@ -689,6 +689,17 @@
                             <span id="paid-by-father-label">Co-progenitor ja pagou a parte dele</span>
                         </label>
                     </div>
+                    <div class="form-group" id="split-pct-override-group" style="display:none">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                            <input type="checkbox" id="split-pct-override-on" onchange="toggleSplitPctOverride()">
+                            <span>% diferente só para esta despesa</span>
+                        </label>
+                        <div id="split-pct-override-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                            <label style="font-size:0.78rem">% a cargo de <span id="split-pct-override-name">co-progenitor</span></label>
+                            <input type="number" id="split-pct-override" min="1" max="99" step="1" placeholder="50">
+                            <small class="field-hint">Substitui a % por defeito do filho só nesta despesa.</small>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label><input type="checkbox" id="split-with-other" onchange="toggleSplitWithOther()"> Dividir com alguém</label>
                         <div id="split-with-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
@@ -1599,6 +1610,17 @@
                                 <input type="radio" name="fixed-split" value="no">
                                 <span class="radio-custom"></span> Nao
                             </label>
+                        </div>
+                        <div style="margin-top:10px">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                <input type="checkbox" id="fixed-split-pct-override-on" onchange="toggleFixedSplitPctOverride()">
+                                <span style="font-size:0.85rem">% diferente só para esta despesa</span>
+                            </label>
+                            <div id="fixed-split-pct-override-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
+                                <label style="font-size:0.78rem">% a cargo de <span id="fixed-split-pct-override-name">co-progenitor</span></label>
+                                <input type="number" id="fixed-split-pct-override" min="1" max="99" step="1" placeholder="50">
+                                <small class="field-hint">Substitui a % por defeito do filho só nesta despesa fixa.</small>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">

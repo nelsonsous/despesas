@@ -2167,7 +2167,7 @@ function getPaidFixedAsExpenses(date) {
             const fullAmount = getEffectiveFixedAmount(f, date);
             const paidByFather = st?.paidByFather || false;
             const child = children.find(c => c.id === f.type);
-            const splitPct = child?.splitPct || 50;
+            const splitPct = getEffectiveSplitPct(f, child);
             const netAmount = (f.split && paidByFather) ? fullAmount * (1 - splitPct / 100) : fullAmount;
             const maxDay = new Date(y, m, 0).getDate();
             const day = Math.min(f.dayOfMonth, maxDay);
@@ -2188,6 +2188,14 @@ function getPaidFixedAsExpenses(date) {
         });
 }
 
+// Resolve the split percentage to apply: per-expense override (if set in 1-99 range)
+// otherwise falls back to the child's default splitPct.
+function getEffectiveSplitPct(e, child) {
+    const ov = parseFloat(e?.splitPctOverride);
+    if (!isNaN(ov) && ov > 0 && ov < 100) return ov;
+    return child?.splitPct || 50;
+}
+
 function adjustExpenseForCoParent(e) {
     // Generic split-with-other takes precedence — the user explicitly tagged a person.
     if (e.splitWithName) return adjustExpenseForCustomSplit(e);
@@ -2205,7 +2213,8 @@ function adjustExpenseForCoParent(e) {
     const child = children.find(c => c.id === e.type);
     if (!child || child.hasSplit === false) return e;
     const fullAmount = e.fullAmount || e.amount;
-    return { ...e, amount: fullAmount * (1 - child.splitPct / 100), fullAmount };
+    const pct = getEffectiveSplitPct(e, child);
+    return { ...e, amount: fullAmount * (1 - pct / 100), fullAmount };
 }
 
 // Expand expense with splitAcrossChildren into N virtual expenses (one per child)
@@ -3271,7 +3280,7 @@ function renderExpenses() {
             const coParentPaid = st?.paidByFather || false;
             const child = children.find(c => c.id === f.type);
             if (f.split && coParentPaid && child) {
-                return s + amount * (1 - child.splitPct / 100);
+                return s + amount * (1 - getEffectiveSplitPct(f, child) / 100);
             }
             return s + amount;
         }, 0);
@@ -3286,7 +3295,7 @@ function renderExpenses() {
             const child = children.find(c => c.id === f.type);
             const st = getFixedStatusForMonth(f.id, currentDate);
             const coParentPaid = st?.paidByFather || false;
-            const splitPct = child?.splitPct || 50;
+            const splitPct = getEffectiveSplitPct(f, child);
 
             if (skipped) {
                 return `
@@ -3417,7 +3426,75 @@ function renderExpenses() {
         return;
     }
 
-    container.innerHTML = filtered.map(e => renderExpenseItem(e)).join('');
+    // Partition prepaid card rows (top-ups + linked spends) so they collapse
+    // into a single per-card group row. Keeps the despesas list tidy when a
+    // user has many small card consumos sharing the same top-up.
+    const prepaidByCard = new Map();
+    const nonPrepaid = [];
+    for (const e of filtered) {
+        if (e.prepaidCardId) {
+            if (!prepaidByCard.has(e.prepaidCardId)) prepaidByCard.set(e.prepaidCardId, []);
+            prepaidByCard.get(e.prepaidCardId).push(e);
+        } else {
+            nonPrepaid.push(e);
+        }
+    }
+
+    container.innerHTML = [
+        ...[...prepaidByCard.entries()].map(([cardId, items]) => renderPrepaidGroupRow(cardId, items)),
+        ...nonPrepaid.map(e => renderExpenseItem(e))
+    ].join('');
+}
+
+// One-row "card group" that aggregates the month's top-ups and linked spends
+// for a single prepaid card. Tapping the row toggles an embedded sub-list of
+// the underlying renderExpenseItem rows so the user can still edit each one.
+function renderPrepaidGroupRow(cardId, items) {
+    const card = (typeof prepaidCards !== 'undefined' ? prepaidCards : []).find(c => c.id === cardId);
+    const cardName = card?.name || 'Cartão';
+    const cardColor = card?.color || '#5A3BD8';
+    const cardIcon = card?.icon || 'fa-credit-card';
+    const topups = items.filter(e => e.isPrepaidTopup);
+    const spends = items.filter(e => !e.isPrepaidTopup);
+    const topupTotal = topups.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
+    const spendTotal = spends.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
+    const balance = (typeof getPrepaidBalance === 'function' && card) ? getPrepaidBalance(cardId) : null;
+    const groupId = `prepaid-group-${cardId}`;
+    const isOpen = (window._prepaidGroupOpen || {})[cardId];
+    const innerRows = items
+        .slice()
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .map(e => renderExpenseItem(e))
+        .join('');
+    const balanceTxt = balance != null ? ` &middot; saldo ${formatCurrency(balance)}` : '';
+    return `
+        <div class="expense-item prepaid-group-row" style="border-left:3px solid ${cardColor};background:#FBF9FF;flex-direction:column;align-items:stretch">
+            <div onclick="togglePrepaidGroup('${cardId}')" style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%">
+                <div class="expense-icon" style="background:#EEE7FF;color:${cardColor}">
+                    <i class="fas ${cardIcon}"></i>
+                </div>
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                        <div class="expense-desc">${cardName} <span style="font-size:0.65rem;color:#5A3BD8;background:#EEE7FF;padding:1px 5px;border-radius:4px;font-weight:700">cartão</span></div>
+                        <div class="expense-amount" style="color:var(--text);flex-shrink:0">${formatCurrency(topupTotal)}</div>
+                    </div>
+                    <div class="expense-meta" style="margin-top:4px">
+                        <span><i class="fas fa-arrow-up" style="color:var(--success);font-size:0.65rem"></i> ${topups.length} carregamento${topups.length === 1 ? '' : 's'} ${formatCurrency(topupTotal)}</span>
+                        <span><i class="fas fa-arrow-down" style="color:var(--danger);font-size:0.65rem"></i> ${spends.length} consumo${spends.length === 1 ? '' : 's'} ${formatCurrency(spendTotal)}</span>
+                        ${balanceTxt ? `<span style="color:var(--text-light)">${balanceTxt}</span>` : ''}
+                        <i class="fas fa-chevron-${isOpen ? 'up' : 'down'}" style="color:var(--text-light);font-size:0.7rem;margin-left:auto"></i>
+                    </div>
+                </div>
+            </div>
+            <div id="${groupId}" style="display:${isOpen ? 'block' : 'none'};margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">${innerRows}</div>
+        </div>
+    `;
+}
+
+function togglePrepaidGroup(cardId) {
+    window._prepaidGroupOpen = window._prepaidGroupOpen || {};
+    window._prepaidGroupOpen[cardId] = !window._prepaidGroupOpen[cardId];
+    renderExpenses();
 }
 
 function toggleExpenseCoParent(id) {
@@ -3777,7 +3854,7 @@ function renderExpenseItem(e) {
                         <span class="expense-tag ${tagClass}">${tagLabel}</span>
                         ${groupedInfo}
                         ${groupedBreakdown}
-                        ${e.split ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${expChild?.splitPct || 50}/${100-(expChild?.splitPct || 50)}</span>` : ''}
+                        ${e.split ? (() => { const p = getEffectiveSplitPct(e, expChild); const ov = parseFloat(e.splitPctOverride); const star = (!isNaN(ov) && ov > 0 && ov < 100) ? ' <span title="% específica desta despesa" style="color:var(--warning);font-size:0.6rem">●</span>' : ''; return `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${p}/${100-p}${star}</span>`; })() : ''}
                         ${e.splitSpouse && isMarriedMode() ? `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${getSpousePct()}/${100-getSpousePct()}</span>` : ''}
                         ${(e.withPeople && e.withPeople.length > 0) ? `<span style="color:var(--primary)"><i class="fas fa-user-group" style="font-size:0.65rem"></i> ${e.withPeople.slice(0,2).join(', ')}${e.withPeople.length > 2 ? ` +${e.withPeople.length-2}` : ''}</span>` : ''}
                     </div>
@@ -3811,7 +3888,7 @@ function renderIncomeTab() {
             const st = getFixedStatusForMonth(f.id, currentDate);
             const child = children.find(c => c.id === f.type);
             const coParentPaid = st?.paidByFather || false;
-            return s + (f.split && coParentPaid && child ? amount * (1 - child.splitPct / 100) : amount);
+            return s + (f.split && coParentPaid && child ? amount * (1 - getEffectiveSplitPct(f, child) / 100) : amount);
         }, 0);
     const varExpTotal = monthExp.filter(e => !e.isFixedExpense).reduce((s, e) => s + e.amount, 0);
     const totalExpenses = varExpTotal + fixedExpTotal;
@@ -7161,6 +7238,14 @@ function showAddExpense() {
         document.getElementById('expense-date').valueAsDate = new Date();
         document.getElementById('laura-split-group').style.display = 'none';
         document.getElementById('paid-by-father-group').style.display = 'none';
+        const ovGrp0 = document.getElementById('split-pct-override-group');
+        const ovCb0 = document.getElementById('split-pct-override-on');
+        const ovFields0 = document.getElementById('split-pct-override-fields');
+        const ovInput0 = document.getElementById('split-pct-override');
+        if (ovGrp0) ovGrp0.style.display = 'none';
+        if (ovCb0) ovCb0.checked = false;
+        if (ovFields0) ovFields0.style.display = 'none';
+        if (ovInput0) ovInput0.value = '';
         // Don't wipe OCR-injected fiscal fields right before we render them.
         // prefillExpenseFromReceipt sets pendingReceiptFields and then calls
         // showAddExpense(); when the user opens manually, reset here.
@@ -7305,6 +7390,35 @@ function toggleSplitWithOther() {
     if (cb && cb.checked) {
         const list = document.getElementById('splits-list');
         if (list && list.children.length === 0) addSplitRow();
+    }
+}
+
+// Per-expense split percentage override toggle (separated mode only).
+function toggleSplitPctOverride() {
+    const cb = document.getElementById('split-pct-override-on');
+    const fields = document.getElementById('split-pct-override-fields');
+    const input = document.getElementById('split-pct-override');
+    if (!cb || !fields) return;
+    fields.style.display = cb.checked ? 'block' : 'none';
+    if (cb.checked && input && !input.value) {
+        // Default to the child's configured % so the user can tweak from there.
+        const typeRadio = document.querySelector('input[name="expense-type"]:checked');
+        const child = typeRadio ? children.find(c => c.id === typeRadio.value) : null;
+        input.value = child?.splitPct || 50;
+    }
+}
+
+// Same as the variable-expense override but for fixed expenses.
+function toggleFixedSplitPctOverride() {
+    const cb = document.getElementById('fixed-split-pct-override-on');
+    const fields = document.getElementById('fixed-split-pct-override-fields');
+    const input = document.getElementById('fixed-split-pct-override');
+    if (!cb || !fields) return;
+    fields.style.display = cb.checked ? 'block' : 'none';
+    if (cb.checked && input && !input.value) {
+        const typeRadio = document.querySelector('input[name="fixed-type"]:checked');
+        const child = typeRadio ? children.find(c => c.id === typeRadio.value) : null;
+        input.value = child?.splitPct || 50;
     }
 }
 
@@ -7671,6 +7785,11 @@ function editExpense(id) {
     document.querySelector(`input[name="essential"][value="${e.essential !== false ? 'yes' : 'no'}"]`).checked = true;
 
     const editChild = children.find(c => c.id === e.type);
+    const ovGrp = document.getElementById('split-pct-override-group');
+    const ovCb = document.getElementById('split-pct-override-on');
+    const ovInput = document.getElementById('split-pct-override');
+    const ovFields = document.getElementById('split-pct-override-fields');
+    const ovName = document.getElementById('split-pct-override-name');
     if (editChild && editChild.hasSplit !== false) {
         document.getElementById('laura-split-group').style.display = 'block';
         const splitLabel = document.getElementById('split-coparent-label');
@@ -7682,9 +7801,21 @@ function editExpense(id) {
             document.getElementById('paid-by-father-group').style.display = 'block';
             document.getElementById('paid-by-father').checked = e.paidByFather || false;
         }
+        if (e.split && ovGrp) {
+            ovGrp.style.display = 'block';
+            if (ovName) ovName.textContent = editChild.coParentName;
+            const pctOv = parseFloat(e.splitPctOverride);
+            const hasOv = !isNaN(pctOv) && pctOv > 0 && pctOv < 100;
+            if (ovCb) ovCb.checked = hasOv;
+            if (ovInput) ovInput.value = hasOv ? pctOv : (editChild.splitPct || 50);
+            if (ovFields) ovFields.style.display = hasOv ? 'block' : 'none';
+        } else if (ovGrp) {
+            ovGrp.style.display = 'none';
+        }
     } else {
         document.getElementById('laura-split-group').style.display = 'none';
         document.getElementById('paid-by-father-group').style.display = 'none';
+        if (ovGrp) ovGrp.style.display = 'none';
     }
 
     // Multi-person split (with legacy migration)
@@ -7835,6 +7966,14 @@ function saveExpense(event) {
     const spousePaid = splitSpouse && document.getElementById('spouse-paid')?.checked;
     const splitWithOther = document.getElementById('split-with-other')?.checked;
     const splits = splitWithOther ? collectSplitsFromModal() : [];
+    // Per-expense % override (separated mode only). Stored when the user
+    // explicitly enables the toggle and supplies a value in (0, 100).
+    const splitPctOverrideOn = !!document.getElementById('split-pct-override-on')?.checked;
+    const splitPctOverrideRaw = parseFloat(document.getElementById('split-pct-override')?.value);
+    const splitPctOverride = (split && splitPctOverrideOn && !isNaN(splitPctOverrideRaw)
+        && splitPctOverrideRaw > 0 && splitPctOverrideRaw < 100)
+        ? splitPctOverrideRaw
+        : null;
     // Pessoal + single-child split (e.g. "100€ · 30% Laura, 70% Pessoal")
     const mixWithChild = type === 'personal'
         && !splitAcross
@@ -7863,6 +8002,7 @@ function saveExpense(event) {
         type: type,
         split: split,
         paidByFather: split ? document.getElementById('paid-by-father').checked : false,
+        splitPctOverride,
         splitSpouse,
         spousePaid,
         splits,
@@ -8147,6 +8287,11 @@ function setupTypeToggle() {
             const childSplits = child && child.hasSplit !== false;
             document.getElementById('laura-split-group').style.display = childSplits ? 'block' : 'none';
             if (!childSplits) document.getElementById('paid-by-father-group').style.display = 'none';
+            const ovGrp = document.getElementById('split-pct-override-group');
+            const ovName = document.getElementById('split-pct-override-name');
+            const splitYes = document.querySelector('input[name="laura-split"]:checked')?.value === 'yes';
+            if (ovGrp) ovGrp.style.display = childSplits && splitYes ? 'block' : 'none';
+            if (ovName && child) ovName.textContent = child.coParentName;
             // Multi-child group
             const multiGroup = document.getElementById('multi-children-group');
             if (multiGroup) {
@@ -8175,6 +8320,10 @@ function setupTypeToggle() {
     document.querySelectorAll('input[name="laura-split"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             document.getElementById('paid-by-father-group').style.display = e.target.value === 'yes' ? 'block' : 'none';
+            const ovGrp = document.getElementById('split-pct-override-group');
+            const typeRadio = document.querySelector('input[name="expense-type"]:checked');
+            const child = typeRadio ? children.find(c => c.id === typeRadio.value) : null;
+            if (ovGrp) ovGrp.style.display = (child && child.hasSplit !== false && e.target.value === 'yes') ? 'block' : 'none';
         });
     });
 }
@@ -9882,6 +10031,12 @@ function showAddFixed() {
     const now = new Date();
     document.getElementById('fixed-start').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('fixed-split-group').style.display = 'none';
+    const fOvCb = document.getElementById('fixed-split-pct-override-on');
+    const fOvFields = document.getElementById('fixed-split-pct-override-fields');
+    const fOvInput = document.getElementById('fixed-split-pct-override');
+    if (fOvCb) fOvCb.checked = false;
+    if (fOvFields) fOvFields.style.display = 'none';
+    if (fOvInput) fOvInput.value = '';
     populateFixedSplitsUI(null);
     updateFixedMixPartnerUI(null);
     populateSplitWithNamesList();
@@ -9913,6 +10068,24 @@ function editFixed(id) {
     if (isChild && f.split !== undefined) {
         document.querySelector(`input[name="fixed-split"][value="${f.split ? 'yes' : 'no'}"]`).checked = true;
     }
+    // Restore the per-fixed-expense override toggle/value.
+    const fOvCb = document.getElementById('fixed-split-pct-override-on');
+    const fOvFields = document.getElementById('fixed-split-pct-override-fields');
+    const fOvInput = document.getElementById('fixed-split-pct-override');
+    const fOvName = document.getElementById('fixed-split-pct-override-name');
+    const editFchild = children.find(c => c.id === ftype);
+    if (editFchild) {
+        const pctOv = parseFloat(f.splitPctOverride);
+        const hasOv = !isNaN(pctOv) && pctOv > 0 && pctOv < 100;
+        if (fOvCb) fOvCb.checked = hasOv;
+        if (fOvInput) fOvInput.value = hasOv ? pctOv : (editFchild.splitPct || 50);
+        if (fOvFields) fOvFields.style.display = hasOv ? 'block' : 'none';
+        if (fOvName) fOvName.textContent = editFchild.coParentName || 'co-progenitor';
+    } else {
+        if (fOvCb) fOvCb.checked = false;
+        if (fOvFields) fOvFields.style.display = 'none';
+        if (fOvInput) fOvInput.value = '';
+    }
     populateFixedSplitsUI(f);
     updateFixedMixPartnerUI(f);
     populateSplitWithNamesList();
@@ -9936,6 +10109,12 @@ function saveFixed(event) {
     // with per-month reimbursement tracked on fixedStatus.mixPartnerPaid.
     const mixPartnerSpentOn = mixPartnerOn;
     const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
+    const fSplit = isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false;
+    const fOvOn = !!document.getElementById('fixed-split-pct-override-on')?.checked;
+    const fOvRaw = parseFloat(document.getElementById('fixed-split-pct-override')?.value);
+    const fSplitPctOverride = (fSplit && fOvOn && !isNaN(fOvRaw) && fOvRaw > 0 && fOvRaw < 100)
+        ? fOvRaw
+        : null;
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
@@ -9943,7 +10122,8 @@ function saveFixed(event) {
         dayOfMonth: parseInt(document.getElementById('fixed-day').value),
         category: document.getElementById('fixed-category').value,
         type: ftype,
-        split: isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false,
+        split: fSplit,
+        splitPctOverride: fSplitPctOverride,
         isVariable: document.getElementById('fixed-is-variable').checked,
         startDate: document.getElementById('fixed-start').value,
         endDate: document.getElementById('fixed-end').value || null,
