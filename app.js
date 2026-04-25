@@ -7974,7 +7974,7 @@ function saveExpense(event) {
     const splitPctOverrideOn = !!document.getElementById('split-pct-override-on')?.checked;
     const splitPctOverrideRaw = parseFloat(document.getElementById('split-pct-override')?.value);
     const splitPctOverride = (split && splitPctOverrideOn && !isNaN(splitPctOverrideRaw)
-        && splitPctOverrideRaw > 0 && splitPctOverrideRaw < 100)
+        && splitPctOverrideRaw > 0 && splitPctOverrideRaw <= 100)
         ? splitPctOverrideRaw
         : null;
     // Pessoal + single-child split (e.g. "100€ · 30% Laura, 70% Pessoal")
@@ -10115,7 +10115,7 @@ function saveFixed(event) {
     const fSplit = isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false;
     const fOvOn = !!document.getElementById('fixed-split-pct-override-on')?.checked;
     const fOvRaw = parseFloat(document.getElementById('fixed-split-pct-override')?.value);
-    const fSplitPctOverride = (fSplit && fOvOn && !isNaN(fOvRaw) && fOvRaw > 0 && fOvRaw < 100)
+    const fSplitPctOverride = (fSplit && fOvOn && !isNaN(fOvRaw) && fOvRaw > 0 && fOvRaw <= 100)
         ? fOvRaw
         : null;
     const fixed = {
