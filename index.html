@@ -341,7 +341,7 @@
                     <h3><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span id="fixed-month-total" class="fixed-month-total"></span>
-                        <button onclick="event.stopPropagation();openFixedManagerModal();setTimeout(()=>showAddFixed(),120)" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
+                        <button onclick="event.stopPropagation();showAddFixed()" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
                         <i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.8rem;color:var(--text-light);transition:transform 0.2s"></i>
                     </span>
                 </div>
@@ -351,7 +351,7 @@
             </div>
             <!-- When no fixed expenses exist -->
             <div id="no-fixed-expenses-cta" style="display:none;padding:8px 0">
-                <button onclick="openFixedManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
+                <button onclick="showAddFixed()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
             </div>
 
             <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -406,14 +406,14 @@
                     <h3 style="color:#2E7D32"><i class="fas fa-repeat"></i> Receitas Fixas do Mes</h3>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
-                        <button onclick="event.stopPropagation();openFixedIncomeManagerModal();setTimeout(()=>showAddFixedIncome(),120)" title="Adicionar receita fixa" style="background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
+                        <button onclick="event.stopPropagation();showAddFixedIncome()" title="Adicionar receita fixa" style="background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
                     </span>
                 </div>
                 <div id="fixed-income-list"></div>
             </div>
             <!-- When no fixed incomes exist -->
             <div id="no-fixed-incomes-cta" style="display:none;padding:8px 0 0 0">
-                <button onclick="openFixedIncomeManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar receitas fixas</button>
+                <button onclick="showAddFixedIncome()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar receitas fixas</button>
             </div>
 
             <div class="income-add-bar">
@@ -1403,23 +1403,6 @@
             </div>
         </div>
 
-        <!-- Fixed Expenses Manager Modal -->
-        <div id="modal-fixed-manager" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2><i class="fas fa-repeat"></i> Despesas Fixas</h2>
-                    <button onclick="closeFixedManagerModal()" class="btn-icon"><i class="fas fa-times"></i></button>
-                </div>
-                <p class="settings-desc">Despesas que saem todos os meses automaticamente. Cativadas no saldo até ao dia de pagamento.</p>
-                <button onclick="showAddFixed()" class="btn btn-primary btn-block" style="padding:14px;font-size:1rem">
-                    <i class="fas fa-plus"></i> Adicionar Despesa Fixa
-                </button>
-                <button id="ai-fixed-btn" onclick="runAiFixedSuggestion()" class="btn btn-block" style="margin-top:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0">
-                    <i class="fas fa-wand-magic-sparkles"></i> Detetar fixas com IA
-                </button>
-                <div id="fixed-list" class="fixed-list" style="margin-top:14px"></div>
-            </div>
-        </div>
 
         <!-- AI Duplicates/Suspicious Modal -->
         <div id="modal-ai-duplicates" class="modal">
@@ -1565,21 +1548,6 @@
                 </div>
                 <p class="settings-desc">Despesas que aparecem mês após mês com valor estável — podes promovê-las a fixas manualmente para melhor cativação.</p>
                 <div id="ai-fixed-results"></div>
-            </div>
-        </div>
-
-        <!-- Fixed Incomes Manager Modal -->
-        <div id="modal-fixed-income-manager" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2><i class="fas fa-coins"></i> Receitas Fixas</h2>
-                    <button onclick="closeFixedIncomeManagerModal()" class="btn-icon"><i class="fas fa-times"></i></button>
-                </div>
-                <p class="settings-desc">Receitas mensais (salario, subsidio, etc). Marcadas automaticamente no dia configurado.</p>
-                <button onclick="showAddFixedIncome()" class="btn btn-primary btn-block">
-                    <i class="fas fa-plus"></i> Adicionar Receita Fixa
-                </button>
-                <div id="fixed-income-list-settings" class="fixed-list"></div>
             </div>
         </div>
 
