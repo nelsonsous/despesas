@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v131';
+const APP_VERSION = 'v132';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -2350,8 +2350,17 @@ function getEffectiveMonthExpenses(date) {
 function getPaidFixedIncomesAsIncome(date) {
     const active = getActiveFixedIncomesForMonth(date);
     const monthKey = getFixedMonthKey(date);
+    const today = new Date();
     return active
         .filter(fi => getEffectiveFixedIncomeStatus(fi, date).status === 'recebido')
+        .filter(fi => {
+            // onlyOnDay = strict gating on the actual calendar date. If the
+            // user marked it received early but opted into "Só contar no
+            // saldo quando chegar o dia", hide it from balance until then.
+            if (!fi.onlyOnDay) return true;
+            const payDate = getFixedIncomePaymentDate(fi, date.getFullYear(), date.getMonth());
+            return today >= payDate;
+        })
         .map(fi => {
             const payDate = getFixedIncomePaymentDate(fi, date.getFullYear(), date.getMonth());
             return {
