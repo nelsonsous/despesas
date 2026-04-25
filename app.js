@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v132';
+const APP_VERSION = 'v133';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -3418,8 +3418,24 @@ function renderExpenses() {
             `;
         }
 
+        // Group active (non-skipped) fixed expenses by category. Categories
+        // with a single fixa render inline; 2+ collapse into a category row
+        // matching the variável list. Skipped ones stay as plain rows below.
+        const fixedByCat = new Map();
+        for (const f of activeNotSkipped) {
+            const k = f.category || 'outros';
+            if (!fixedByCat.has(k)) fixedByCat.set(k, []);
+            fixedByCat.get(k).push(f);
+        }
+        const fixedGroupedHtml = [];
+        const fixedInlineHtml = [];
+        for (const [k, items] of fixedByCat) {
+            if (items.length >= 2) fixedGroupedHtml.push(renderCategoryGroupRow(k, items, 'fixed'));
+            else fixedInlineHtml.push(renderFixedItem(items[0], false));
+        }
         fixedList.innerHTML = [
-            ...activeNotSkipped.map(f => renderFixedItem(f, false)),
+            ...fixedGroupedHtml,
+            ...fixedInlineHtml,
             ...activeSkipped.map(f => renderFixedItem(f, true))
         ].join('');
         titleEl.style.display = 'block';
@@ -3457,10 +3473,68 @@ function renderExpenses() {
         }
     }
 
+    // Then group non-prepaid by category. Categories with a single
+    // expense pass through unchanged so we don't add chrome around a
+    // single row. The user can still tap to edit either way.
+    const byCategory = new Map();
+    for (const e of nonPrepaid) {
+        const k = e.category || 'outros';
+        if (!byCategory.has(k)) byCategory.set(k, []);
+        byCategory.get(k).push(e);
+    }
+    const groupedHtml = [];
+    const inlineHtml = [];
+    for (const [k, items] of byCategory) {
+        if (items.length >= 2) groupedHtml.push(renderCategoryGroupRow(k, items, 'var'));
+        else inlineHtml.push(renderExpenseItem(items[0]));
+    }
+    // Sort the category groups by total desc so the heaviest sit on top.
+    groupedHtml.sort((a, b) => 0); // already in insertion order; keep date-sorted upstream
+
     container.innerHTML = [
         ...[...prepaidByCard.entries()].map(([cardId, items]) => renderPrepaidGroupRow(cardId, items)),
-        ...nonPrepaid.map(e => renderExpenseItem(e))
+        ...groupedHtml,
+        ...inlineHtml
     ].join('');
+}
+
+// Generic "category group" row used by both variable and fixed expense
+// lists. Shows category icon + label + total + count, expandable to
+// reveal the underlying rows. kind is 'var' or 'fixed' so the toggle
+// state and inner row renderer match the section.
+function renderCategoryGroupRow(catKey, items, kind) {
+    const cats = getEffectiveCategories();
+    const cat = cats[catKey] || cats.outros;
+    const total = items.filter(e => kind === 'fixed' ? true : expenseAffectsBalance(e)).reduce((s, e) => s + (e.amount || 0), 0);
+    const groupKey = `cat-${kind}-${catKey}`;
+    const isOpen = (window._categoryGroupOpen || {})[groupKey];
+    const renderItem = kind === 'fixed' ? (f => renderFixedItem(f, false)) : (e => renderExpenseItem(e));
+    const innerRows = items.map(renderItem).join('');
+    const accent = cat.color || '#9E9E9E';
+    return `
+        <div class="expense-item category-group-row" style="border-left:3px solid ${accent};flex-direction:column;align-items:stretch">
+            <div onclick="toggleCategoryGroup('${groupKey}')" style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%">
+                <div class="expense-icon cat-${catKey}"><i class="fas ${cat.icon}"></i></div>
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                        <div class="expense-desc">${cat.label} <span style="font-size:0.7rem;color:var(--text-light);font-weight:500;margin-left:4px">(${items.length})</span></div>
+                        <div class="expense-amount" style="flex-shrink:0">${formatCurrency(total)}</div>
+                    </div>
+                    <div class="expense-meta" style="margin-top:4px">
+                        <span>${items.length} ${items.length === 1 ? 'lançamento' : 'lançamentos'}</span>
+                        <i class="fas fa-chevron-${isOpen ? 'up' : 'down'}" style="color:var(--text-light);font-size:0.7rem;margin-left:auto"></i>
+                    </div>
+                </div>
+            </div>
+            <div style="display:${isOpen ? 'block' : 'none'};margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">${innerRows}</div>
+        </div>
+    `;
+}
+
+function toggleCategoryGroup(groupKey) {
+    window._categoryGroupOpen = window._categoryGroupOpen || {};
+    window._categoryGroupOpen[groupKey] = !window._categoryGroupOpen[groupKey];
+    renderExpenses();
 }
 
 // One-row "card group" that aggregates the month's top-ups and linked spends
