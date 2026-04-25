@@ -1520,10 +1520,26 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     margin-bottom: 10px;
+    flex-wrap: wrap;
 }
-.fixed-month-header h3 { font-size: 0.88rem; font-weight: 600; color: var(--primary-dark); margin: 0; }
-.fixed-month-total { font-size: 0.88rem; font-weight: 700; color: var(--primary-dark); }
+.fixed-month-header h3 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+    margin: 0;
+    /* Title gets the leftover space; controls (total + Gerir + chevron)
+       sit on the right and never wrap their internals. */
+    flex: 1;
+    min-width: 0;
+}
+.fixed-month-total {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--primary-dark);
+    white-space: nowrap;
+}
 .fixed-month-item {
     display: flex;
     align-items: center;
