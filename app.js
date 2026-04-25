@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v130';
+const APP_VERSION = 'v131';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -4426,12 +4426,19 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         const monthDate = new Date(y, m, 1);
 
         getPaidFixedAsExpenses(monthDate).forEach(e => {
-            if (!inCycle(e.date) || !isRealized(e.date)) return;
+            if (!inCycle(e.date)) return;
+            // Same as the income side: explicit "pago" can land before
+            // the scheduled day. Don't gate on isRealized for fixed
+            // expenses already marked paid.
             expPaidFixed += e.amount;
             expByCategory[e.category] = (expByCategory[e.category] || 0) + e.amount;
         });
         getPaidFixedIncomesAsIncome(monthDate).forEach(i => {
-            if (!inCycle(i.date) || !isRealized(i.date)) return;
+            if (!inCycle(i.date)) return;
+            // getPaidFixedIncomesAsIncome only returns receitas marked recebido
+            // (auto or explicit). Auto-recebido implies payDate<=today so
+            // isRealized is true. Explicit-recebido may be set BEFORE the
+            // scheduled payDate (user got the money early) — count anyway.
             incReceivedFixed += i.amount;
         });
 
