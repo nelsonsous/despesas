@@ -3351,6 +3351,13 @@ function renderExpenses() {
             const varEdit = f.isVariable ? `<button onclick="event.stopPropagation();editFixedAmount('${f.id}', currentDate)" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
 
             const hasExtraBadges = !!splitBadge || !!fixedSplitsBadge;
+            // Layout in two flex rows:
+            //   Row 1: icon + description/meta (flex:1) + amount (right)
+            //   Row 2: pago/pendente badge + variable-edit pen + edit + skip
+            // The third row of "extra badges" stays as before. This way the
+            // description column always gets the full available width minus
+            // icon + amount, so long names like "Seguro de Vida" stay
+            // readable instead of collapsing into single-letter columns.
             return `
                 <div class="fixed-month-item" style="${isPaid ? 'opacity:0.85;' : ''}flex-wrap:wrap">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'};flex-shrink:0">
@@ -3360,22 +3367,24 @@ function renderExpenses() {
                         <div class="fixed-month-desc">${f.description} ${varBadge}</div>
                         <div class="fixed-month-meta">Dia ${f.dayOfMonth} &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
-                    ${varEdit}
                     <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
                         ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}`
                           : hasSplitDeduction ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(gross)}</span>${formatCurrency(amount)}`
                           : formatCurrency(amount)}
                     </div>
-                    <button onclick="markFixedPaid('${f.id}', currentDate, ${!isPaid})"
-                        class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
-                        ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
-                    </button>
-                    <button onclick="event.stopPropagation();editFixed('${f.id}')" class="btn-icon" style="color:var(--primary);padding:4px;margin-left:2px" title="Editar despesa fixa">
-                        <i class="fas fa-pen"></i>
-                    </button>
-                    <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px;margin-left:2px" title="Ignorar este mês">
-                        <i class="fas fa-ban"></i>
-                    </button>
+                    <div style="flex-basis:100%;display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:6px">
+                        <button onclick="markFixedPaid('${f.id}', currentDate, ${!isPaid})"
+                            class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
+                            ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
+                        </button>
+                        ${varEdit}
+                        <button onclick="event.stopPropagation();editFixed('${f.id}')" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar despesa fixa">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px" title="Ignorar este mês">
+                            <i class="fas fa-ban"></i>
+                        </button>
+                    </div>
                     ${hasExtraBadges || fixedMixPartnerBadge ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}${fixedMixPartnerBadge}</div>` : ''}
                 </div>
             `;
