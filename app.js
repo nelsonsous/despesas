@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v134';
+const APP_VERSION = 'v135';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -9777,6 +9777,156 @@ function generateFullReport() {
     downloadFile(report, `relatorio_${formatMonthFile(currentDate)}.txt`, 'text/plain');
     closeExportMenu();
     showToast('Relatorio completo gerado!');
+}
+
+// ===== DEMO MODE =====
+// Builds a self-contained dataset that exercises the main features —
+// children + co-parent split, fixed/variable expenses, prepaid card,
+// savings goal, fixed incomes incl. one tagged as co-parent payment.
+// Replaces ALL current data after a confirmation; users are warned to
+// export first via showExportMenu.
+function buildDemoDataset() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const monthKey = `${y}-${String(m + 1).padStart(2, '0')}`;
+    const prevDate = new Date(y, m - 1, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    const dStr = (day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(Math.min(day, new Date(y, m + 1, 0).getDate())).padStart(2, '0')}`;
+    const id = () => Math.random().toString(36).slice(2, 11);
+
+    const childA = id();
+    const childB = id();
+    const cardId = id();
+    const topupTxId = id();
+    const topupExpenseId = id();
+    const goalId = id();
+    const goalDepositTxId = id();
+
+    const children = [
+        { id: childA, name: 'Eduarda', coParentName: 'Silvia', splitPct: 50, hasSplit: true },
+        { id: childB, name: 'Carolina', coParentName: 'João', splitPct: 50, hasSplit: true }
+    ];
+
+    const fixedExpenses = [
+        { id: id(), description: 'Renda casa', amount: 650, dayOfMonth: 5, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2025-01', endDate: null, notes: 'Senhorio: Sr. Antunes' },
+        { id: id(), description: 'EDP eletricidade', amount: 78, dayOfMonth: 12, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2025-01', endDate: null },
+        { id: id(), description: 'NOS internet+TV', amount: 41.99, dayOfMonth: 8, category: 'casa', type: 'personal', split: false, isVariable: false, startDate: '2025-01', endDate: null },
+        { id: id(), description: 'Águas de Cascais', amount: 23.5, dayOfMonth: 20, category: 'casa', type: 'personal', split: false, isVariable: true, startDate: '2025-01', endDate: null },
+        { id: id(), description: 'Ginásio Holmes Place', amount: 49.9, dayOfMonth: 1, category: 'lazer', type: 'personal', split: false, isVariable: false, startDate: '2025-06', endDate: null },
+        { id: id(), description: 'Escola Eduarda', amount: 280, dayOfMonth: 5, category: 'educacao', type: childA, split: true, isVariable: false, startDate: '2025-09', endDate: null },
+        { id: id(), description: 'Atividades Carolina', amount: 95, dayOfMonth: 5, category: 'educacao', type: childB, split: true, isVariable: false, startDate: '2025-09', endDate: null }
+    ];
+
+    const fixedIncomes = [
+        { id: id(), description: 'Salário', amount: 2700, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'ordenado', startDate: '2024-01', endDate: null, isVariable: false, onlyOnDay: false, manualMark: false },
+        { id: id(), description: 'Subsídio Refeição', amount: 183, dayOfMonth: 22, paymentMode: 'working-day-after', category: 'subsidio_refeicao', startDate: '2024-01', endDate: null, isVariable: true, onlyOnDay: false, manualMark: false },
+        { id: id(), description: 'Pagamento Silvia (Eduarda)', amount: 25.5, dayOfMonth: 1, paymentMode: 'fixed-day', category: `pag_${childA}`, startDate: '2025-01', endDate: null, isVariable: false, onlyOnDay: true, manualMark: true, coParentChildId: childA }
+    ];
+
+    const expenses = [
+        // Variable expenses spread across the current month
+        { id: id(), description: 'Auchan', amount: 47.85, date: dStr(2), category: 'supermercado', type: 'personal', essential: true },
+        { id: id(), description: 'Mercadona', amount: 32.4, date: dStr(8), category: 'supermercado', type: 'personal', essential: true },
+        { id: id(), description: 'Pingo Doce', amount: 28.6, date: dStr(15), category: 'supermercado', type: 'personal', essential: true },
+        { id: id(), description: 'Continente', amount: 65.2, date: dStr(20), category: 'supermercado', type: 'personal', essential: true },
+        { id: id(), description: 'Almoço Honest Greens', amount: 12.5, date: dStr(3), category: 'restaurantes', type: 'personal', essential: false },
+        { id: id(), description: 'Jantar Vitaminas', amount: 24, date: dStr(10), category: 'restaurantes', type: 'personal', essential: false },
+        { id: id(), description: 'Café com colegas', amount: 4.5, date: dStr(14), category: 'restaurantes', type: 'personal', essential: false },
+        { id: id(), description: 'Galp combustível', amount: 55, date: dStr(6), category: 'combustivel', type: 'personal', essential: true },
+        { id: id(), description: 'Galp combustível', amount: 50, date: dStr(19), category: 'combustivel', type: 'personal', essential: true },
+        { id: id(), description: 'Farmácia Costa', amount: 18.3, date: dStr(11), category: 'farmacia', type: 'personal', essential: true },
+        { id: id(), description: 'Médico Eduarda', amount: 35, date: dStr(7), category: 'saude', type: childA, split: true, paidByFather: false, essential: true },
+        { id: id(), description: 'Sapatilhas Carolina', amount: 42.9, date: dStr(13), category: 'roupa', type: childB, split: true, paidByFather: false, essential: false },
+        { id: id(), description: 'Cinema NOS', amount: 9.5, date: dStr(17), category: 'lazer', type: 'personal', essential: false },
+        // Prepaid card top-up + spends
+        { id: topupExpenseId, description: 'Carregamento Via Verde', amount: 50, date: dStr(1), category: 'transportes', type: 'personal', essential: true, isPrepaidTopup: true, prepaidCardId: cardId, prepaidTxId: topupTxId },
+        { id: id(), description: 'Portagem A5', amount: 4.85, date: dStr(4), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() },
+        { id: id(), description: 'Portagem A1', amount: 8.7, date: dStr(11), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() },
+        { id: id(), description: 'Estacionamento EMEL', amount: 3.2, date: dStr(16), category: 'transportes', type: 'personal', essential: true, prepaidCardId: cardId, prepaidTxId: id() }
+    ];
+    // Fill in the prepaid card transactions matching the expense ledger.
+    const prepaidCards = [{
+        id: cardId,
+        name: 'Via Verde',
+        color: '#FF6F00',
+        icon: 'fa-road',
+        transactions: [
+            { id: topupTxId, type: 'topup', amount: 50, description: 'Carregamento Via Verde', date: dStr(1), expenseId: topupExpenseId },
+            ...expenses.filter(e => e.prepaidCardId === cardId && !e.isPrepaidTopup)
+                .map(e => ({ id: e.prepaidTxId, type: 'spend', amount: e.amount, description: e.description, date: e.date, expenseId: e.id }))
+        ]
+    }];
+
+    const goalTxId1 = id(), goalTxId2 = id();
+    const savingsGoals = [{
+        id: goalId,
+        name: 'Férias Verão 2026',
+        target: 2000,
+        targetDate: `${y}-08-31`,
+        icon: 'fa-umbrella-beach',
+        color: '#00BCD4',
+        transactions: [
+            { id: goalTxId1, type: 'deposit', amount: 200, date: `${prevMonthKey}-25`, notes: 'Reforço mensal' },
+            { id: goalTxId2, type: 'deposit', amount: 150, date: dStr(15), notes: 'Reforço mensal' }
+        ]
+    }];
+
+    const incomes = []; // No variable incomes — fixed cover the demo
+
+    // Mark current-month fixed expenses as paid (auto via day passed) + the
+    // co-parent receita as recebido so the family tab populates immediately.
+    const today = now.getDate();
+    const fixedStatus = fixedExpenses
+        .filter(f => today >= f.dayOfMonth)
+        .map(f => ({ fixedId: f.id, month: monthKey, status: 'pago', paidByFather: false }));
+    const fixedIncomeStatus = [
+        { fixedIncomeId: fixedIncomes[2].id, month: monthKey, status: 'recebido' }
+    ];
+
+    return {
+        expenses, incomes, fixedExpenses, fixedIncomes, fixedStatus, fixedIncomeStatus,
+        children, prepaidCards, savingsGoals
+    };
+}
+
+function loadDemoData() {
+    if (!confirm('⚠️ Isto SUBSTITUI todos os dados actuais por dados fictícios de demonstração.\n\nGuardaste o teu backup (botão exportar) antes? Continuar?')) return;
+    const demo = buildDemoDataset();
+    expenses = demo.expenses;
+    incomes = demo.incomes;
+    fixedExpenses = demo.fixedExpenses;
+    fixedIncomes = demo.fixedIncomes;
+    fixedStatus = demo.fixedStatus;
+    fixedIncomeStatus = demo.fixedIncomeStatus;
+    children = demo.children;
+    prepaidCards = demo.prepaidCards;
+    savingsGoals = demo.savingsGoals;
+    // Switch to separated mode so the co-parent split features are visible.
+    localStorage.setItem(HOUSEHOLD_MODE_KEY, 'separated');
+    localStorage.setItem(USER_NAME_KEY, 'Demo');
+    saveData();
+    closeSettingsModal();
+    updateAll();
+    showToast('Demo carregada — explora as várias tabs');
+}
+
+function wipeAllData() {
+    if (!confirm('⚠️ Apagar TODOS os dados (despesas, receitas, fixas, cartões, poupanças, filhos)?\n\nIsto não tem volta. Exporta primeiro se ainda precisas dos dados.')) return;
+    if (!confirm('Última confirmação: vais perder tudo. Continuar?')) return;
+    expenses = [];
+    incomes = [];
+    fixedExpenses = [];
+    fixedIncomes = [];
+    fixedStatus = [];
+    fixedIncomeStatus = [];
+    children = [];
+    prepaidCards = [];
+    savingsGoals = [];
+    saveData();
+    closeSettingsModal();
+    updateAll();
+    showToast('Todos os dados foram apagados');
 }
 
 // ===== IMPORT =====
