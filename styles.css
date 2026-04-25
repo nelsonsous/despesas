@@ -1579,6 +1579,12 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     margin-top: 2px;
     overflow-wrap: anywhere;
 }
+.fixed-month-item .fixed-month-meta .meta-day {
+    /* Day-of-month is the most useful piece of meta on a fixed row, give
+       it a touch more weight without going overboard. */
+    color: var(--primary);
+    font-weight: 700;
+}
 .fixed-month-item:last-child { margin-bottom: 0; }
 .fixed-skipped-item { opacity: 0.5; background: #fafafa; }
 .fixed-status-badge {
