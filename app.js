@@ -3377,8 +3377,14 @@ function renderExpenses() {
                             ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
                         </button>
                         ${varEdit}
+                        <button onclick="event.stopPropagation();duplicateFixed('${f.id}')" class="btn-icon" style="color:#E65100;padding:4px" title="Duplicar">
+                            <i class="fas fa-copy"></i>
+                        </button>
                         <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px" title="Ignorar este mês">
                             <i class="fas fa-ban"></i>
+                        </button>
+                        <button onclick="event.stopPropagation();confirmDeleteFixed('${f.id}')" class="btn-icon" style="color:var(--danger);padding:4px" title="Apagar">
+                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
                     ${hasExtraBadges || fixedMixPartnerBadge ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}${fixedMixPartnerBadge}</div>` : ''}
@@ -3850,21 +3856,32 @@ function renderIncomeTab() {
             const modeLabel = fi.paymentMode === 'last-working-day' ? 'último dia útil'
                 : fi.paymentMode === 'working-day-after' ? `1.º útil após ${fi.dayOfMonth}`
                 : `Dia ${fi.dayOfMonth}`;
+            // Same row-tap-to-edit pattern as despesas fixas: tap the body
+            // to open editFixedIncome; per-month controls + duplicate +
+            // delete sit on a second flex row, all stopPropagation.
             return `
-                <div class="fixed-month-item" style="flex-wrap:wrap;${waitingForDay ? 'opacity:0.6;' : ''}">
+                <div class="fixed-month-item" onclick="editFixedIncome('${fi.id}')" style="flex-wrap:wrap;cursor:pointer;${waitingForDay ? 'opacity:0.6;' : ''}">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:#E8F5E9;color:#2E7D32;flex-shrink:0">
                         <i class="fas ${cat.icon || 'fa-coins'}"></i>
                     </div>
-                    <div style="flex:1 1 60%;min-width:0">
-                        <div style="font-size:0.85rem;font-weight:600">${fi.description} ${varBadge}</div>
-                        <div style="font-size:0.72rem;color:var(--text-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${modeLabel}${fi.isVariable && amount !== fi.amount ? ` · base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' · <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
+                    <div>
+                        <div class="fixed-month-desc">${fi.description} ${varBadge}</div>
+                        <div class="fixed-month-meta">${modeLabel}${fi.isVariable && amount !== fi.amount ? ` &middot; base: ${formatCurrency(fi.amount)}` : ''}${waitingForDay ? ' &middot; <i class="fas fa-hourglass-half"></i> aguarda' : ''}</div>
                     </div>
-                    ${varEdit}
                     <div class="fixed-month-amount" style="color:${waitingForDay ? 'var(--text-light)' : 'var(--success)'}">${fi.isVariable && amount !== fi.amount ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(fi.amount)}</span>` : ''}+${formatCurrency(amount)}</div>
-                    <button onclick="markFixedIncomePaid('${fi.id}', currentDate, ${!isReceived})"
-                        class="fixed-status-badge ${isReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
-                        ${isReceived ? '<i class="fas fa-check"></i> Recebido' : '<i class="fas fa-clock"></i> Pendente'}
-                    </button>
+                    <div style="flex-basis:100%;display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:6px">
+                        <button onclick="event.stopPropagation();markFixedIncomePaid('${fi.id}', currentDate, ${!isReceived})"
+                            class="fixed-status-badge ${isReceived ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
+                            ${isReceived ? '<i class="fas fa-check"></i> Recebido' : '<i class="fas fa-clock"></i> Pendente'}
+                        </button>
+                        ${varEdit}
+                        <button onclick="event.stopPropagation();duplicateFixedIncome('${fi.id}')" class="btn-icon" style="color:#E65100;padding:4px" title="Duplicar">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <button onclick="event.stopPropagation();confirmDeleteFixedIncome('${fi.id}')" class="btn-icon" style="color:var(--danger);padding:4px" title="Apagar">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
             `;
         }).join('');
