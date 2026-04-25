@@ -1319,16 +1319,21 @@ function renderSalaryCycle() {
 
     animateNumber(document.getElementById('salary-spent'), spentSinceSalary);
     const rateEl = document.getElementById('salary-spent-rate');
-    // Daily budget (what's left / days remaining) lets us compare the current
-    // rate against what you can actually sustain until the end of the cycle.
+    // Daily budget = what's left in the cycle / days remaining. This is
+    // the reference point for the "X% acima/abaixo do orçamento" tag —
+    // it tells the user whether they're spending faster than they can
+    // sustain until the next salary. We expose the comparison explicitly
+    // ("ritmo X/dia vs orçamento Y/dia") so the user knows where the
+    // percentage comes from.
     const dailyBudget = (cycleContainsToday && daysLeft > 0) ? (available / daysLeft) : 0;
     if (rateEl) {
         if (b.expPaidVariable > 0 && dailyBudget > 0) {
             const diffPct = Math.round((dailyVarRate - dailyBudget) / dailyBudget * 100);
             const over = diffPct > 10;
             const under = diffPct < -10;
-            const tag = over ? ` · ${diffPct}% acima do orçamento` : under ? ` · ${Math.abs(diffPct)}% abaixo` : '';
-            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia${tag}`;
+            const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
+            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyBudget)})${tag}`;
+            rateEl.title = `Comparado com o orçamento diário (Disponível ÷ ${daysLeft} dias restantes)`;
             rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
         } else if (b.expPaidVariable > 0) {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
