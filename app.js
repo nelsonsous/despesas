@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v129';
+const APP_VERSION = 'v130';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
@@ -4106,16 +4106,20 @@ function renderChildrenTab() {
         const splitExp = childExp.filter(e => e.split);
         const splitTotal = splitExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
         const coParentShare = splitTotal * (child.splitPct / 100);
-        const coParentPaidFromExpenses = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
-        // Co-parent payments registered as fixed incomes tagged with this child:
-        // count them as already-paid contributions for this month.
-        const coParentIncomeReceived = getActiveFixedIncomesForMonth(currentDate)
-            .filter(fi => fi.coParentChildId === child.id
-                && getEffectiveFixedIncomeStatus(fi, currentDate).status === 'recebido')
-            .reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
-        const coParentPaid = coParentPaidFromExpenses + coParentIncomeReceived;
+        const coParentPaid = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
         const coParentPending = coParentShare - coParentPaid;
         const vanessaPays = total - coParentPaid;
+        // Co-parent receitas — receitas tagged with this child via the
+        // "Pagamento do co-progenitor" toggle. Listed as a separate row so
+        // they don't fight with the expense-share math.
+        const coParentIncomes = getActiveFixedIncomesForMonth(currentDate)
+            .filter(fi => fi.coParentChildId === child.id);
+        const coParentIncomeReceived = coParentIncomes
+            .filter(fi => getEffectiveFixedIncomeStatus(fi, currentDate).status === 'recebido')
+            .reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
+        const coParentIncomePending = coParentIncomes
+            .filter(fi => getEffectiveFixedIncomeStatus(fi, currentDate).status !== 'recebido')
+            .reduce((s, fi) => s + getEffectiveFixedIncomeAmount(fi, currentDate), 0);
 
         return `
             <div class="card split-summary-card" style="margin-bottom:8px">
@@ -4144,6 +4148,13 @@ function renderChildrenTab() {
                         <span>Em falta</span>
                         <span class="bold">${formatCurrency(coParentPending)}</span>
                     </div>
+                    ${coParentIncomes.length > 0 ? `
+                    <div class="split-row" style="background:#E8F5E9;border-radius:6px;padding:8px 10px;margin-top:6px">
+                        <span><i class="fas fa-arrow-down" style="color:#2E7D32;font-size:0.7rem"></i> Recebido de ${child.coParentName} ${coParentIncomePending > 0 && coParentIncomeReceived === 0 ? '<span style="font-size:0.65rem;color:#E65100;background:#FFF3E0;padding:1px 5px;border-radius:4px">pendente</span>' : ''}</span>
+                        <span class="bold" style="color:#2E7D32">
+                            ${formatCurrency(coParentIncomeReceived)}${coParentIncomePending > 0 ? `<span style="font-size:0.7rem;font-weight:400;color:var(--text-light);margin-left:6px">+${formatCurrency(coParentIncomePending)} por receber</span>` : ''}
+                        </span>
+                    </div>` : ''}
                 </div>
                 <div class="split-actions" style="flex-wrap:wrap">
                     ${coParentPending > 0 ? `<button onclick="batchToggleCoParent('${child.id}', true)" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9">
