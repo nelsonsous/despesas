@@ -6873,6 +6873,11 @@ function renderAttachmentPreview(containerId, attachment) {
     const isPdf = attachment.type === 'application/pdf';
     const isImage = (attachment.type || '').startsWith('image/');
     const isExpense = containerId === 'attachment-preview';
+    // Both images and PDFs can be parsed by the AI for fatura data — the
+    // image path uses vision, the PDF path extracts text via pdf.js and
+    // sends it to the text model. Same outcome for the user: the modal
+    // gets pre-filled.
+    const canOcr = isExpense && (isImage || isPdf);
     container.innerHTML = `
         <div class="attachment-thumb ${isPdf ? 'attachment-thumb-pdf' : ''}">
             ${isPdf ? '<i class="fas fa-file-pdf"></i>' : `<img src="${attachment.data}" alt="Anexo">`}
@@ -6880,7 +6885,7 @@ function renderAttachmentPreview(containerId, attachment) {
                 <i class="fas fa-times"></i>
             </button>
         </div>
-        ${(isExpense && isImage) ? `<button type="button" onclick="runOcrOnAttachment()" class="btn btn-sm" style="margin-top:6px;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;width:100%"><i class="fas fa-wand-magic-sparkles"></i> Ler esta fatura com IA</button>` : ''}
+        ${canOcr ? `<button type="button" onclick="runOcrOnAttachment()" class="btn btn-sm" style="margin-top:6px;background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;width:100%"><i class="fas fa-wand-magic-sparkles"></i> Ler esta fatura com IA</button>` : ''}
     `;
 }
 
@@ -6889,15 +6894,36 @@ function renderAttachmentPreview(containerId, attachment) {
 // no longer need a separate "Scan recibo" chip — same button, richer
 // outcome.
 async function runOcrOnAttachment() {
-    if (!pendingAttachment || !pendingAttachment.data || !pendingAttachment.type?.startsWith('image/')) {
-        showToast('Sem imagem anexada'); return;
-    }
+    if (!pendingAttachment || !pendingAttachment.data) { showToast('Sem anexo'); return; }
     if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
+    const isPdf = pendingAttachment.type === 'application/pdf';
+    const isImage = (pendingAttachment.type || '').startsWith('image/');
+    if (!isPdf && !isImage) { showToast('Tipo de ficheiro não suportado'); return; }
     try {
-        // Pull the base64 payload out of the data URL the attachment stores.
-        const comma = pendingAttachment.data.indexOf(',');
-        const rawData = comma >= 0 ? pendingAttachment.data.slice(comma + 1) : pendingAttachment.data;
-        // Resize from the existing base64 by loading into an Image first.
+        const cats = getEffectiveCategories();
+        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+        const today = new Date().toISOString().slice(0, 10);
+        if (isPdf) {
+            // PDFs: extract text with pdf.js then route to the text AI with
+            // the same fatura schema. Vision isn't used here because most
+            // utility/insurance/invoice PDFs are text-native (OCR-quality
+            // would only help scanned PDFs, which are rare in PT).
+            showToast('A ler fatura PDF…');
+            const text = await extractPdfTextFromAttachment(pendingAttachment);
+            if (!text || text.length < 30) { showToast('PDF parece vazio ou ilegível'); return; }
+            const prompt = `${AI_SYSTEM_PROMPT}
+Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility). Usa null para o que não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
+
+TEXTO:
+${text.slice(0, 8000)}`;
+            const raw = await callAIText(prompt);
+            const obj = extractJsonObject(raw);
+            if (!obj || obj.erro) { showToast(obj?.erro || 'Não consegui ler o PDF'); return; }
+            applyOcrFieldsToOpenModal(obj);
+            showToast('PDF lido — verifica os campos');
+            return;
+        }
+        // Image path: same flow as the dedicated "Scan recibo" chip.
         const resized = await new Promise((res, rej) => {
             const img = new Image();
             img.onload = () => {
@@ -6913,10 +6939,6 @@ async function runOcrOnAttachment() {
             img.onerror = () => rej(new Error('Não consegui ler a imagem'));
             img.src = pendingAttachment.data;
         });
-
-        const cats = getEffectiveCategories();
-        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-        const today = new Date().toISOString().slice(0, 10);
         const prompt = `${AI_SYSTEM_PROMPT}
 Extrai os dados deste recibo/fatura e devolve APENAS o JSON com o shape normal. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}`;
         showToast('A ler fatura anexada…');
@@ -6928,6 +6950,39 @@ Extrai os dados deste recibo/fatura e devolve APENAS o JSON com o shape normal. 
     } catch (e) {
         showToast(`Erro: ${e?.message || e}`);
     }
+}
+
+// Reuses the same pdf.js loader that the bank-statement importer uses,
+// but takes a base64 data URL instead of a File. Returns plain text.
+async function extractPdfTextFromAttachment(attachment) {
+    await waitForPdfLib();
+    const dataUrl = attachment.data;
+    const comma = dataUrl.indexOf(',');
+    const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+    // base64 → Uint8Array for pdf.js
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const out = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        let prevY = null;
+        const line = [];
+        for (const it of content.items) {
+            const y = it.transform?.[5];
+            if (prevY !== null && Math.abs(y - prevY) > 3) {
+                out.push(line.join(' '));
+                line.length = 0;
+            }
+            line.push(it.str);
+            prevY = y;
+        }
+        if (line.length) out.push(line.join(' '));
+        out.push(''); // page break
+    }
+    return out.join('\n').trim();
 }
 
 // Fills the currently-open expense modal with OCR output, keeping the
