@@ -341,7 +341,7 @@
                     <h3><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span id="fixed-month-total" class="fixed-month-total"></span>
-                        <button onclick="event.stopPropagation();openFixedManagerModal()" title="Gerir despesas fixas" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-cog"></i> Gerir</button>
+                        <button onclick="event.stopPropagation();openFixedManagerModal();setTimeout(()=>showAddFixed(),120)" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
                         <i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.8rem;color:var(--text-light);transition:transform 0.2s"></i>
                     </span>
                 </div>
@@ -404,12 +404,12 @@
             <div id="fixed-income-section" class="fixed-month-section" style="display:none;background:#E8F5E9;border-color:#C8E6C9">
                 <div class="fixed-month-header">
                     <h3 style="color:#2E7D32"><i class="fas fa-repeat"></i> Receitas Fixas do Mes</h3>
-                    <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
+                    <span style="display:flex;align-items:center;gap:6px">
+                        <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
+                        <button onclick="event.stopPropagation();openFixedIncomeManagerModal();setTimeout(()=>showAddFixedIncome(),120)" title="Adicionar receita fixa" style="background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
+                    </span>
                 </div>
                 <div id="fixed-income-list"></div>
-                <div style="padding:8px 12px">
-                    <button onclick="openFixedIncomeManagerModal()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-cog"></i> Gerir receitas fixas</button>
-                </div>
             </div>
             <!-- When no fixed incomes exist -->
             <div id="no-fixed-incomes-cta" style="display:none;padding:8px 0 0 0">
