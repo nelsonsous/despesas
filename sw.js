@@ -1,4 +1,4 @@
-const CACHE_NAME = 'despesas-v127';
+const CACHE_NAME = 'despesas-v128';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
@@ -13,6 +13,9 @@ const ASSETS = [
 function freshRequest(req) {
     if (req.method !== 'GET') return req;
     const url = new URL(req.url);
+    // Only bypass HTTP cache for our own app shell — third-party CDNs
+    // (Font Awesome, Google Fonts, pdf.js) break with no-store + no-cors.
+    if (url.origin !== self.location.origin) return req;
     const isAppShell = /\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
     if (!isAppShell) return req;
     return new Request(req.url, { method: 'GET', cache: 'no-store', credentials: req.credentials });

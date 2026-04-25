@@ -100,7 +100,7 @@ function applyAppTitle() {
     if (tag) tag.textContent = APP_VERSION;
 }
 
-const APP_VERSION = 'v127';
+const APP_VERSION = 'v128';
 
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
