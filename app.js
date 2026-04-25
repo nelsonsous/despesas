@@ -9706,20 +9706,16 @@ function toggleSpouseSettingsUI() {
     document.getElementById('modal-settings').classList.add('active');
 }
 
-function openFixedManagerModal() {
-    renderFixedList();
-    document.getElementById('modal-fixed-manager').classList.add('active');
-}
-function closeFixedManagerModal() {
-    document.getElementById('modal-fixed-manager').classList.remove('active');
-}
-function openFixedIncomeManagerModal() {
-    renderFixedIncomeList();
-    document.getElementById('modal-fixed-income-manager').classList.add('active');
-}
-function closeFixedIncomeManagerModal() {
-    document.getElementById('modal-fixed-income-manager').classList.remove('active');
-}
+// The dedicated fixed-expense and fixed-income manager modals were
+// removed once the dashboard rows got their own edit/duplicate/delete
+// actions and the headers got "+ Nova" chips. The functions are kept
+// as compatibility shims that route to showAddFixed/showAddFixedIncome
+// so any legacy onclick="openFixedManagerModal()" still does something
+// sensible (open the add form).
+function openFixedManagerModal() { showAddFixed(); }
+function closeFixedManagerModal() { /* modal removed */ }
+function openFixedIncomeManagerModal() { showAddFixedIncome(); }
+function closeFixedIncomeManagerModal() { /* modal removed */ }
 
 function saveProfileName() {
     const name = document.getElementById('profile-name').value.trim();
