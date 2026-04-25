@@ -2108,6 +2108,9 @@ function getFixedIncomePaymentDate(fi, year, month) {
 function getEffectiveFixedIncomeStatus(fi, date) {
     const explicit = getFixedIncomeStatusForMonth(fi.id, date);
     if (explicit) return explicit;
+    // If the user opted into manual marking, never auto-flip to "recebido" —
+    // they have to confirm via the badge in the income tab.
+    if (fi.manualMark) return { status: 'pendente', auto: false };
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     if (isCurrentMonth) {
@@ -10290,6 +10293,8 @@ function editFixedIncome(id) {
     document.getElementById('fixed-income-notes').value = fi.notes || '';
     document.getElementById('fixed-income-is-variable').checked = fi.isVariable || false;
     document.getElementById('fixed-income-only-on-day').checked = fi.onlyOnDay || false;
+    const mmEl = document.getElementById('fixed-income-manual-mark');
+    if (mmEl) mmEl.checked = !!fi.manualMark;
     const mode = fi.paymentMode || 'fixed-day';
     const modeEl = document.querySelector(`input[name="fi-pay-mode"][value="${mode}"]`);
     if (modeEl) modeEl.checked = true;
@@ -10321,6 +10326,7 @@ function saveFixedIncome(event) {
         notes: document.getElementById('fixed-income-notes').value.trim(),
         isVariable: document.getElementById('fixed-income-is-variable').checked,
         onlyOnDay: document.getElementById('fixed-income-only-on-day').checked,
+        manualMark: document.getElementById('fixed-income-manual-mark')?.checked || false,
         updatedAt: new Date().toISOString()
     };
     if (id) {
