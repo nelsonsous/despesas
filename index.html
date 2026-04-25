@@ -337,13 +337,11 @@
 
             <!-- Fixed Expenses This Month -->
             <div id="fixed-month-section" class="fixed-month-section" style="display:none">
-                <div class="fixed-month-header" onclick="toggleFixedSection()" style="cursor:pointer;user-select:none">
-                    <h3><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
-                    <span style="display:flex;align-items:center;gap:6px">
-                        <span id="fixed-month-total" class="fixed-month-total"></span>
-                        <button onclick="event.stopPropagation();showAddFixed()" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
-                        <i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.8rem;color:var(--text-light);transition:transform 0.2s"></i>
-                    </span>
+                <div class="fixed-month-header" style="user-select:none">
+                    <h3 onclick="toggleFixedSection()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;flex:1"><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
+                    <span id="fixed-month-total" class="fixed-month-total" onclick="toggleFixedSection()" style="cursor:pointer"></span>
+                    <button onclick="event.stopPropagation();showAddFixed()" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-left:8px"><i class="fas fa-plus"></i> Nova</button>
+                    <button onclick="event.stopPropagation();toggleFixedSection()" title="Expandir/colapsar" class="btn-icon" style="margin-left:6px;width:32px;height:32px;color:var(--text-light)"><i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.85rem;transition:transform 0.2s"></i></button>
                 </div>
                 <div id="fixed-month-body">
                     <div id="fixed-month-list"></div>
@@ -403,11 +401,9 @@
             <!-- Fixed Income This Month -->
             <div id="fixed-income-section" class="fixed-month-section" style="display:none;background:#E8F5E9;border-color:#C8E6C9">
                 <div class="fixed-month-header">
-                    <h3 style="color:#2E7D32"><i class="fas fa-repeat"></i> Receitas Fixas do Mes</h3>
-                    <span style="display:flex;align-items:center;gap:6px">
-                        <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
-                        <button onclick="event.stopPropagation();showAddFixedIncome()" title="Adicionar receita fixa" style="background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><i class="fas fa-plus"></i> Nova</button>
-                    </span>
+                    <h3 style="color:#2E7D32;flex:1"><i class="fas fa-repeat"></i> Receitas Fixas do Mes</h3>
+                    <span id="fixed-income-total" class="fixed-month-total" style="color:var(--success)"></span>
+                    <button onclick="event.stopPropagation();showAddFixedIncome()" title="Adicionar receita fixa" style="background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-left:8px"><i class="fas fa-plus"></i> Nova</button>
                 </div>
                 <div id="fixed-income-list"></div>
             </div>
