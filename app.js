@@ -3351,15 +3351,14 @@ function renderExpenses() {
             const varEdit = f.isVariable ? `<button onclick="event.stopPropagation();editFixedAmount('${f.id}', currentDate)" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
 
             const hasExtraBadges = !!splitBadge || !!fixedSplitsBadge;
-            // Layout in two flex rows:
-            //   Row 1: icon + description/meta (flex:1) + amount (right)
-            //   Row 2: pago/pendente badge + variable-edit pen + edit + skip
-            // The third row of "extra badges" stays as before. This way the
-            // description column always gets the full available width minus
-            // icon + amount, so long names like "Seguro de Vida" stay
-            // readable instead of collapsing into single-letter columns.
+            // Mirrors the variable-expense pattern: tap the row body to open
+            // editFixed; the only buttons inline are the per-month toggles
+            // (pago/pendente, ignorar) plus the "real value" pen for
+            // variable fixas. Each button stopPropagation so it doesn't
+            // double-fire as a row click. No dedicated edit pen — the row
+            // itself is the edit affordance.
             return `
-                <div class="fixed-month-item" style="${isPaid ? 'opacity:0.85;' : ''}flex-wrap:wrap">
+                <div class="fixed-month-item" onclick="editFixed('${f.id}')" style="${isPaid ? 'opacity:0.85;' : ''}flex-wrap:wrap;cursor:pointer">
                     <div class="fixed-icon" style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.85rem;background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'};flex-shrink:0">
                         <i class="fas ${cat.icon}"></i>
                     </div>
@@ -3373,14 +3372,11 @@ function renderExpenses() {
                           : formatCurrency(amount)}
                     </div>
                     <div style="flex-basis:100%;display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:6px">
-                        <button onclick="markFixedPaid('${f.id}', currentDate, ${!isPaid})"
+                        <button onclick="event.stopPropagation();markFixedPaid('${f.id}', currentDate, ${!isPaid})"
                             class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer">
                             ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
                         </button>
                         ${varEdit}
-                        <button onclick="event.stopPropagation();editFixed('${f.id}')" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar despesa fixa">
-                            <i class="fas fa-pen"></i>
-                        </button>
                         <button onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" class="btn-icon" style="color:var(--text-light);padding:4px" title="Ignorar este mês">
                             <i class="fas fa-ban"></i>
                         </button>
