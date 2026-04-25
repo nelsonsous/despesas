@@ -3744,17 +3744,25 @@ function renderExpenseItem(e) {
     // the amount because that money was already counted at top-up time.
     const linkedCard = e.prepaidCardId ? prepaidCards.find(c => c.id === e.prepaidCardId) : null;
     const isPrepaidPaid = !!(e.prepaidCardId && !e.isPrepaidTopup);
-    const prepaidChip = e.isPrepaidTopup
-        ? `<span class="fixed-status-badge" style="background:#EEE7FF;color:#5A3BD8;font-size:0.65rem"><i class="fas fa-arrow-up"></i> Carregamento${linkedCard ? ' ' + linkedCard.name : ''}</span>`
+    const isPrepaidTopupRow = !!e.isPrepaidTopup;
+    const prepaidChip = isPrepaidTopupRow
+        ? `<span class="fixed-status-badge" style="background:#EEE7FF;color:#5A3BD8;font-size:0.65rem;font-weight:700"><i class="fas fa-arrow-up"></i> Carregamento${linkedCard ? ' ' + linkedCard.name : ''}</span>`
         : (isPrepaidPaid
-            ? `<span class="fixed-status-badge" style="background:#F3EFFF;color:#5A3BD8;font-size:0.65rem"><i class="fas fa-credit-card"></i> Pago via ${linkedCard?.name || 'cartão'}</span>`
+            ? `<span class="fixed-status-badge" style="background:#F3EFFF;color:#5A3BD8;font-size:0.65rem;font-weight:700"><i class="fas fa-credit-card"></i> Cartão · ${linkedCard?.name || 'sem nome'}</span>`
             : '');
     const amountStyle = isPrepaidPaid
         ? 'flex-shrink:0;color:var(--text-light);text-decoration:line-through;opacity:0.7'
         : `flex-shrink:0;${hasDeduction ? 'color:var(--success)' : ''}`;
     const amountTitle = isPrepaidPaid ? 'Já pago via cartão de carregamento — não conta no total do mês' : '';
+    // Prepaid-related rows get a tinted background and a thicker purple
+    // accent border so they stand apart from regular cash expenses at a
+    // glance. Top-ups and consumptions share the visual treatment but
+    // the chip text says which one it is.
+    const isPrepaidRow = isPrepaidTopupRow || isPrepaidPaid;
+    const rowBg = isPrepaidRow ? 'background:#FBF9FF;' : '';
+    const rowBorder = isPrepaidRow ? '#5A3BD8' : catColor;
     return `
-        <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}" style="border-left:3px solid ${catColor}">
+        <div class="expense-item" onclick="${isFixedVirtual ? '' : `editExpense('${e.id}')`}" style="border-left:3px solid ${rowBorder};${rowBg}">
             <div class="expense-icon cat-${e.category}">
                 <i class="fas ${cat.icon}"></i>
             </div>
@@ -9201,10 +9209,22 @@ function populatePrepaidSelect() {
 }
 
 function deleteExpense() {
+    // Cascade to the prepaid card ledger so removing the expense from the
+    // list also removes the matching tx from the card. Without this the
+    // card kept showing "Carregamento" and "Sumo" rows for expenses the
+    // user had already deleted, leaving the two views inconsistent.
+    const target = expenses.find(e => e.id === pendingDeleteId);
+    if (target?.prepaidCardId && target?.prepaidTxId) {
+        const card = prepaidCards.find(c => c.id === target.prepaidCardId);
+        if (card) {
+            card.transactions = (card.transactions || []).filter(t => t.id !== target.prepaidTxId);
+        }
+    }
     expenses = expenses.filter(e => e.id !== pendingDeleteId);
     saveData();
     closeConfirm();
     updateAll();
+    renderPrepaidCards();
     showToast('Despesa apagada');
 }
 function closeConfirm() {
