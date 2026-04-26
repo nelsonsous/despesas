@@ -100,8 +100,6 @@
                         <span class="salary-cycle-row-label">Podes gastar <span class="salary-cycle-row-hint" id="salary-daily-budget-hint"></span></span>
                         <span class="salary-cycle-row-value" id="salary-daily-budget">—</span>
                     </div>
-                    <!-- Inline pace row (replaces standalone Ritmo card when salary is configured) -->
-                    <div id="salary-cycle-pace-row" style="display:none"></div>
                     <div class="salary-cycle-footer" id="salary-cycle-footer" style="display:none">
                         <div class="salary-cycle-footer-row">
                             <span id="salary-projection-label">Ao ritmo atual</span>
@@ -164,6 +162,9 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Cycle-mode note: shown when salaryDay configured (Projeção sub-section is hidden because the Ciclo Salarial card covers it) -->
+                <div id="dash-cycle-note" style="display:none;padding:8px 14px 0 14px;text-align:center"><small style="color:var(--text-light);font-size:0.7rem"><i class="fas fa-arrow-down" style="margin-right:4px;opacity:0.7"></i>Projeção e ritmo no card "Ciclo Salarial" abaixo</small></div>
 
                 <!-- Sub-section: Projeção -->
                 <div class="dash-section" id="dash-section-projecao">

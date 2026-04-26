@@ -2697,6 +2697,18 @@ function updateDashboard() {
     }
     initDashSections();
 
+    // When the salary cycle is configured the dedicated "Ciclo Salarial" card
+    // is the canonical projection view. The month-scoped Projeção sub-section
+    // (Por receber / Cativo / Saldo projetado) reports the same three concepts
+    // and becomes redundant — hide it and surface a one-line pointer so the
+    // user knows where it went. Without salaryDay configured the sub-section
+    // is the only place these numbers exist, so leave it untouched.
+    const projecaoSection = document.getElementById('dash-section-projecao');
+    const cycleNote = document.getElementById('dash-cycle-note');
+    const cycleMode = isSalaryConfigured();
+    if (projecaoSection) projecaoSection.style.display = cycleMode ? 'none' : '';
+    if (cycleNote) cycleNote.style.display = cycleMode ? 'block' : 'none';
+
     // YTD strip
     renderYTDStrip();
     // Spending pace
@@ -2924,98 +2936,47 @@ function renderPartnerSummary() {
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
     const container = document.getElementById('spending-pace');
-    const inlineRow = document.getElementById('salary-cycle-pace-row');
     if (!container) return;
 
     const today = new Date();
     const isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
     if (!isCurrentMonth) {
         container.style.display = 'none';
-        if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
         return;
     }
 
-    // When salary is configured, pivot from calendar-month to salary cycle so
-    // "ritmo" reflects what the user actually has between paychecks.
-    const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
-    const useCycle = !!cycle && today >= cycle.start && today <= cycle.end;
-
-    let dayOfMonth, daysInMonth, daysRemaining, monthPct, badgeLabel, progressLabel;
-    let cycleExpenses = totalExpenses, cycleIncome = totalIncome;
-
-    if (useCycle) {
-        const startStr = toLocalDateStr(cycle.start);
-        const endStr = toLocalDateStr(cycle.end);
-        // Cycle-scoped expenses (variable + paid fixed within window).
-        const breakdown = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
-        cycleExpenses = breakdown.expPaid;
-        cycleIncome = breakdown.incReceived || (breakdown.incReceived + breakdown.incPending);
-        const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
-        const daysIntoCycle = Math.max(1, Math.min(cycleLength, Math.round((today - cycle.start) / 86400000) + 1));
-        dayOfMonth = daysIntoCycle;
-        daysInMonth = cycleLength;
-        daysRemaining = Math.max(0, cycleLength - daysIntoCycle);
-        monthPct = Math.round((daysIntoCycle / cycleLength) * 100);
-        badgeLabel = `Dia ${daysIntoCycle}/${cycleLength} do ciclo`;
-        progressLabel = `${monthPct}% do ciclo passou · ${daysRemaining} dias restantes`;
-    } else {
-        dayOfMonth = today.getDate();
-        daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-        daysRemaining = daysInMonth - dayOfMonth;
-        monthPct = Math.round((dayOfMonth / daysInMonth) * 100);
-        badgeLabel = `Dia ${dayOfMonth}/${daysInMonth}`;
-        progressLabel = `${monthPct}% do mês passou · ${daysRemaining} dias restantes`;
-    }
-
-    if (cycleExpenses === 0) {
+    // When salary is configured, the salary-cycle card already shows ritmo
+    // (X/dia vs orç. Y/dia · N% acima/abaixo) + daily-budget row + projection
+    // footer. The standalone Ritmo card duplicates all of that, so hide it.
+    if (isSalaryConfigured()) {
         container.style.display = 'none';
-        if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
         return;
     }
 
-    const dailyAvg = cycleExpenses / dayOfMonth;
+    // Calendar-month pace (salary not configured — see early return above).
+    const dayOfMonth = today.getDate();
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const daysRemaining = daysInMonth - dayOfMonth;
+    const monthPct = Math.round((dayOfMonth / daysInMonth) * 100);
+    const badgeLabel = `Dia ${dayOfMonth}/${daysInMonth}`;
+    const progressLabel = `${monthPct}% do mês passou · ${daysRemaining} dias restantes`;
+
+    if (totalExpenses === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    const dailyAvg = totalExpenses / dayOfMonth;
     const projected = dailyAvg * daysInMonth;
-    const refIncome = cycleIncome;
-    const dailyBudget = daysRemaining > 0 && refIncome > 0 ? Math.max(0, (refIncome - cycleExpenses) / daysRemaining) : 0;
+    const refIncome = totalIncome;
+    const dailyBudget = daysRemaining > 0 && refIncome > 0 ? Math.max(0, (refIncome - totalExpenses) / daysRemaining) : 0;
 
     const projColor = projected > refIncome ? 'var(--danger)' : projected > refIncome * 0.8 ? 'var(--warning)' : 'var(--success)';
     const projBg = projected > refIncome ? '#FFEBEE' : projected > refIncome * 0.8 ? '#FFF8E1' : '#E8F5E9';
     const budgetColor = dailyBudget < 10 ? 'var(--danger)' : dailyBudget < 30 ? 'var(--warning)' : 'var(--success)';
     const budgetBg = dailyBudget < 10 ? '#FFEBEE' : dailyBudget < 30 ? '#FFF8E1' : '#E8F5E9';
 
-    // When the salary cycle drives the math, the standalone "Ritmo" card is
-    // redundant with the salary-cycle-card right above it. Inline a compact
-    // 3-stat row inside that card and hide the standalone container.
-    if (useCycle && inlineRow) {
-        container.style.display = 'none';
-        inlineRow.style.display = 'block';
-        inlineRow.innerHTML = `
-            <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.18)">
-                <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.65rem;color:rgba(255,255,255,0.75);margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase">
-                    <span><i class="fas fa-gauge-high"></i> Ritmo do ciclo</span>
-                    <span>${monthPct}% · ${daysRemaining} ${daysRemaining === 1 ? 'dia' : 'dias'}</span>
-                </div>
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
-                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Média/dia</div>
-                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(dailyAvg)}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
-                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Projeção</div>
-                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(projected)}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
-                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Pode/dia</div>
-                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(dailyBudget)}</div>
-                    </div>
-                </div>
-            </div>
-        `;
-        return;
-    }
-
-    // Calendar-month fallback (no salary configured) — render the standalone card.
-    if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
+    // Standalone Ritmo card — calendar-month only (cycle path early-returned above).
     container.style.display = 'block';
     container.innerHTML = `
         <div class="pace-header">
