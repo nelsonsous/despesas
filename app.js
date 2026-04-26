@@ -2450,12 +2450,60 @@ function getMonthLabel(date) {
     return date.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
 }
 
+// "Lite" period mode: only the dashboard period LABEL switches between
+// calendar-month and salary-cycle text. The hero balance, monthly totals
+// and YTD/relatórios all stay calendar-month — refactoring them risks
+// breaking the carry-over chain (getCarryOver, recalcCarryOver) and the
+// many helpers that key off month/year. The cycle-aware data is already
+// surfaced by the salary-cycle-card, the cycle-expenses-section and
+// renderSpendingPace (which auto-pivots when a salary is configured).
+// TODO: full per-tab cycle pivot would need getEffectiveCycleExpenses /
+// getCarryOverForCycle equivalents — out of scope for the lite version.
+function getPeriodMode() {
+    if (!isSalaryConfigured()) return 'month';
+    return localStorage.getItem('vanessa_period_mode') === 'cycle' ? 'cycle' : 'month';
+}
+function setPeriodMode(mode) {
+    if (!isSalaryConfigured()) return;
+    localStorage.setItem('vanessa_period_mode', mode === 'cycle' ? 'cycle' : 'month');
+    updateMonthLabels();
+    updateDashboard();
+}
+
 function updateMonthLabels() {
     const label = getMonthLabel(currentDate);
     ['current-month-label', 'expenses-month-label', 'children-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = label;
     });
+
+    // Period-mode toggle (only meaningful when salary is configured)
+    const toggle = document.getElementById('period-mode-toggle');
+    if (toggle) {
+        if (isSalaryConfigured()) {
+            toggle.style.display = '';
+            const mode = getPeriodMode();
+            toggle.querySelectorAll('.period-mode-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.mode === mode);
+            });
+            // Override the dashboard label when in cycle mode
+            if (mode === 'cycle') {
+                const today = new Date();
+                const isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
+                const cycle = isCurrentMonth
+                    ? (getSalaryCycleAt(today) || getSalaryCycleForMonth(currentDate.getFullYear(), currentDate.getMonth()))
+                    : getSalaryCycleForMonth(currentDate.getFullYear(), currentDate.getMonth());
+                if (cycle) {
+                    const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+                    const cycleLbl = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
+                    const dashEl = document.getElementById('current-month-label');
+                    if (dashEl) dashEl.textContent = cycleLbl;
+                }
+            }
+        } else {
+            toggle.style.display = 'none';
+        }
+    }
 }
 
 // ===== FILTER BY MONTH =====

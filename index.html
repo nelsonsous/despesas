@@ -61,6 +61,10 @@
             <div class="month-selector">
                 <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
                 <span id="current-month-label"></span>
+                <span id="period-mode-toggle" class="period-mode-toggle" style="display:none">
+                    <button class="period-mode-btn active" data-mode="month" onclick="setPeriodMode('month')">📆 Mês</button>
+                    <button class="period-mode-btn" data-mode="cycle" onclick="setPeriodMode('cycle')">💰 Ciclo</button>
+                </span>
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
