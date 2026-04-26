@@ -3469,15 +3469,15 @@ function renderQuickAdd() {
     }
     container.style.display = 'block';
     const cats = getEffectiveCategories();
+    // Header dropped — chips render inline to save vertical space. The first
+    // chip carries the bolt icon as a subtle marker that this is a quick-add.
     container.innerHTML = `
-        <div class="quick-add-header">
-            <span style="font-size:0.8rem;font-weight:700;color:var(--text)"><i class="fas fa-bolt"></i> Adicao rapida</span>
-        </div>
         <div class="quick-add-chips">
-            ${expenseTemplates.map(t => {
+            ${expenseTemplates.map((t, idx) => {
                 const cat = cats[t.category] || {};
+                const marker = idx === 0 ? `<i class="fas fa-bolt" style="color:#FDCB6E;margin-right:2px;font-size:0.7rem"></i>` : '';
                 return `<button class="quick-add-chip" onclick="addFromTemplate('${t.id}')" title="${t.description} - ${formatCurrency(t.amount)}">
-                    <i class="fas ${cat.icon || t.icon || 'fa-receipt'}" style="color:${cat.color || 'var(--primary)'}"></i>
+                    ${marker}<i class="fas ${cat.icon || t.icon || 'fa-receipt'}" style="color:${cat.color || 'var(--primary)'}"></i>
                     <span>${t.description}</span>
                     <span class="quick-add-amount">${formatCurrency(t.amount)}</span>
                 </button>`;
@@ -3505,6 +3505,57 @@ function initVariableExpensesState() {
         body.style.display = isOpen ? 'block' : 'none';
         if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
+    // Filter bar: collapsed by default unless a filter is active or the user
+    // explicitly opened it (persisted in vanessa_expenses_filters_open).
+    initFiltersBar();
+}
+
+// ----- Collapsible filter bar (Categoria + Tipo) -----
+function isFiltersBarOpen() {
+    const stored = localStorage.getItem('vanessa_expenses_filters_open');
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+    // No explicit choice: open if any filter is active.
+    return hasActiveFilters();
+}
+function hasActiveFilters() {
+    const c = document.getElementById('filter-category')?.value;
+    const t = document.getElementById('filter-type')?.value;
+    return Boolean(c || t);
+}
+function activeFiltersCount() {
+    let n = 0;
+    if (document.getElementById('filter-category')?.value) n++;
+    if (document.getElementById('filter-type')?.value) n++;
+    return n;
+}
+function updateFiltersSummary() {
+    const txt = document.getElementById('filter-bar-summary-text');
+    if (!txt) return;
+    const n = activeFiltersCount();
+    if (n > 0) {
+        txt.textContent = `Filtros (${n} ativo${n === 1 ? '' : 's'})`;
+        txt.parentElement?.classList.add('filter-bar-summary-active');
+    } else {
+        txt.textContent = 'Filtros';
+        txt.parentElement?.classList.remove('filter-bar-summary-active');
+    }
+}
+function applyFiltersBarOpen(open) {
+    const bar = document.getElementById('filter-bar');
+    const chev = document.getElementById('filter-bar-chevron');
+    if (bar) bar.style.display = open ? 'flex' : 'none';
+    if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
+}
+function toggleFiltersBar() {
+    const cur = isFiltersBarOpen();
+    const next = !cur;
+    localStorage.setItem('vanessa_expenses_filters_open', next ? '1' : '0');
+    applyFiltersBarOpen(next);
+}
+function initFiltersBar() {
+    applyFiltersBarOpen(isFiltersBarOpen());
+    updateFiltersSummary();
 }
 
 // Persisted toggle for the despesas tab list view ('category' | 'chrono').
@@ -3558,12 +3609,19 @@ function renderExpenses() {
 
     // Chrono view: skip the fixed-section entirely, render a flat date-sorted
     // list with day separators below. Filter chips control what gets shown.
+    // We keep the section title visible because it now carries the view-toggle
+    // segmented switch (otherwise the user has no way back to "Por categoria").
     if (view === 'chrono') {
         if (fixedSection) fixedSection.style.display = 'none';
-        if (titleEl) titleEl.style.display = 'none';
+        if (titleEl) titleEl.style.display = 'flex';
+        const labelEl = document.getElementById('other-expenses-label');
+        if (labelEl) labelEl.textContent = 'Cronológica';
         renderExpensesChrono(monthExp, filterCat, filterType);
         return;
     }
+    // Category view: restore default label.
+    const labelEl = document.getElementById('other-expenses-label');
+    if (labelEl) labelEl.textContent = 'Outras Despesas';
 
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';
@@ -3726,10 +3784,12 @@ function renderExpenses() {
             ...fixedInlineHtml,
             ...activeSkipped.map(f => renderFixedItem(f, true))
         ].join('');
-        titleEl.style.display = 'block';
+        titleEl.style.display = 'flex';
     } else {
         fixedSection.style.display = 'none';
-        titleEl.style.display = activeFixed.length > 0 ? 'block' : 'none';
+        // Always show the title (with the view toggle); helps the user switch
+        // back to chrono even when there's nothing in the list.
+        titleEl.style.display = 'flex';
     }
 
     let filtered = monthExp;

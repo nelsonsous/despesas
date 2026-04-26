@@ -1014,6 +1014,46 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     .action-chip-ai span, .action-chip-pdf span { display: none; }
     .action-chip-ai, .action-chip-pdf { width: 38px; height: 38px; justify-content: center; padding: 0; border-radius: 50%; }
 }
+/* On phones, collapse all action chips to icon-only round buttons; the
+   row shrinks to roughly half its previous height and frees scroll space. */
+@media (max-width: 480px) {
+    .action-chip span { display: none; }
+    .action-chip {
+        width: 38px;
+        height: 38px;
+        justify-content: center;
+        padding: 0;
+        border-radius: 50%;
+        flex: 0 0 auto;
+    }
+    .action-chip-receipt { flex: 1; border-radius: 19px; }
+    .action-chips-row { gap: 8px; margin-bottom: 8px; }
+}
+
+/* ===== Collapsible filter bar (Despesas tab) ===== */
+.filter-bar-wrap { margin-bottom: 10px; }
+.filter-bar-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-light);
+    font-family: var(--font);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.2;
+}
+.filter-bar-toggle .filter-bar-summary { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.filter-bar-toggle .filter-bar-summary i { font-size: 0.78rem; }
+.filter-bar-toggle .filter-bar-summary-active { color: var(--primary); }
+.filter-bar-chevron { transition: transform 0.2s; font-size: 0.7rem; }
+.filter-bar-wrap .filter-bar { margin-top: 8px; margin-bottom: 0; }
 
 .ai-insights-card {
     background: linear-gradient(135deg, #F3EFFF 0%, #FCF4FF 100%);
@@ -2174,6 +2214,27 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .view-toggle-btn:not(.active):hover { color: var(--text); }
+
+/* Inline variant lives on the right of the "Outras Despesas" section title.
+   Compact icon-only segmented control — half the height of the standalone
+   row it replaced. */
+.view-toggle-inline {
+    display: inline-flex;
+    margin: 0;
+    padding: 2px;
+    gap: 2px;
+    border-radius: 9px;
+    flex-shrink: 0;
+}
+.view-toggle-inline .view-toggle-btn {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 26px;
+    padding: 0;
+    font-size: 0.78rem;
+    border-radius: 7px;
+}
+.view-toggle-inline .view-toggle-btn i { font-size: 0.8rem; }
 
 .expense-filter-chips {
     display: flex;

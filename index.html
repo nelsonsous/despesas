@@ -360,14 +360,20 @@
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
-            <div class="filter-bar">
-                <select id="filter-category" onchange="renderExpenses()">
-                    <option value="">Todas categorias</option>
-                </select>
-                <select id="filter-type" onchange="renderExpenses()">
-                    <option value="">Todos</option>
-                    <option value="personal">Pessoal</option>
-                </select>
+            <div class="filter-bar-wrap">
+                <button id="filter-bar-toggle" type="button" class="filter-bar-toggle" onclick="toggleFiltersBar()">
+                    <span class="filter-bar-summary"><i class="fas fa-filter"></i> <span id="filter-bar-summary-text">Filtros</span></span>
+                    <i id="filter-bar-chevron" class="fas fa-chevron-down filter-bar-chevron"></i>
+                </button>
+                <div id="filter-bar" class="filter-bar" style="display:none">
+                    <select id="filter-category" onchange="renderExpenses();updateFiltersSummary()">
+                        <option value="">Todas categorias</option>
+                    </select>
+                    <select id="filter-type" onchange="renderExpenses();updateFiltersSummary()">
+                        <option value="">Todos</option>
+                        <option value="personal">Pessoal</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Quick Add Bar -->
@@ -411,11 +417,6 @@
                 <button class="expense-filter-chip" data-filter="fixed" onclick="setExpenseFilter('fixed')">Fixas</button>
                 <button class="expense-filter-chip" data-filter="variable" onclick="setExpenseFilter('variable')">Variáveis</button>
             </div>
-            <div id="expense-view-toggle" class="view-toggle">
-                <button class="view-toggle-btn active" data-view="category" onclick="setExpensesView('category')"><i class="fas fa-folder-tree"></i> Por categoria</button>
-                <button class="view-toggle-btn" data-view="chrono" onclick="setExpensesView('chrono')"><i class="fas fa-calendar-day"></i> Cronológica</button>
-            </div>
-
             <!-- Fixed Expenses This Month -->
             <div id="fixed-month-section" class="fixed-month-section" style="display:none">
                 <div class="fixed-month-header" style="user-select:none">
@@ -433,9 +434,15 @@
                 <button onclick="showAddFixed()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
             </div>
 
-            <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center">
-                <span>Outras Despesas</span>
-                <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+            <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <span style="display:inline-flex;align-items:center;gap:8px;flex:1;min-width:0">
+                    <span id="other-expenses-label">Outras Despesas</span>
+                    <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+                </span>
+                <span id="expense-view-toggle" class="view-toggle view-toggle-inline" role="tablist" aria-label="Modo de visualização">
+                    <button class="view-toggle-btn active" data-view="category" onclick="setExpensesView('category')" title="Por categoria" aria-label="Por categoria"><i class="fas fa-folder-tree"></i></button>
+                    <button class="view-toggle-btn" data-view="chrono" onclick="setExpensesView('chrono')" title="Cronológica" aria-label="Cronológica"><i class="fas fa-calendar-day"></i></button>
+                </span>
             </h3>
             <div id="expenses-list" class="expenses-list"></div>
         </section>
