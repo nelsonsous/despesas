@@ -3029,3 +3029,69 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 :root[data-theme="dark"] [style*="#FFE0EC"] { background: #3A1F2E !important; color: #F0A8C8 !important; }
 :root[data-theme="dark"] [style*="#F5F5F5"] { background: #2A2A38 !important; color: #B0B0C0 !important; }
 :root[data-theme="dark"] [style*="#eee"] { background: #2A2A38 !important; }
+
+/* ===== Insights card (Feature 5) ===== */
+.insights-card {
+    background: linear-gradient(135deg, #FFFAEC 0%, #FFF1D6 100%);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 10px 0;
+    border: 1px solid #F4E1B5;
+    box-shadow: 0 2px 8px rgba(180, 130, 0, 0.06);
+}
+.insights-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+.insights-card-title { font-weight: 700; font-size: 0.95rem; color: #6B4400; }
+.insights-card-period { font-size: 0.72rem; color: #9A7A2D; opacity: 0.85; }
+.insight-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 6px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.55);
+    margin-bottom: 6px;
+}
+.insight-row:last-child { margin-bottom: 0; }
+.insight-row.severity-warn { border-left: 3px solid #E57373; }
+.insight-row.severity-info { border-left: 3px solid #FFB74D; }
+.insight-row.severity-positive { border-left: 3px solid #81C784; }
+.insight-icon { font-size: 1.15rem; flex-shrink: 0; line-height: 1.2; }
+.insight-body { flex: 1; min-width: 0; }
+.insight-title { font-weight: 700; font-size: 0.85rem; color: #2A1F4F; line-height: 1.25; }
+.insight-subtitle { font-size: 0.74rem; color: #6A5A8E; margin-top: 2px; line-height: 1.3; }
+.insight-dismiss {
+    background: transparent;
+    border: 0;
+    color: #B09975;
+    cursor: pointer;
+    padding: 4px 6px;
+    font-size: 0.85rem;
+    line-height: 1;
+    border-radius: 6px;
+}
+.insight-dismiss:hover { background: rgba(0,0,0,0.06); color: #6B4400; }
+
+:root[data-theme="dark"] .insights-card {
+    background: linear-gradient(135deg, #2E2515 0%, #3A2D17 100%);
+    border-color: #5A4520;
+    box-shadow: none;
+}
+:root[data-theme="dark"] .insights-card-title { color: #F0D78A; }
+:root[data-theme="dark"] .insights-card-period { color: #C0A468; }
+:root[data-theme="dark"] .insight-row { background: rgba(255, 255, 255, 0.04); }
+:root[data-theme="dark"] .insight-title { color: #F0E8FF; }
+:root[data-theme="dark"] .insight-subtitle { color: #B5A8D6; }
+:root[data-theme="dark"] .insight-dismiss { color: #8A7B5C; }
+:root[data-theme="dark"] .insight-dismiss:hover { background: rgba(255,255,255,0.08); color: #F0D78A; }
+
+/* ===== Drive sync cloud icon (Feature 6) ===== */
+#drive-cloud-icon.cloud-ok { color: #4CAF50; }
+#drive-cloud-icon.cloud-pending { color: #FFA000; }
+#drive-cloud-icon.cloud-error { color: #E53935; }
+#drive-cloud-icon.cloud-syncing { color: #1E88E5; animation: drive-spin 1s linear infinite; }
+@keyframes drive-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

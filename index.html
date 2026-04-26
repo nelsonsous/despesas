@@ -27,6 +27,7 @@
         <header class="app-header">
             <h1 id="header-title">Despesas</h1>
             <div class="header-actions">
+                <button id="drive-cloud-btn" onclick="driveCloudIconClicked()" class="btn-icon" style="display:none" title="Sincronização Google Drive"><i class="fas fa-cloud" id="drive-cloud-icon"></i></button>
                 <button onclick="showInboxModal()" class="btn-icon inbox-bell-btn" title="Caixa de mensagens"><i class="fas fa-bell"></i><span id="inbox-badge" class="inbox-badge" style="display:none">0</span></button>
                 <button onclick="document.getElementById('ai-pdf-input-global').click()" class="btn-icon" title="Importar extrato PDF"><i class="fas fa-file-pdf"></i></button>
                 <button onclick="showSettingsModal()" class="btn-icon" title="Definicoes"><i class="fas fa-gear"></i></button>
@@ -116,6 +117,15 @@
                         <div id="ai-scenario-answer" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.95);color:#2A1F4F;border-radius:10px;text-align:left;font-size:0.82rem"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Local insights card (computed from user data, no IA call) -->
+            <div id="insights-card" class="insights-card" style="display:none">
+                <div class="insights-card-header">
+                    <span class="insights-card-title">💡 <span id="insights-card-title-text">Insights</span></span>
+                    <span class="insights-card-period" id="insights-card-period">Esta semana</span>
+                </div>
+                <div id="insights-list"></div>
             </div>
 
             <!-- Cycle expenses (collapsible list of expenses inside the current salary cycle) -->
@@ -1365,6 +1375,21 @@
                             <i class="fas fa-arrows-rotate"></i> Forçar atualização da app
                         </button>
                         <small class="field-hint">Limpa a cache e recarrega. Os dados (despesas, receitas, definições) NÃO são apagados.</small>
+                        <div style="margin-top:10px">
+                            <a href="javascript:void(0)" onclick="resetInsightsDismissed()" style="font-size:0.8rem;color:var(--primary);text-decoration:underline"><i class="fas fa-rotate-left"></i> Limpar insights ocultados</a>
+                            <small class="field-hint">Volta a mostrar os insights do dashboard que descartaste com o ✕.</small>
+                        </div>
+                    </div>
+
+                    <!-- Sincronização Google Drive (Feature 6) -->
+                    <div id="drive-sync-section" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+                        <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-light);margin-bottom:6px">Sincronização Google</label>
+                        <div id="drive-sync-status" style="font-size:0.82rem;color:var(--text-light);margin-bottom:8px">Por ligar</div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <button id="drive-sync-connect-btn" onclick="driveConnectClicked()" class="btn btn-primary"><i class="fas fa-cloud"></i> <span id="drive-sync-btn-label">Conectar Google Drive</span></button>
+                            <button id="drive-sync-now-btn" onclick="driveSyncNow()" class="btn btn-secondary" style="display:none"><i class="fas fa-rotate"></i> Sincronizar agora</button>
+                        </div>
+                        <small class="field-hint">Os dados ficam guardados na pasta privada da app no teu Google Drive (appDataFolder). Só esta app os pode ler. Requer Google Client ID configurado no separador IA.</small>
                     </div>
                 </div>
 

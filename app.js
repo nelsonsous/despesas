@@ -2746,6 +2746,7 @@ function updateDashboard() {
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
+    renderInsights();
     renderAiInsightsCard();
     renderSavingsGoals();
     renderSavingsFlowCard();
@@ -12314,4 +12315,272 @@ if (window.matchMedia) {
     const handle = () => { if (getTheme() === 'auto') applyTheme('auto'); };
     if (mq.addEventListener) mq.addEventListener('change', handle);
     else if (mq.addListener) mq.addListener(handle);
+}
+
+// ============================================================
+// Feature 5: Insights Automaticos (local math, no AI calls)
+// ============================================================
+
+const INSIGHTS_DISMISSED_KEY = 'vanessa_insights_dismissed';
+
+function getDismissedInsights() {
+    try {
+        const raw = localStorage.getItem(INSIGHTS_DISMISSED_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+}
+function setDismissedInsights(arr) {
+    localStorage.setItem(INSIGHTS_DISMISSED_KEY, JSON.stringify(arr));
+}
+function dismissInsight(id) {
+    const arr = getDismissedInsights();
+    if (!arr.includes(id)) arr.push(id);
+    setDismissedInsights(arr);
+    renderInsights();
+}
+function resetInsightsDismissed() {
+    setDismissedInsights([]);
+    renderInsights();
+    if (typeof showToast === 'function') showToast('Insights restaurados');
+}
+
+function _isoWeek(d) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+function _monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+function _addMonths(date, n) { const d = new Date(date); d.setMonth(d.getMonth() + n); return d; }
+function _expensesInRange(startStr, endStr) {
+    return expenses.filter(e => e.date >= startStr && e.date <= endStr && expenseAffectsBalance(e));
+}
+function _toStr(d) { return d.toISOString().slice(0, 10); }
+
+function computeInsights() {
+    const out = [];
+    const today = new Date();
+    const todayStr = _toStr(today);
+    const wkLabel = _isoWeek(today);
+    const cats = (typeof getEffectiveCategories === 'function') ? getEffectiveCategories() : (typeof CATEGORIES !== 'undefined' ? CATEGORIES : {});
+    const catLabel = (k) => (cats && cats[k] && cats[k].label) ? cats[k].label : (k || 'Outros');
+
+    // ---- 1. Categoria fora do padrao (semana vs media de 4 semanas anteriores)
+    const weekStart = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
+    const monthExp = (typeof getEffectiveMonthExpenses === 'function')
+        ? getEffectiveMonthExpenses(today).filter(expenseAffectsBalance)
+        : _expensesInRange(_monthKey(today) + '-01', todayStr);
+    const byCatMonth = {};
+    monthExp.forEach(e => { byCatMonth[e.category] = (byCatMonth[e.category] || 0) + e.amount; });
+    const top5Cats = Object.entries(byCatMonth).sort((a, b) => b[1] - a[1]).slice(0, 5).map(c => c[0]);
+
+    top5Cats.forEach(catKey => {
+        const curWk = _expensesInRange(_toStr(weekStart), todayStr)
+            .filter(e => e.category === catKey).reduce((s, e) => s + e.amount, 0);
+        const past = [];
+        for (let w = 1; w <= 4; w++) {
+            const ps = new Date(weekStart); ps.setDate(ps.getDate() - 7 * w);
+            const pe = new Date(ps); pe.setDate(pe.getDate() + 6);
+            const sum = _expensesInRange(_toStr(ps), _toStr(pe))
+                .filter(e => e.category === catKey).reduce((s, e) => s + e.amount, 0);
+            past.push(sum);
+        }
+        const avg = past.reduce((s, n) => s + n, 0) / past.length;
+        if (avg <= 0 && curWk <= 0) return;
+        const diff = curWk - avg;
+        const ratio = avg > 0 ? curWk / avg : Infinity;
+        if (curWk > 0 && (ratio >= 1.5 && Math.abs(diff) > 15)) {
+            out.push({
+                id: `cat-spike-${catKey}-${wkLabel}`,
+                severity: 'warn',
+                icon: '🔥',
+                title: `${catLabel(catKey)} em alta`,
+                subtitle: `+${formatCurrency(diff)} face à média semanal (${formatCurrency(curWk)} vs ${formatCurrency(avg)})`,
+                category: catKey
+            });
+        } else if (avg > 0 && ratio <= 0.5 && Math.abs(diff) > 15) {
+            out.push({
+                id: `cat-dip-${catKey}-${wkLabel}`,
+                severity: 'positive',
+                icon: '💰',
+                title: `Gastas menos em ${catLabel(catKey)}`,
+                subtitle: `${formatCurrency(diff)} face à média (poupaste face ao habitual)`,
+                category: catKey
+            });
+        }
+    });
+
+    // ---- 2. Categoria sem registos ha N dias (apos dia 15)
+    if (today.getDate() > 15) {
+        const monthsBack = 6;
+        const minMonthsWithSpend = 3;
+        const cumByCatPerMonth = {};
+        for (let i = 1; i <= monthsBack; i++) {
+            const d = _addMonths(today, -i);
+            const mk = _monthKey(d);
+            const start = `${mk}-01`;
+            const endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+            const exp = _expensesInRange(start, _toStr(endD));
+            const sumByCat = {};
+            exp.forEach(e => { sumByCat[e.category] = (sumByCat[e.category] || 0) + e.amount; });
+            Object.entries(sumByCat).forEach(([cat, sum]) => {
+                if (!cumByCatPerMonth[cat]) cumByCatPerMonth[cat] = { months: 0, total: 0 };
+                if (sum > 0) { cumByCatPerMonth[cat].months++; cumByCatPerMonth[cat].total += sum; }
+            });
+        }
+        const curMonthCats = new Set(monthExp.map(e => e.category));
+        Object.entries(cumByCatPerMonth).forEach(([cat, info]) => {
+            if (info.months >= minMonthsWithSpend && !curMonthCats.has(cat)) {
+                const avgMonthly = info.total / info.months;
+                if (avgMonthly < 5) return;
+                out.push({
+                    id: `cat-missing-${cat}-${_monthKey(today)}`,
+                    severity: 'info',
+                    icon: '⏳',
+                    title: `Sem registos em ${catLabel(cat)} este mês`,
+                    subtitle: `Costumas gastar ${formatCurrency(avgMonthly)}/mês — esquecimento ou genuíno?`,
+                    category: cat
+                });
+            }
+        });
+    }
+
+    // ---- 3. Subscricao alterada (fixedExpenses com valor a variar nos ultimos 3 meses)
+    if (Array.isArray(fixedExpenses) && Array.isArray(fixedStatus)) {
+        fixedExpenses.forEach(f => {
+            const series = [];
+            for (let i = 0; i < 3; i++) {
+                const d = _addMonths(today, -i);
+                const mk = _monthKey(d);
+                const st = fixedStatus.find(s => s.fixedId === f.id && s.month === mk);
+                const v = (st && typeof st.amount === 'number') ? st.amount : f.amount;
+                series.push({ mk, v });
+            }
+            const distinct = [...new Set(series.map(s => Number(s.v.toFixed(2))))];
+            if (distinct.length >= 2) {
+                const latest = series[0].v;
+                const prev = series[1].v;
+                if (Math.abs(latest - prev) > 0.5) {
+                    const monthLbl = new Date(today.getFullYear(), today.getMonth(), 1)
+                        .toLocaleDateString('pt-PT', { month: 'short' }).replace('.', '');
+                    const arrow = latest > prev ? '📈' : '📉';
+                    const verb = latest > prev ? 'subiu' : 'desceu';
+                    out.push({
+                        id: `sub-change-${f.id}-${series[0].mk}`,
+                        severity: latest > prev ? 'warn' : 'positive',
+                        icon: arrow,
+                        title: `${f.description} ${verb}`,
+                        subtitle: `${formatCurrency(prev)} → ${formatCurrency(latest)}/mês desde ${monthLbl}`
+                    });
+                }
+            }
+        });
+    }
+
+    // ---- 4. Despesa unica invulgarmente alta (>= 95p ultimos 6 meses)
+    const lastSixStart = _toStr(_addMonths(today, -6));
+    const histVarBig = _expensesInRange(lastSixStart, _toStr(_addMonths(today, -1)))
+        .filter(e => !e.isFixedExpense)
+        .map(e => e.amount).sort((a, b) => a - b);
+    if (histVarBig.length >= 20) {
+        const idx = Math.floor(0.95 * (histVarBig.length - 1));
+        const p95 = histVarBig[idx];
+        monthExp.filter(e => !e.isFixedExpense && e.amount > p95).forEach(e => {
+            out.push({
+                id: `outlier-${e.id || (e.description + '-' + e.date)}`,
+                severity: 'warn',
+                icon: '💥',
+                title: `${e.description} ${formatCurrency(e.amount)} — invulgar`,
+                subtitle: `Top 5% dos gastos dos últimos 6 meses (limiar ${formatCurrency(p95)})`,
+                category: e.category
+            });
+        });
+    }
+
+    // ---- 5. Ritmo do mes vs mes anterior no mesmo dia
+    const dayOfMonth = today.getDate();
+    const curMonthSoFar = monthExp.reduce((s, e) => s + e.amount, 0);
+    const prevMonthDate = _addMonths(today, -1);
+    const prevMk = _monthKey(prevMonthDate);
+    const prevSameDayEnd = `${prevMk}-${String(dayOfMonth).padStart(2, '0')}`;
+    const prevSameDay = _expensesInRange(`${prevMk}-01`, prevSameDayEnd).reduce((s, e) => s + e.amount, 0);
+    if (prevSameDay > 50 && curMonthSoFar > 0) {
+        const pct = (curMonthSoFar - prevSameDay) / prevSameDay;
+        const prevMonthLbl = prevMonthDate.toLocaleDateString('pt-PT', { month: 'short' }).replace('.', '');
+        if (pct > 0.15) {
+            out.push({
+                id: `pace-up-${_monthKey(today)}`,
+                severity: 'warn',
+                icon: '🐎',
+                title: 'Ritmo acima do mês passado',
+                subtitle: `+${(pct * 100).toFixed(0)}% face a ${prevMonthLbl} (dia ${dayOfMonth})`
+            });
+        } else if (pct < -0.15) {
+            out.push({
+                id: `pace-down-${_monthKey(today)}`,
+                severity: 'positive',
+                icon: '🐢',
+                title: 'Ritmo abaixo',
+                subtitle: `${(pct * 100).toFixed(0)}%, vais poupar`
+            });
+        }
+    }
+
+    // ---- 6. Objetivos de poupanca
+    if (Array.isArray(savingsGoals)) {
+        savingsGoals.forEach(g => {
+            if (!g.target || !g.savedSoFar) return;
+            const pct = g.savedSoFar / g.target;
+            if (pct >= 0.5 && pct < 1) {
+                out.push({
+                    id: `goal-half-${g.id}`,
+                    severity: 'positive',
+                    icon: '🎉',
+                    title: `${g.name} a meio do caminho`,
+                    subtitle: `Já juntaste ${formatCurrency(g.savedSoFar)} de ${formatCurrency(g.target)} (${(pct * 100).toFixed(0)}%)`
+                });
+            }
+        });
+    }
+
+    return out;
+}
+
+function renderInsights() {
+    const card = document.getElementById('insights-card');
+    if (!card) return;
+    const list = document.getElementById('insights-list');
+    if (!list) return;
+    let items;
+    try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
+    const dismissed = new Set(getDismissedInsights());
+    const visible = items.filter(i => !dismissed.has(i.id));
+    if (visible.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    const sevRank = { warn: 0, info: 1, positive: 2 };
+    visible.sort((a, b) => (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3));
+    const capped = visible.slice(0, 5);
+
+    const periodEl = document.getElementById('insights-card-period');
+    if (periodEl) {
+        const hasWeekly = capped.some(i => /-W\d{2}$/.test(i.id));
+        periodEl.textContent = hasWeekly ? 'Esta semana' : 'Este mês';
+    }
+
+    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    list.innerHTML = capped.map(i => `
+        <div class="insight-row severity-${i.severity}">
+            <div class="insight-icon">${escapeHtml(i.icon || '•')}</div>
+            <div class="insight-body">
+                <div class="insight-title">${escapeHtml(i.title)}</div>
+                <div class="insight-subtitle">${escapeHtml(i.subtitle)}</div>
+            </div>
+            <button class="insight-dismiss" onclick="dismissInsight('${i.id.replace(/'/g, "\\'")}')" title="Ocultar">✕</button>
+        </div>
+    `).join('');
+    card.style.display = '';
 }
