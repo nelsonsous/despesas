@@ -2551,3 +2551,83 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .cycle-expense-row.future-row {
     opacity: 0.7;
 }
+
+/* ===== Savings flow card ===== */
+/* Shows additions/withdrawals to savings goals for the current calendar
+   month. Distinct from Despesas/Receitas — these are "flows" that affect
+   Disponível but never count as spend or income. */
+.savings-flow-card {
+    border-left: 4px solid #E84C84;
+}
+.savings-flow-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.savings-flow-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+.savings-flow-net {
+    font-weight: 700;
+    color: #E84C84;
+    font-size: 0.95rem;
+}
+.savings-flow-summary {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.savings-flow-pill {
+    flex: 1;
+    min-width: 0;
+    background: #FFF1F5;
+    color: #B8336B;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.savings-flow-pill .flow-arrow { font-weight: 700; }
+.savings-flow-pill strong { margin-left: auto; }
+.savings-flow-pill.flow-in { background: #FFF7F1; color: #C2581E; }
+.savings-flow-list { display: flex; flex-direction: column; gap: 4px; }
+.savings-flow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    background: #FFF1F5;
+    font-size: 0.8rem;
+}
+.savings-flow-row .flow-date {
+    font-size: 0.7rem;
+    color: var(--text-light);
+    flex-shrink: 0;
+    width: 42px;
+}
+.savings-flow-row .flow-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+.savings-flow-row .flow-amount {
+    font-weight: 700;
+    color: #B8336B;
+    flex-shrink: 0;
+}
+.savings-flow-row.flow-row-remove .flow-amount { color: #C2581E; }
+/* Cycle-list highlight for savings rows — same coral tint, with the 🐷
+   POUPANÇA tag rendered inline. */
+.cycle-expense-row.savings-row {
+    background: #FFF1F5;
+}

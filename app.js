@@ -2739,6 +2739,7 @@ function updateDashboard() {
     renderPartnerSummary();
     renderAiInsightsCard();
     renderSavingsGoals();
+    renderSavingsFlowCard();
     renderNetWorth();
     renderBudgetAlerts();
     // Prepaid cards card always visible so the user can find the entry point
@@ -3134,12 +3135,38 @@ function renderCycleExpenses() {
         });
     });
 
-    const all = [...varRows, ...fixedRows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    // Savings flows in this cycle — rendered as standalone rows with a
+    // 🐷 POUPANÇA tag. They count toward "compromisso total" so the cycle
+    // math reconciles with the Ciclo Salarial card (which already deducts
+    // savings via getGoalsContributionInRange), but visually distinct from
+    // regular spend so the user knows they're still their own money.
+    const savingsRows = getGoalsFlowsInRange(cycle.start, cycle.end).map(f => ({
+        kind: 'savings',
+        id: f.id,
+        goalId: f.goalId,
+        date: f.date,
+        description: f.goalName + (f.type === 'remove' ? ' · retirada' : ''),
+        category: '_savings',
+        amount: f.amount,
+        flowType: f.type,
+        childId: null,
+        status: f.type === 'add' ? 'pago' : 'recebido'
+    }));
+
+    const all = [...varRows, ...fixedRows, ...savingsRows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     // Header totals: spent = variables + paid fixed (pending fixed is shown
     // in the list with the pendente badge but does not inflate "spent").
-    const spent = all.reduce((s, r) => s + (r.status === 'pago' ? r.amount : 0), 0);
-    const committed = all.reduce((s, r) => s + (r.status === 'ignorado' ? 0 : r.amount), 0);
+    // Savings flows: 'add' = outflow (counts in spent + committed); 'remove'
+    // = inflow (subtracted, brings money back).
+    const spent = all.reduce((s, r) => {
+        if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
+        return s + (r.status === 'pago' ? r.amount : 0);
+    }, 0);
+    const committed = all.reduce((s, r) => {
+        if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
+        return s + (r.status === 'ignorado' ? 0 : r.amount);
+    }, 0);
 
     const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
@@ -3185,6 +3212,30 @@ function renderCycleExpenses() {
         }
         const isFutureRow = r.date && r.date > todayStrCycle;
         const futureClass = (showCycleTodayMarker && isFutureRow && r.status !== 'pago') ? ' future-row' : '';
+        // Savings flow row — coral background, 🐷 POUPANÇA tag, no edit pen
+        // (chevron-right routes the user to the goal modal instead).
+        if (r.kind === 'savings') {
+            const sign = r.flowType === 'add' ? '−' : '+';
+            const amountColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
+            const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
+            return `
+                ${markerPrefix}
+                <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                    <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
+                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                    <div style="width:24px;height:24px;border-radius:6px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.7rem"></i></div>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                        <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                            <span class="cycle-row-tag" style="background:#FFE0EC;color:#B8336B"><i class="fas fa-piggy-bank"></i> POUPANÇA</span>
+                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                        </div>
+                        <div style="font-size:0.62rem;color:var(--text-light)">${dirLabel}</div>
+                    </div>
+                    <div style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
+                    <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            `;
+        }
         const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
         const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
         const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
@@ -9317,6 +9368,71 @@ function getGoalsContributionInRange(start, end) {
         if (d >= start && d <= end) total += (t.type === 'add' ? t.amount : -t.amount);
     }));
     return total;
+}
+
+// Collects every savings goal transaction whose date falls in the given
+// YYYY-MM month, annotated with the parent goal so the dashboard card can
+// link the edit pen back to the right goal modal.
+function getGoalsFlowsForMonth(yyyymm) {
+    const out = [];
+    savingsGoals.forEach(g => {
+        (g.transactions || []).forEach(t => {
+            if (!t.date || !(t.date || '').startsWith(yyyymm)) return;
+            out.push({ goalId: g.id, goalName: g.name, ...t });
+        });
+    });
+    out.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return out;
+}
+
+// Same idea but for the salary cycle window. Used by renderCycleExpenses
+// to surface savings flows in the "Despesas deste ciclo" list with a clear
+// 🐷 POUPANÇA tag (still excluded from spending totals — they show as a
+// commitment that reduces Disponível, not as a despesa).
+function getGoalsFlowsInRange(start, end) {
+    const out = [];
+    const startStr = toLocalDateStr(start);
+    const endStr = toLocalDateStr(end);
+    savingsGoals.forEach(g => {
+        (g.transactions || []).forEach(t => {
+            if (!t.date) return;
+            if (t.date < startStr || t.date > endStr) return;
+            out.push({ goalId: g.id, goalName: g.name, ...t });
+        });
+    });
+    return out;
+}
+
+// Dashboard card "Movimento de Poupança" — calendar-month view of savings
+// goal additions/withdrawals. Shown only when there's at least one flow
+// in the visible month, otherwise hidden to avoid empty chrome.
+function renderSavingsFlowCard() {
+    const card = document.getElementById('savings-flow-card');
+    if (!card) return;
+    const yyyymm = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+    const flows = getGoalsFlowsForMonth(yyyymm);
+    if (!flows.length) { card.style.display = 'none'; return; }
+
+    const out = flows.filter(f => f.type === 'add').reduce((s, f) => s + f.amount, 0);
+    const inn = flows.filter(f => f.type === 'remove').reduce((s, f) => s + f.amount, 0);
+    const net = out - inn;
+    card.style.display = 'block';
+    document.getElementById('savings-flow-out').textContent = formatCurrency(out);
+    document.getElementById('savings-flow-in').textContent = formatCurrency(inn);
+    const netEl = document.getElementById('savings-flow-net');
+    netEl.textContent = `→ ${net >= 0 ? '+' : '−'}${formatCurrency(Math.abs(net))}`;
+    document.getElementById('savings-flow-list').innerHTML = flows.map(f => {
+        const sign = f.type === 'add' ? '+' : '−';
+        const cls = f.type === 'add' ? '' : ' flow-row-remove';
+        return `
+            <div class="savings-flow-row${cls}">
+                <span class="flow-date">${formatDate(f.date)}</span>
+                <span class="flow-name">${f.goalName}${f.note ? ` <small style="font-weight:500;color:var(--text-light)">· ${f.note}</small>` : ''}</span>
+                <span class="flow-amount">${sign}${formatCurrency(f.amount)}</span>
+                <button onclick="openGoalModal('${f.goalId}')" class="btn-icon" style="color:var(--text-light);padding:2px 6px" title="Editar objetivo"><i class="fas fa-pen"></i></button>
+            </div>
+        `;
+    }).join('');
 }
 
 function showAddGoalPrompt() {

@@ -281,6 +281,21 @@
                 </div>
             </div>
 
+            <!-- Savings flows for the calendar month — shows that contributions
+                 to/from poupança affect Disponível without polluting the
+                 Despesas/Receitas totals. -->
+            <div class="card savings-flow-card" id="savings-flow-card" style="display:none">
+                <div class="savings-flow-header">
+                    <h3><i class="fas fa-piggy-bank" style="color:#E84C84"></i> Movimento de Poupança</h3>
+                    <span class="savings-flow-net" id="savings-flow-net">+0 €</span>
+                </div>
+                <div class="savings-flow-summary">
+                    <div class="savings-flow-pill flow-out"><span class="flow-arrow">↗</span> Para poupança: <strong id="savings-flow-out">0 €</strong></div>
+                    <div class="savings-flow-pill flow-in"><span class="flow-arrow">↘</span> Da poupança: <strong id="savings-flow-in">0 €</strong></div>
+                </div>
+                <div class="savings-flow-list" id="savings-flow-list"></div>
+            </div>
+
             <!-- AI Monthly Narrative + Ask Your Money -->
             <div id="ai-insights-card" class="ai-insights-card" style="display:none">
                 <div class="ai-insights-header">
