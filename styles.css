@@ -2631,3 +2631,76 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .cycle-expense-row.savings-row {
     background: #FFF1F5;
 }
+
+/* ===== Inbox of auto-approvals ===== */
+.inbox-bell-btn { position: relative; }
+.inbox-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.inbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.inbox-item {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+}
+.inbox-item-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.inbox-item-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--card-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.inbox-item-body { flex: 1; min-width: 0; }
+.inbox-item-desc {
+    font-weight: 600;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-item-sub {
+    font-size: 0.72rem;
+    color: var(--text-light);
+    margin-top: 2px;
+}
+.inbox-item-amount {
+    font-weight: 700;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+.inbox-item-actions {
+    display: flex;
+    gap: 8px;
+}
+.inbox-item-actions .btn { flex: 1; }

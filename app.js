@@ -66,6 +66,7 @@ const PREPAID_KEY = 'vanessa_prepaid_cards';
 const GOALS_KEY = 'vanessa_savings_goals';
 const NETWORTH_KEY = 'vanessa_net_worth';
 const BUDGETS_KEY = 'vanessa_budgets';
+const INBOX_KEY = 'vanessa_inbox';
 let expenseTemplates = [];   // { id, description, amount, category, type, split, essential, icon }
 let categoryBudgets = {};    // { category: maxAmount }
 let prepaidCards = [];       // { id, name, icon, color, createdAt, transactions: [{id, type:'topup'|'spend', amount, description, date, expenseId?}] }
@@ -1732,6 +1733,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderAiSettingsUI();
     renderPendingExpenses();
     checkAutoSync();
+    refreshInboxBadge();
 });
 
 function populateCategorySelects() {
@@ -1957,6 +1959,9 @@ function getEffectiveFixedStatus(f, date) {
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     if (isCurrentMonth && today.getDate() >= f.dayOfMonth) {
+        // Audit trail: record the auto-approval once so the user can confirm
+        // or revert it from the inbox. No-op if already recorded/confirmed.
+        recordInboxAutoApproval('expense', f, date);
         return { status: 'pago', auto: true };
     }
     return { status: 'pendente', auto: false };
@@ -2139,7 +2144,10 @@ function getEffectiveFixedIncomeStatus(fi, date) {
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     if (isCurrentMonth) {
         const payDate = getFixedIncomePaymentDate(fi, today.getFullYear(), today.getMonth());
-        if (today >= payDate) return { status: 'recebido', auto: true };
+        if (today >= payDate) {
+            recordInboxAutoApproval('income', fi, date);
+            return { status: 'recebido', auto: true };
+        }
     }
     return { status: 'pendente', auto: false };
 }
@@ -2747,6 +2755,7 @@ function updateDashboard() {
     const prepaidCard = document.getElementById('prepaid-cards-card');
     if (prepaidCard) prepaidCard.style.display = 'block';
     renderPrepaidCards();
+    if (typeof refreshInboxBadge === 'function') refreshInboxBadge();
 }
 
 // Compact partner summary on the dashboard. Shows the month's partner-involved
@@ -12099,4 +12108,144 @@ function showToast(message) {
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+}
+
+// ===== Inbox of auto-approvals =====
+// Audit trail for fixed-expense / fixed-income statuses that auto-flip to
+// pago/recebido (because the scheduled day arrived without the user
+// explicitly marking them). Each unread entry shows up as a bell-icon
+// notification so the user can confirm against the bank or revert.
+
+function getInbox() {
+    try {
+        const raw = localStorage.getItem(INBOX_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+}
+
+function saveInbox(arr) {
+    try { localStorage.setItem(INBOX_KEY, JSON.stringify(arr)); } catch {}
+}
+
+function getFixedMonthKeyForInbox(date) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+}
+
+// Append an auto-approval event if (refId+month) isn't already tracked.
+// Called from getEffectiveFixedStatus / getEffectiveFixedIncomeStatus when
+// they flip to auto. Cheap (O(n) scan over the inbox, which is small) so
+// safe to call from inside hot render paths.
+function recordInboxAutoApproval(kind, item, date) {
+    if (!item) return;
+    const month = getFixedMonthKeyForInbox(date);
+    const dedupKey = `${item.id}|${month}`;
+    const inbox = getInbox();
+    if (inbox.some(e => `${e.refId}|${e.month}` === dedupKey)) return;
+    const day = kind === 'income'
+        ? getFixedIncomePaymentDate(item, date.getFullYear(), date.getMonth())
+        : new Date(date.getFullYear(), date.getMonth(),
+            Math.min(item.dayOfMonth, new Date(date.getFullYear(), date.getMonth()+1, 0).getDate()));
+    const amount = kind === 'income'
+        ? getEffectiveFixedIncomeAmount(item, date)
+        : getEffectiveFixedAmount(item, date);
+    inbox.push({
+        id: generateId(),
+        kind,
+        refId: item.id,
+        refKind: 'fixed',
+        month,
+        amount,
+        description: item.description || '(sem descrição)',
+        date: toLocalDateStr(day),
+        createdAt: new Date().toISOString(),
+        status: 'unread'
+    });
+    saveInbox(inbox);
+}
+
+function getInboxUnreadCount() {
+    return getInbox().filter(e => e.status === 'unread').length;
+}
+
+function refreshInboxBadge() {
+    const badge = document.getElementById('inbox-badge');
+    if (!badge) return;
+    const n = getInboxUnreadCount();
+    if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.style.display = 'inline-flex';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function showInboxModal() {
+    const modal = document.getElementById('modal-inbox');
+    if (!modal) return;
+    renderInboxList();
+    modal.classList.add('active');
+}
+
+function closeInboxModal() {
+    const modal = document.getElementById('modal-inbox');
+    if (modal) modal.classList.remove('active');
+}
+
+function renderInboxList() {
+    const list = document.getElementById('inbox-list');
+    if (!list) return;
+    const inbox = getInbox().filter(e => e.status === 'unread').slice().sort((a, b) =>
+        (b.createdAt || '').localeCompare(a.createdAt || ''));
+    if (!inbox.length) {
+        list.innerHTML = '<div class="empty-state" style="padding:30px 0"><i class="fas fa-inbox"></i><p>Sem mensagens</p></div>';
+        refreshInboxBadge();
+        return;
+    }
+    list.innerHTML = inbox.map(e => {
+        const icon = e.kind === 'income' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
+        const color = e.kind === 'income' ? 'var(--success)' : 'var(--danger)';
+        const sign = e.kind === 'income' ? '+' : '−';
+        return `
+            <div class="inbox-item">
+                <div class="inbox-item-head">
+                    <div class="inbox-item-icon" style="color:${color}"><i class="fas ${icon}"></i></div>
+                    <div class="inbox-item-body">
+                        <div class="inbox-item-desc">${e.description}</div>
+                        <div class="inbox-item-sub">Marcada automaticamente em ${formatDate(e.date)}</div>
+                    </div>
+                    <div class="inbox-item-amount" style="color:${color}">${sign}${formatCurrency(e.amount)}</div>
+                </div>
+                <div class="inbox-item-actions">
+                    <button class="btn btn-sm btn-primary" onclick="confirmInboxEntry('${e.id}')"><i class="fas fa-check"></i> Confirmar</button>
+                    <button class="btn btn-sm btn-secondary" onclick="revertInboxEntry('${e.id}')"><i class="fas fa-rotate-left"></i> Reverter</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+    refreshInboxBadge();
+}
+
+function confirmInboxEntry(entryId) {
+    const inbox = getInbox().filter(e => e.id !== entryId);
+    saveInbox(inbox);
+    renderInboxList();
+    showToast('Confirmado');
+}
+
+function revertInboxEntry(entryId) {
+    const inbox = getInbox();
+    const entry = inbox.find(e => e.id === entryId);
+    if (!entry) return;
+    // Force the underlying status back to pendente. We synthesize a Date
+    // for the entry's month so the existing markers respect manual override.
+    const [y, m] = entry.month.split('-').map(Number);
+    const d = new Date(y, m - 1, 1);
+    if (entry.kind === 'expense') {
+        markFixedPaid(entry.refId, d, false);
+    } else {
+        markFixedIncomePaid(entry.refId, d, false);
+    }
+    saveInbox(inbox.filter(e => e.id !== entryId));
+    renderInboxList();
+    showToast('Revertido para pendente');
 }
