@@ -1344,6 +1344,20 @@ function renderSalaryCycle() {
     }
 
     animateNumber(document.getElementById('salary-fixed'), cycleFixed);
+    // Surface overdue pendentes inline next to the Cativo label so the user
+    // immediately sees what portion of the figure is items already past their
+    // scheduled day but still unreconciled — those used to vanish silently.
+    const overdueEl = document.getElementById('salary-fixed-overdue');
+    if (overdueEl) {
+        if (b.expPendingOverdue > 0) {
+            overdueEl.style.display = '';
+            overdueEl.innerHTML = `<i class="fas fa-triangle-exclamation"></i> ${formatCurrency(b.expPendingOverdue).replace(' EUR', ' €')} em atraso`;
+            overdueEl.title = 'Despesas fixas pendentes cuja data já passou. Marca como pagas se já saíram da conta.';
+        } else {
+            overdueEl.style.display = 'none';
+            overdueEl.innerHTML = '';
+        }
+    }
     animateNumber(document.getElementById('salary-available'), available, formatCurrency, 700);
     document.getElementById('salary-available').style.color = available >= 0 ? 'var(--success)' : 'var(--danger)';
 
@@ -5178,7 +5192,8 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
     const isRealized = (d) => d <= refStr;
 
     let incReceivedVariable = 0, incReceivedFixed = 0, incPending = 0;
-    let expPaidVariable = 0, expPaidFixed = 0, expPending = 0;
+    let expPaidVariable = 0, expPaidFixed = 0, expPending = 0, expPendingOverdue = 0;
+    let incPendingOverdue = 0;
     const expByCategory = {};
 
     incomes.forEach(i => {
@@ -5227,22 +5242,34 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
             const st = getEffectiveFixedStatus(f, monthDate).status;
             if (st === 'pago' || st === 'ignorado') return;
             const dStr = dStrFor(f.dayOfMonth);
-            if (!inCycle(dStr) || isRealized(dStr)) return;
-            expPending += getEffectiveFixedAmount(f, monthDate);
+            if (!inCycle(dStr)) return;
+            // Include all unpaid fixas in expPending — including those whose
+            // scheduled day has passed but the user hasn't reconciled yet
+            // ("em atraso"). Previously these were silently dropped from
+            // Cativo and the figure didn't match the chrono cycle list.
+            // Track overdue separately so the UI can flag them.
+            const amt = getEffectiveFixedAmount(f, monthDate);
+            expPending += amt;
+            if (isRealized(dStr)) expPendingOverdue += amt;
         });
         getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
             if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
             const dStr = dStrFor(fi.dayOfMonth);
-            if (!inCycle(dStr) || isRealized(dStr)) return;
-            incPending += getEffectiveFixedIncomeAmount(fi, monthDate);
+            if (!inCycle(dStr)) return;
+            // Same treatment for incomes: an unreconciled receita whose
+            // scheduled day has passed still counts as expected (incPending);
+            // overdue tracked separately for the warning chip.
+            const amt = getEffectiveFixedIncomeAmount(fi, monthDate);
+            incPending += amt;
+            if (isRealized(dStr)) incPendingOverdue += amt;
         });
     }
 
     const incReceived = incReceivedVariable + incReceivedFixed;
     const expPaid = expPaidVariable + expPaidFixed;
     return {
-        incReceived, incReceivedVariable, incReceivedFixed, incPending,
-        expPaid, expPaidVariable, expPaidFixed, expPending,
+        incReceived, incReceivedVariable, incReceivedFixed, incPending, incPendingOverdue,
+        expPaid, expPaidVariable, expPaidFixed, expPending, expPendingOverdue,
         totalInc: incReceived + incPending,
         totalExp: expPaid + expPending,
         balance: (incReceived + incPending) - (expPaid + expPending),

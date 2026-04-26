@@ -1995,6 +1995,17 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     font-weight: 500;
     margin-left: 4px;
 }
+.salary-cycle-overdue {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #FFCA80;
+    background: rgba(255,170,80,0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 5px;
+    white-space: nowrap;
+}
+.salary-cycle-overdue i { font-size: 0.6rem; margin-right: 2px; }
 .salary-cycle-footer {
     margin-top: 10px;
     padding-top: 10px;
