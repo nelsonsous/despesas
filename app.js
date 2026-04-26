@@ -3301,11 +3301,45 @@ function initVariableExpensesState() {
     }
 }
 
+// Persisted toggle for the despesas tab list view ('category' | 'chrono').
+function getExpensesView() {
+    return localStorage.getItem('vanessa_expenses_view') === 'chrono' ? 'chrono' : 'category';
+}
+function setExpensesView(view) {
+    localStorage.setItem('vanessa_expenses_view', view === 'chrono' ? 'chrono' : 'category');
+    renderExpenses();
+}
+function getExpensesChronoFilter() {
+    const v = localStorage.getItem('vanessa_expenses_filter') || 'all';
+    return ['all','pending','paid','fixed','variable'].includes(v) ? v : 'all';
+}
+function setExpenseFilter(f) {
+    localStorage.setItem('vanessa_expenses_filter', f);
+    renderExpenses();
+}
+
 function renderExpenses() {
     renderQuickAdd();
     const monthExp = getMonthExpenses(currentDate).map(adjustExpenseForCoParent);
     const filterCat = document.getElementById('filter-category')?.value;
     const filterType = document.getElementById('filter-type')?.value;
+    const view = getExpensesView();
+
+    // Sync toggle/chip UI states
+    const toggle = document.getElementById('expense-view-toggle');
+    if (toggle) {
+        toggle.querySelectorAll('.view-toggle-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.view === view);
+        });
+    }
+    const chipsBar = document.getElementById('expense-filter-chips');
+    if (chipsBar) {
+        chipsBar.style.display = view === 'chrono' ? 'flex' : 'none';
+        const cf = getExpensesChronoFilter();
+        chipsBar.querySelectorAll('.expense-filter-chip').forEach(b => {
+            b.classList.toggle('active', b.dataset.filter === cf);
+        });
+    }
 
     // Fixed expenses section
     const activeFixed = getActiveFixedForMonth(currentDate);
@@ -3315,6 +3349,15 @@ function renderExpenses() {
 
     const noFixedCta = document.getElementById('no-fixed-expenses-cta');
     if (fixedExpenses.length === 0 && noFixedCta) { noFixedCta.style.display = 'block'; } else if (noFixedCta) { noFixedCta.style.display = 'none'; }
+
+    // Chrono view: skip the fixed-section entirely, render a flat date-sorted
+    // list with day separators below. Filter chips control what gets shown.
+    if (view === 'chrono') {
+        if (fixedSection) fixedSection.style.display = 'none';
+        if (titleEl) titleEl.style.display = 'none';
+        renderExpensesChrono(monthExp, filterCat, filterType);
+        return;
+    }
 
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';
@@ -3535,6 +3578,113 @@ function renderExpenses() {
         ...groupedHtml,
         ...inlineHtml
     ].join('');
+}
+
+// Standalone fixed-row renderer for the chronological view. The variable
+// counterpart is renderExpenseItem; the fixed renderer used by category
+// view is a closure inside renderExpenses, so we duplicate a slimmed-down
+// version here. Reuses the same status helpers / quick-action handlers so
+// behaviour stays consistent.
+function renderFixedItemChrono(f) {
+    const cats = getEffectiveCategories();
+    const cat = cats[f.category] || cats.outros;
+    const effSt = getEffectiveFixedStatus(f, currentDate);
+    const isPaid = effSt.status === 'pago';
+    const amount = getEffectiveFixedAmount(f, currentDate);
+    const child = children.find(c => c.id === f.type);
+    const maxDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    const day = Math.min(f.dayOfMonth, maxDay);
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    return `
+        <div class="expense-item" onclick="editFixed('${f.id}')" style="cursor:pointer;border-left:3px solid ${cat.color || '#9E9E9E'}">
+            <div class="expense-icon" style="background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'}">
+                <i class="fas ${cat.icon}"></i>
+            </div>
+            <div style="flex:1;min-width:0">
+                <div class="expense-desc">${f.description} <span style="font-size:0.62rem;background:#EDE7F6;color:var(--primary);padding:1px 5px;border-radius:4px;font-weight:700">fixa</span></div>
+                <div class="expense-meta">
+                    <span>${formatDate(dateStr)}</span> &middot; <span>${cat.label}</span>${child ? ` &middot; <span>${child.name}</span>` : ''}
+                    &middot; <span style="color:${isPaid ? 'var(--success)' : 'var(--warning)'};font-weight:600">${isPaid ? 'Paga' : 'Pendente'}</span>
+                </div>
+            </div>
+            <div class="expense-amount">${formatCurrency(amount)}</div>
+        </div>
+    `;
+}
+
+// Chronological flat list of all expenses (variable + fixed) for the month.
+// Inserts a thin "— DD MMM (N)" separator whenever a new day starts.
+function renderExpensesChrono(monthExp, filterCat, filterType) {
+    const container = document.getElementById('expenses-list');
+    if (!container) return;
+    const monthsAbbr = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const chronoFilter = getExpensesChronoFilter();
+
+    // Build unified list. For fixed: every active fixa for the month, dated on
+    // its day-of-month. We pull the underlying templates (not getPaidFixedAsExpenses)
+    // so pending ones still appear.
+    const activeFixed = getActiveFixedForMonth(currentDate);
+    const skippedSet = new Set(activeFixed.filter(f => isFixedSkipped(f.id, currentDate)).map(f => f.id));
+    const fixedRows = activeFixed
+        .filter(f => !skippedSet.has(f.id))
+        .map(f => {
+            const maxDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+            const day = Math.min(f.dayOfMonth, maxDay);
+            const date = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const isPaid = getEffectiveFixedStatus(f, currentDate).status === 'pago';
+            return { _kind: 'fixed', _isPaid: isPaid, date, category: f.category, type: f.type || 'personal', _f: f };
+        });
+
+    const varRows = monthExp.map(e => ({ ...e, _kind: 'var', _isPaid: true }));
+
+    let all = [...varRows, ...fixedRows];
+    if (filterCat) all = all.filter(e => e.category === filterCat);
+    if (filterType) all = all.filter(e => e.type === filterType);
+
+    if (chronoFilter === 'fixed') all = all.filter(e => e._kind === 'fixed');
+    else if (chronoFilter === 'variable') all = all.filter(e => e._kind === 'var');
+    else if (chronoFilter === 'paid') all = all.filter(e => e._isPaid);
+    else if (chronoFilter === 'pending') all = all.filter(e => !e._isPaid);
+
+    all.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    if (all.length === 0) {
+        container.innerHTML = '<div class="empty-state"><i class="fas fa-receipt"></i><p>Sem despesas para mostrar</p></div>';
+        return;
+    }
+
+    // Group by day for separators
+    const byDay = new Map();
+    for (const e of all) {
+        const k = e.date || '';
+        if (!byDay.has(k)) byDay.set(k, []);
+        byDay.get(k).push(e);
+    }
+
+    const today = new Date();
+    const todayStr = toLocalDateStr(today);
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = toLocalDateStr(yesterday);
+
+    const out = [];
+    for (const [dateStr, items] of byDay) {
+        let label;
+        if (dateStr === todayStr) label = 'Hoje';
+        else if (dateStr === yesterdayStr) label = 'Ontem';
+        else if (dateStr) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            label = `${String(d).padStart(2,'0')} ${monthsAbbr[m-1]}`;
+        } else {
+            label = 'Sem data';
+        }
+        const dayTotal = items.filter(e => e._kind === 'var' ? expenseAffectsBalance(e) : true)
+            .reduce((s, e) => s + (e._kind === 'fixed' ? getEffectiveFixedAmount(e._f, currentDate) : (e.amount || 0)), 0);
+        out.push(`<div class="day-separator"><span>— ${label} (${items.length})</span><span class="day-separator-total">${formatCurrency(dayTotal)}</span></div>`);
+        for (const e of items) {
+            out.push(e._kind === 'fixed' ? renderFixedItemChrono(e._f) : renderExpenseItem(e));
+        }
+    }
+    container.innerHTML = out.join('');
 }
 
 // Generic "category group" row used by both variable and fixed expense

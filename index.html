@@ -335,6 +335,19 @@
                 <div id="pending-expenses-list"></div>
             </div>
 
+            <!-- Filter chips (chrono view) + view toggle -->
+            <div id="expense-filter-chips" class="expense-filter-chips" style="display:none">
+                <button class="expense-filter-chip active" data-filter="all" onclick="setExpenseFilter('all')">Todas</button>
+                <button class="expense-filter-chip" data-filter="pending" onclick="setExpenseFilter('pending')">Pendentes</button>
+                <button class="expense-filter-chip" data-filter="paid" onclick="setExpenseFilter('paid')">Pagas</button>
+                <button class="expense-filter-chip" data-filter="fixed" onclick="setExpenseFilter('fixed')">Fixas</button>
+                <button class="expense-filter-chip" data-filter="variable" onclick="setExpenseFilter('variable')">Variáveis</button>
+            </div>
+            <div id="expense-view-toggle" class="view-toggle">
+                <button class="view-toggle-btn active" data-view="category" onclick="setExpensesView('category')"><i class="fas fa-folder-tree"></i> Por categoria</button>
+                <button class="view-toggle-btn" data-view="chrono" onclick="setExpensesView('chrono')"><i class="fas fa-calendar-day"></i> Cronológica</button>
+            </div>
+
             <!-- Fixed Expenses This Month -->
             <div id="fixed-month-section" class="fixed-month-section" style="display:none">
                 <div class="fixed-month-header" style="user-select:none">

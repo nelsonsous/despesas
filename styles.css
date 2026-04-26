@@ -2139,3 +2139,186 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     }
     .tab::before { transition: none; }
 }
+
+/* ===== EXPENSES TAB — view toggle + chrono separators ===== */
+.view-toggle {
+    display: flex;
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    margin: 8px 0 12px;
+}
+.view-toggle-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--text-light);
+    border: none;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-family: var(--font);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.15s, color 0.15s;
+}
+.view-toggle-btn.active {
+    background: var(--card-bg);
+    color: var(--primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.view-toggle-btn:not(.active):hover { color: var(--text); }
+
+.expense-filter-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.expense-filter-chip {
+    background: var(--card-bg);
+    color: var(--text-light);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-family: var(--font);
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.expense-filter-chip.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+.expense-filter-chip:not(.active):hover { color: var(--text); border-color: var(--primary-light); }
+
+.day-separator {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-light);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 12px 4px 4px;
+    border-bottom: 1px dashed var(--border);
+    margin-bottom: 6px;
+}
+.day-separator:first-child { padding-top: 4px; }
+.day-separator-total { color: var(--primary); font-weight: 700; text-transform: none; }
+
+/* ===== Cycle-expenses section (dashboard) ===== */
+.cycle-expenses-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 12px;
+}
+.cycle-expenses-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    gap: 8px;
+}
+.cycle-expenses-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+.cycle-expenses-sub {
+    font-size: 0.7rem;
+    color: var(--text-light);
+    font-weight: 500;
+}
+
+/* ===== Period mode toggle (dashboard) ===== */
+.period-mode-toggle {
+    display: inline-flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+    margin-left: 8px;
+}
+.period-mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-light);
+    font-family: var(--font);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.period-mode-btn.active { background: var(--primary); color: #fff; }
+
+/* ===== Reports — heatmap + cycle bars ===== */
+.reports-period-chips {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.reports-period-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-light);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.reports-period-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.heatmap-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 2px;
+    font-size: 0.7rem;
+}
+.heatmap-table th, .heatmap-table td {
+    padding: 4px 6px;
+    text-align: center;
+    color: var(--text);
+}
+.heatmap-table th { font-weight: 700; color: var(--text-light); font-size: 0.65rem; }
+.heatmap-table td.heatmap-row-label {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+}
+.heatmap-cell { border-radius: 4px; min-width: 38px; }
+
+.stack-bar {
+    display: flex;
+    width: 100%;
+    height: 14px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--border);
+}
+.stack-bar-seg { height: 100%; }
+
+.cycle-row-bar {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+}
