@@ -9818,7 +9818,7 @@ function renderNetWorth() {
     }
     const updated = netWorth.updatedAt ? new Date(netWorth.updatedAt).toLocaleDateString('pt-PT') : '—';
     const assetsLabel = goalsBalance > 0
-        ? `Ativos · ${(netWorth.assets || []).length}+poupança`
+        ? `Ativos · ${(netWorth.assets || []).length} + poupança`
         : `Ativos · ${(netWorth.assets || []).length}`;
     body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património líquido</div>
