@@ -2756,3 +2756,276 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     gap: 8px;
 }
 .inbox-item-actions .btn { flex: 1; }
+
+/* =====================================================================
+   ===== DARK MODE: SECOND POLISH PASS (v151) =========================
+   =====================================================================
+   Cover the remaining light surfaces missed by the first dark-mode pass.
+   Touches: hardcoded class backgrounds (#FFF3E0, #EDE7F6, #EEE7FF,
+   #E8F5E9, #FFEBEE, #FCE4EC, #FBF9FF, #FFF1F5, #fafafa, white) used
+   both in styles.css and inline in HTML/JS templates. We avoid editing
+   the 100+ inline `style="background:..."` strings sprinkled across
+   app.js/index.html and instead use attribute selectors to remap the
+   exact color tokens to dark equivalents. Light theme is untouched.
+   ===================================================================== */
+
+/* Common dark surface palette used below as inline override targets. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --dm-tint-purple: #2A2233;
+        --dm-tint-purple-strong: #332545;
+        --dm-tint-orange: #3A2D20;
+        --dm-tint-green: #1F3326;
+        --dm-tint-red: #3A2127;
+        --dm-tint-pink: #3A2530;
+        --dm-tint-blue: #1F2A3A;
+        --dm-tint-yellow: #3A3320;
+        --dm-on-purple: #C9B7FF;
+        --dm-on-orange: #FFB78A;
+        --dm-on-green: #8FE0A8;
+        --dm-on-red: #FFA0A0;
+        --dm-on-pink: #FFB1CC;
+        --dm-on-blue: #A8C8E8;
+        --dm-on-yellow: #FFD78A;
+    }
+}
+:root[data-theme="dark"] {
+    --dm-tint-purple: #2A2233;
+    --dm-tint-purple-strong: #332545;
+    --dm-tint-orange: #3A2D20;
+    --dm-tint-green: #1F3326;
+    --dm-tint-red: #3A2127;
+    --dm-tint-pink: #3A2530;
+    --dm-tint-blue: #1F2A3A;
+    --dm-tint-yellow: #3A3320;
+    --dm-on-purple: #C9B7FF;
+    --dm-on-orange: #FFB78A;
+    --dm-on-green: #8FE0A8;
+    --dm-on-red: #FFA0A0;
+    --dm-on-pink: #FFB1CC;
+    --dm-on-blue: #A8C8E8;
+    --dm-on-yellow: #FFD78A;
+}
+
+/* Master rule list applied under both auto-dark and manual dark.
+   Defined with a placeholder root selector; the actual selector
+   prefixes are duplicated below to cover both modes. */
+@media (prefers-color-scheme: dark) {
+    /* CSS class-based overrides — fixed lights in styles.css */
+    :root:not([data-theme="light"]) .forecast-chip-income { background: var(--dm-tint-green); border-color: #2C4A38; }
+    :root:not([data-theme="light"]) .forecast-chip-income .forecast-chip-value { color: var(--dm-on-green); }
+    :root:not([data-theme="light"]) .forecast-chip-income .forecast-chip-label { color: var(--dm-on-green); }
+    :root:not([data-theme="light"]) .forecast-chip-expense { background: var(--dm-tint-orange); border-color: #4D3A22; }
+    :root:not([data-theme="light"]) .forecast-chip-expense .forecast-chip-value { color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .forecast-chip-expense .forecast-chip-label { color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .forecast-chip-balance { background: var(--dm-tint-purple); border-color: #3D2D55; }
+    :root:not([data-theme="light"]) .forecast-chip-balance.is-negative { background: var(--dm-tint-red); border-color: #4A2A30; }
+    :root:not([data-theme="light"]) .forecast-chip-balance.is-negative .forecast-chip-value,
+    :root:not([data-theme="light"]) .forecast-chip-balance.is-negative .forecast-chip-label { color: var(--dm-on-red); }
+
+    :root:not([data-theme="light"]) .people-suggestion-chip { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .people-tag-inline { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .toggle-card:has(input:checked) { background: var(--dm-tint-purple); }
+    :root:not([data-theme="light"]) .toggle-card-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+    :root:not([data-theme="light"]) .tag-personal { background: var(--dm-tint-blue); color: var(--dm-on-blue); }
+    :root:not([data-theme="light"]) .tag-laura { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .split-row.highlight { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+
+    :root:not([data-theme="light"]) .change-up { background: var(--dm-tint-red); color: var(--dm-on-red); }
+    :root:not([data-theme="light"]) .change-down { background: var(--dm-tint-green); color: var(--dm-on-green); }
+    :root:not([data-theme="light"]) .change-same { background: #2A2A38; color: #B0B0C0; }
+
+    :root:not([data-theme="light"]) .app-lock-inner { background: var(--card-bg); color: var(--text); }
+    :root:not([data-theme="light"]) .ai-insights-card { background: linear-gradient(135deg, #2A2040 0%, #2D1F3D 100%); border-color: #3D2D55; }
+    :root:not([data-theme="light"]) .ai-insights-title { color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .ai-insights-body { color: #D6CCEF; }
+    :root:not([data-theme="light"]) .ai-ask-row { background: var(--surface); border-color: #3D2D55; }
+    :root:not([data-theme="light"]) .ai-ask-row input { color: var(--text); }
+    :root:not([data-theme="light"]) .ai-ask-answer { background: var(--surface); border-color: #3D2D55; color: #D6CCEF; }
+    :root:not([data-theme="light"]) .ai-chip { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .ai-category-suggestion { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); border-color: #4D3D6E; }
+    :root:not([data-theme="light"]) .ai-category-suggestion:hover { background: #3F2F5C; }
+
+    :root:not([data-theme="light"]) .savings-icon.tip { background: var(--dm-tint-green); color: var(--dm-on-green); }
+    :root:not([data-theme="light"]) .savings-icon.warning { background: var(--dm-tint-yellow); color: var(--dm-on-yellow); }
+    :root:not([data-theme="light"]) .savings-icon.alert { background: var(--dm-tint-red); color: var(--dm-on-red); }
+
+    :root:not([data-theme="light"]) .action-chip-receipt { background: var(--dm-tint-orange); color: var(--dm-on-orange); border-color: #4D3A22; }
+    :root:not([data-theme="light"]) .action-chip-ai { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); border-color: #4D3D6E; }
+    :root:not([data-theme="light"]) .action-chip-pdf { background: var(--dm-tint-purple); color: var(--dm-on-purple); border-color: #3D2D55; }
+
+    /* Category icon backgrounds — keep their hue but darker. Text/icon
+       color stays on the bright source color which still reads on dark. */
+    :root:not([data-theme="light"]) .cat-supermercado { background: #1F3326; color: #A8D89A; }
+    :root:not([data-theme="light"]) .cat-alimentacao { background: #3A3320; color: #FFD78A; }
+    :root:not([data-theme="light"]) .cat-restaurantes { background: #3A2D20; color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .cat-combustivel { background: #2D2034; color: #D5A8E8; }
+    :root:not([data-theme="light"]) .cat-saude { background: #3A2127; color: var(--dm-on-red); }
+    :root:not([data-theme="light"]) .cat-farmacia { background: #3A1F2E; color: #F0A8C8; }
+    :root:not([data-theme="light"]) .cat-roupa { background: #2A2240; color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .cat-lazer { background: #2D3320; color: #D8E08A; }
+    :root:not([data-theme="light"]) .cat-beleza { background: #3A1F2E; color: #F0A8C8; }
+    :root:not([data-theme="light"]) .cat-subscricoes { background: #2D2034; color: #D5A8E8; }
+    :root:not([data-theme="light"]) .cat-presentes { background: #3A2820; color: #FFB088; }
+
+    :root:not([data-theme="light"]) .income-icon { background: var(--dm-tint-green); color: var(--dm-on-green); }
+    :root:not([data-theme="light"]) .attachment-thumb-pdf { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .attachments-card .card-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+    :root:not([data-theme="light"]) .fixed-month-section { background: var(--dm-tint-purple); }
+    :root:not([data-theme="light"]) .fixed-month-item { background: var(--card-bg); border-color: var(--border); }
+    :root:not([data-theme="light"]) .fixed-skipped-item { background: #1A1A24; }
+    :root:not([data-theme="light"]) .status-pendente { background: var(--dm-tint-orange); color: var(--dm-on-orange); border-color: #4D3A22; }
+    :root:not([data-theme="light"]) .status-pago { background: var(--dm-tint-green); color: var(--dm-on-green); border-color: #2C4A38; }
+    :root:not([data-theme="light"]) .balance-fixed-row { background: var(--dm-tint-orange); }
+    :root:not([data-theme="light"]) .balance-fixed-detail { color: var(--dm-on-orange); }
+
+    :root:not([data-theme="light"]) .icon-option.selected { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .toggle-slider { background: #44445A; }
+    :root:not([data-theme="light"]) .toggle-slider:before { background: #ECECEC; }
+
+    :root:not([data-theme="light"]) .fixed-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+    :root:not([data-theme="light"]) .cycle-row-tag.tag-fixed { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .cycle-row-tag.tag-var { background: #2A2A38; color: #B0B0C0; }
+
+    /* Total/summary card icons (gradients with light hex) */
+    :root:not([data-theme="light"]) .total-card .card-icon { background: linear-gradient(135deg, #332545, #2A2233); color: var(--dm-on-purple); }
+    :root:not([data-theme="light"]) .personal-card .card-icon { background: linear-gradient(135deg, #1F2A3A, #1A2230); color: var(--dm-on-blue); }
+    :root:not([data-theme="light"]) .laura-card .card-icon { background: linear-gradient(135deg, #3A2D20, #2D2218); color: var(--dm-on-orange); }
+    :root:not([data-theme="light"]) .split-card .card-icon { background: linear-gradient(135deg, #3A1F2E, #2E1822); color: #F0A8C8; }
+    :root:not([data-theme="light"]) .attachments-card .card-icon { background: linear-gradient(135deg, #2D2034, #221828); color: #D5A8E8; }
+
+    /* Inline-style attribute remaps — match exact color tokens used in
+       app.js/index.html templates and remap them to dark equivalents.
+       Use !important because inline styles otherwise win the cascade. */
+    :root:not([data-theme="light"]) [style*="background:white"],
+    :root:not([data-theme="light"]) [style*="background: white"],
+    :root:not([data-theme="light"]) [style*="background:#fff;"],
+    :root:not([data-theme="light"]) [style*="background:#fff;border"],
+    :root:not([data-theme="light"]) [style*="background:#FFFFFF"] { background: var(--card-bg) !important; color: var(--text); }
+
+    :root:not([data-theme="light"]) [style*="#EEE7FF"] { background: var(--dm-tint-purple-strong) !important; color: var(--dm-on-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#EDE7F6"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#F3EFFF"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#F5F3FF"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#FBF9FF"] { background: var(--dm-tint-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#FCFAFF"] { background: var(--dm-tint-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#FFF3E0"] { background: var(--dm-tint-orange) !important; color: var(--dm-on-orange) !important; }
+    :root:not([data-theme="light"]) [style*="#E8F5E9"] { background: var(--dm-tint-green) !important; color: var(--dm-on-green) !important; }
+    :root:not([data-theme="light"]) [style*="#FFEBEE"] { background: var(--dm-tint-red) !important; color: var(--dm-on-red) !important; }
+    :root:not([data-theme="light"]) [style*="#E3F2FD"] { background: var(--dm-tint-blue) !important; color: var(--dm-on-blue) !important; }
+    :root:not([data-theme="light"]) [style*="#FCE4EC"] { background: #3A1F2E !important; color: #F0A8C8 !important; }
+    :root:not([data-theme="light"]) [style*="#FFE0EC"] { background: #3A1F2E !important; color: #F0A8C8 !important; }
+    :root:not([data-theme="light"]) [style*="#F5F3FF"] { background: var(--dm-tint-purple) !important; }
+    :root:not([data-theme="light"]) [style*="#F5F5F5"] { background: #2A2A38 !important; color: #B0B0C0 !important; }
+    :root:not([data-theme="light"]) [style*="#eee"] { background: #2A2A38 !important; }
+
+    /* Inline-style report bar tracks (#EEE7FF in app.js report bars) handled
+       above. Keep filled portion visible with its own var(--primary). */
+}
+
+/* Manual override duplicate (data-theme="dark") — same rules. */
+:root[data-theme="dark"] .forecast-chip-income { background: var(--dm-tint-green); border-color: #2C4A38; }
+:root[data-theme="dark"] .forecast-chip-income .forecast-chip-value,
+:root[data-theme="dark"] .forecast-chip-income .forecast-chip-label { color: var(--dm-on-green); }
+:root[data-theme="dark"] .forecast-chip-expense { background: var(--dm-tint-orange); border-color: #4D3A22; }
+:root[data-theme="dark"] .forecast-chip-expense .forecast-chip-value,
+:root[data-theme="dark"] .forecast-chip-expense .forecast-chip-label { color: var(--dm-on-orange); }
+:root[data-theme="dark"] .forecast-chip-balance { background: var(--dm-tint-purple); border-color: #3D2D55; }
+:root[data-theme="dark"] .forecast-chip-balance.is-negative { background: var(--dm-tint-red); border-color: #4A2A30; }
+:root[data-theme="dark"] .forecast-chip-balance.is-negative .forecast-chip-value,
+:root[data-theme="dark"] .forecast-chip-balance.is-negative .forecast-chip-label { color: var(--dm-on-red); }
+
+:root[data-theme="dark"] .people-suggestion-chip { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .people-tag-inline { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .toggle-card:has(input:checked) { background: var(--dm-tint-purple); }
+:root[data-theme="dark"] .toggle-card-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+:root[data-theme="dark"] .tag-personal { background: var(--dm-tint-blue); color: var(--dm-on-blue); }
+:root[data-theme="dark"] .tag-laura { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+:root[data-theme="dark"] .split-row.highlight { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+
+:root[data-theme="dark"] .change-up { background: var(--dm-tint-red); color: var(--dm-on-red); }
+:root[data-theme="dark"] .change-down { background: var(--dm-tint-green); color: var(--dm-on-green); }
+:root[data-theme="dark"] .change-same { background: #2A2A38; color: #B0B0C0; }
+
+:root[data-theme="dark"] .app-lock-inner { background: var(--card-bg); color: var(--text); }
+:root[data-theme="dark"] .ai-insights-card { background: linear-gradient(135deg, #2A2040 0%, #2D1F3D 100%); border-color: #3D2D55; }
+:root[data-theme="dark"] .ai-insights-title { color: var(--dm-on-purple); }
+:root[data-theme="dark"] .ai-insights-body { color: #D6CCEF; }
+:root[data-theme="dark"] .ai-ask-row { background: var(--surface); border-color: #3D2D55; }
+:root[data-theme="dark"] .ai-ask-row input { color: var(--text); }
+:root[data-theme="dark"] .ai-ask-answer { background: var(--surface); border-color: #3D2D55; color: #D6CCEF; }
+:root[data-theme="dark"] .ai-chip { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .ai-category-suggestion { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); border-color: #4D3D6E; }
+:root[data-theme="dark"] .ai-category-suggestion:hover { background: #3F2F5C; }
+
+:root[data-theme="dark"] .savings-icon.tip { background: var(--dm-tint-green); color: var(--dm-on-green); }
+:root[data-theme="dark"] .savings-icon.warning { background: var(--dm-tint-yellow); color: var(--dm-on-yellow); }
+:root[data-theme="dark"] .savings-icon.alert { background: var(--dm-tint-red); color: var(--dm-on-red); }
+
+:root[data-theme="dark"] .action-chip-receipt { background: var(--dm-tint-orange); color: var(--dm-on-orange); border-color: #4D3A22; }
+:root[data-theme="dark"] .action-chip-ai { background: var(--dm-tint-purple-strong); color: var(--dm-on-purple); border-color: #4D3D6E; }
+:root[data-theme="dark"] .action-chip-pdf { background: var(--dm-tint-purple); color: var(--dm-on-purple); border-color: #3D2D55; }
+
+:root[data-theme="dark"] .cat-supermercado { background: #1F3326; color: #A8D89A; }
+:root[data-theme="dark"] .cat-alimentacao { background: #3A3320; color: #FFD78A; }
+:root[data-theme="dark"] .cat-restaurantes { background: #3A2D20; color: var(--dm-on-orange); }
+:root[data-theme="dark"] .cat-combustivel { background: #2D2034; color: #D5A8E8; }
+:root[data-theme="dark"] .cat-saude { background: #3A2127; color: var(--dm-on-red); }
+:root[data-theme="dark"] .cat-farmacia { background: #3A1F2E; color: #F0A8C8; }
+:root[data-theme="dark"] .cat-roupa { background: #2A2240; color: var(--dm-on-purple); }
+:root[data-theme="dark"] .cat-lazer { background: #2D3320; color: #D8E08A; }
+:root[data-theme="dark"] .cat-beleza { background: #3A1F2E; color: #F0A8C8; }
+:root[data-theme="dark"] .cat-subscricoes { background: #2D2034; color: #D5A8E8; }
+:root[data-theme="dark"] .cat-presentes { background: #3A2820; color: #FFB088; }
+
+:root[data-theme="dark"] .income-icon { background: var(--dm-tint-green); color: var(--dm-on-green); }
+:root[data-theme="dark"] .attachment-thumb-pdf { background: var(--dm-tint-orange); color: var(--dm-on-orange); }
+:root[data-theme="dark"] .attachments-card .card-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+:root[data-theme="dark"] .fixed-month-section { background: var(--dm-tint-purple); }
+:root[data-theme="dark"] .fixed-month-item { background: var(--card-bg); border-color: var(--border); }
+:root[data-theme="dark"] .fixed-skipped-item { background: #1A1A24; }
+:root[data-theme="dark"] .status-pendente { background: var(--dm-tint-orange); color: var(--dm-on-orange); border-color: #4D3A22; }
+:root[data-theme="dark"] .status-pago { background: var(--dm-tint-green); color: var(--dm-on-green); border-color: #2C4A38; }
+:root[data-theme="dark"] .balance-fixed-row { background: var(--dm-tint-orange); }
+:root[data-theme="dark"] .balance-fixed-detail { color: var(--dm-on-orange); }
+
+:root[data-theme="dark"] .icon-option.selected { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .toggle-slider { background: #44445A; }
+:root[data-theme="dark"] .toggle-slider:before { background: #ECECEC; }
+
+:root[data-theme="dark"] .fixed-icon { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+
+:root[data-theme="dark"] .cycle-row-tag.tag-fixed { background: var(--dm-tint-purple); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .cycle-row-tag.tag-var { background: #2A2A38; color: #B0B0C0; }
+
+:root[data-theme="dark"] .total-card .card-icon { background: linear-gradient(135deg, #332545, #2A2233); color: var(--dm-on-purple); }
+:root[data-theme="dark"] .personal-card .card-icon { background: linear-gradient(135deg, #1F2A3A, #1A2230); color: var(--dm-on-blue); }
+:root[data-theme="dark"] .laura-card .card-icon { background: linear-gradient(135deg, #3A2D20, #2D2218); color: var(--dm-on-orange); }
+:root[data-theme="dark"] .split-card .card-icon { background: linear-gradient(135deg, #3A1F2E, #2E1822); color: #F0A8C8; }
+:root[data-theme="dark"] .attachments-card .card-icon { background: linear-gradient(135deg, #2D2034, #221828); color: #D5A8E8; }
+
+:root[data-theme="dark"] [style*="background:white"],
+:root[data-theme="dark"] [style*="background: white"],
+:root[data-theme="dark"] [style*="background:#fff;"],
+:root[data-theme="dark"] [style*="background:#fff;border"],
+:root[data-theme="dark"] [style*="background:#FFFFFF"] { background: var(--card-bg) !important; color: var(--text); }
+
+:root[data-theme="dark"] [style*="#EEE7FF"] { background: var(--dm-tint-purple-strong) !important; color: var(--dm-on-purple) !important; }
+:root[data-theme="dark"] [style*="#EDE7F6"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+:root[data-theme="dark"] [style*="#F3EFFF"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+:root[data-theme="dark"] [style*="#F5F3FF"] { background: var(--dm-tint-purple) !important; color: var(--dm-on-purple) !important; }
+:root[data-theme="dark"] [style*="#FBF9FF"] { background: var(--dm-tint-purple) !important; }
+:root[data-theme="dark"] [style*="#FCFAFF"] { background: var(--dm-tint-purple) !important; }
+:root[data-theme="dark"] [style*="#FFF3E0"] { background: var(--dm-tint-orange) !important; color: var(--dm-on-orange) !important; }
+:root[data-theme="dark"] [style*="#E8F5E9"] { background: var(--dm-tint-green) !important; color: var(--dm-on-green) !important; }
+:root[data-theme="dark"] [style*="#FFEBEE"] { background: var(--dm-tint-red) !important; color: var(--dm-on-red) !important; }
+:root[data-theme="dark"] [style*="#E3F2FD"] { background: var(--dm-tint-blue) !important; color: var(--dm-on-blue) !important; }
+:root[data-theme="dark"] [style*="#FCE4EC"] { background: #3A1F2E !important; color: #F0A8C8 !important; }
+:root[data-theme="dark"] [style*="#FFE0EC"] { background: #3A1F2E !important; color: #F0A8C8 !important; }
+:root[data-theme="dark"] [style*="#F5F5F5"] { background: #2A2A38 !important; color: #B0B0C0 !important; }
+:root[data-theme="dark"] [style*="#eee"] { background: #2A2A38 !important; }
