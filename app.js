@@ -9574,9 +9574,38 @@ function showGoalHistory(id) {
     const g = savingsGoals.find(x => x.id === id);
     if (!g) return;
     const txs = [...(g.transactions || [])].sort((a, b) => b.date.localeCompare(a.date));
-    if (!txs.length) { showToast('Sem transações ainda'); return; }
-    const lines = txs.map(t => `${t.date} ${t.type === 'add' ? '+' : '-'}${formatCurrency(t.amount)}${t.note ? ' · ' + t.note : ''}`).join('\n');
-    alert(`Histórico de "${g.name}":\n\n${lines}`);
+    document.getElementById('goal-history-title').textContent = `Histórico · ${g.name}`;
+    const totalAdd = txs.filter(t => t.type === 'add').reduce((s, t) => s + (t.amount || 0), 0);
+    const totalRem = txs.filter(t => t.type === 'remove').reduce((s, t) => s + (t.amount || 0), 0);
+    document.getElementById('goal-history-summary').innerHTML = `
+        <span><i class="fas fa-arrow-up" style="color:var(--success)"></i> Adições <strong style="color:var(--success);margin-left:4px">${formatCurrency(totalAdd)}</strong></span>
+        <span><i class="fas fa-arrow-down" style="color:var(--danger)"></i> Retiradas <strong style="color:var(--danger);margin-left:4px">${formatCurrency(totalRem)}</strong></span>
+        <span style="margin-left:auto"><i class="fas fa-equals" style="color:var(--text-light)"></i> Líquido <strong style="margin-left:4px">${formatCurrency(totalAdd - totalRem)}</strong></span>
+    `;
+    const listEl = document.getElementById('goal-history-list');
+    if (!txs.length) {
+        listEl.innerHTML = '<div class="empty-state" style="padding:24px"><i class="fas fa-piggy-bank"></i><p>Sem movimentos ainda.</p></div>';
+    } else {
+        listEl.innerHTML = txs.map(t => {
+            const isAdd = t.type === 'add';
+            const sign = isAdd ? '+' : '-';
+            const color = isAdd ? 'var(--success)' : 'var(--danger)';
+            return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+                    <i class="fas fa-${isAdd ? 'arrow-up' : 'arrow-down'}" style="color:${color};font-size:0.85rem"></i>
+                    <div style="min-width:0">
+                        <div style="font-size:0.85rem;font-weight:600">${formatDate(t.date)}</div>
+                        ${t.note ? `<div style="font-size:0.72rem;color:var(--text-light);overflow:hidden;text-overflow:ellipsis">${t.note}</div>` : ''}
+                    </div>
+                </div>
+                <div style="font-weight:700;color:${color};white-space:nowrap">${sign}${formatCurrency(t.amount)}</div>
+            </div>`;
+        }).join('');
+    }
+    document.getElementById('modal-goal-history').classList.add('active');
+}
+function closeGoalHistory() {
+    document.getElementById('modal-goal-history').classList.remove('active');
 }
 
 function renderSavingsGoals() {
