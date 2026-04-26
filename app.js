@@ -3013,38 +3013,75 @@ function renderCycleExpenses() {
 
     const startStr = toLocalDateStr(cycle.start);
     const endStr = toLocalDateStr(cycle.end);
+    const cats = getEffectiveCategories();
 
-    // Variable expenses inside the cycle window
-    const varExp = expenses
+    // Variable expenses inside the cycle window — co-parent split applied.
+    const varRows = expenses
         .map(adjustExpenseForCoParent)
-        .filter(e => e.date && e.date >= startStr && e.date <= endStr);
+        .filter(e => e.date && e.date >= startStr && e.date <= endStr)
+        .map(e => ({
+            kind: 'var',
+            id: e.id,
+            date: e.date,
+            description: e.description || '(sem descrição)',
+            category: e.category,
+            amount: e.amount || 0,
+            childId: e.type && e.type !== 'personal' ? e.type : null,
+            status: 'pago' // variables are always realised spend
+        }));
 
-    // Paid fixed inside the cycle (use existing helper for each calendar
-    // month the cycle touches, then filter by date).
-    const monthsTouched = new Set();
+    // Fixed expenses whose dayOfMonth falls inside the cycle window — both
+    // paid and pending (and ignored, marked as such). We synthesize a date
+    // from each calendar month the cycle touches and check membership.
+    const monthsTouched = [];
     const walker = new Date(cycle.start.getFullYear(), cycle.start.getMonth(), 1);
     const endMonth = new Date(cycle.end.getFullYear(), cycle.end.getMonth(), 1);
     while (walker <= endMonth) {
-        monthsTouched.add(`${walker.getFullYear()}-${walker.getMonth()}`);
+        monthsTouched.push(new Date(walker.getFullYear(), walker.getMonth(), 1));
         walker.setMonth(walker.getMonth() + 1);
     }
-    const fixedExp = [];
-    for (const key of monthsTouched) {
-        const [y, m] = key.split('-').map(Number);
-        getPaidFixedAsExpenses(new Date(y, m, 1)).forEach(e => {
-            if (e.date >= startStr && e.date <= endStr) fixedExp.push(e);
+    const fixedRows = [];
+    monthsTouched.forEach(monthDate => {
+        const y = monthDate.getFullYear();
+        const m = monthDate.getMonth();
+        const maxDay = new Date(y, m + 1, 0).getDate();
+        getActiveFixedForMonth(monthDate).forEach(f => {
+            const day = Math.min(f.dayOfMonth, maxDay);
+            const dateStr = `${y}-${String(m + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            if (dateStr < startStr || dateStr > endStr) return;
+            const eff = getEffectiveFixedStatus(f, monthDate);
+            const status = eff.status; // 'pago' | 'pendente' | 'ignorado'
+            const amount = status === 'ignorado' ? 0 : getEffectiveFixedAmount(f, monthDate);
+            fixedRows.push({
+                kind: 'fixed',
+                id: f.id,
+                date: dateStr,
+                description: f.description,
+                category: f.category,
+                amount,
+                childId: f.type && f.type !== 'personal' ? f.type : null,
+                status
+            });
         });
-    }
+    });
 
-    const all = [...varExp, ...fixedExp].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const all = [...varRows, ...fixedRows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Header totals: spent = variables + paid fixed (pending fixed is shown
+    // in the list with the pendente badge but does not inflate "spent").
+    const spent = all.reduce((s, r) => s + (r.status === 'pago' ? r.amount : 0), 0);
+    const committed = all.reduce((s, r) => s + (r.status === 'ignorado' ? 0 : r.amount), 0);
 
     const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
     const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
     const inCycle = today >= cycle.start && today <= cycle.end;
     const dayN = inCycle ? Math.max(1, Math.min(cycleLength, Math.round((today - cycle.start) / 86400000) + 1)) : cycleLength;
-    const total = all.reduce((s, e) => s + (e.amount || 0), 0);
-    const sub = `📅 ${periodLabel} · Dia ${dayN}/${cycleLength} · ${all.length} ${all.length === 1 ? 'gasto' : 'gastos'} · ${formatCurrency(total)}`;
+    const countShown = all.filter(r => r.status !== 'ignorado').length;
+    const totalsLbl = committed > spent
+        ? `${formatCurrency(spent)} / ${formatCurrency(committed)}`
+        : formatCurrency(spent);
+    const sub = `📅 ${periodLabel} · Dia ${dayN}/${cycleLength} · ${countShown} ${countShown === 1 ? 'gasto' : 'gastos'} · ${totalsLbl}`;
 
     section.style.display = 'block';
     const subEl = document.getElementById('cycle-expenses-sub');
@@ -3058,10 +3095,37 @@ function renderCycleExpenses() {
 
     if (!body) return;
     if (all.length === 0) {
-        body.innerHTML = '<div class="empty-state" style="padding:14px 0"><p>Sem despesas neste ciclo</p></div>';
+        body.innerHTML = '<div class="empty-state" style="padding:14px 0"><p>Nenhum gasto registado neste ciclo ainda.</p></div>';
         return;
     }
-    body.innerHTML = all.map(e => renderExpenseItem(e)).join('');
+
+    // Compact row: status badge · date · description · category · amount · jump-to-edit
+    body.innerHTML = all.map(r => {
+        const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
+        const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
+        const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
+        let badge;
+        if (r.status === 'pago') badge = '<span title="Pago" style="font-size:0.85rem">✅</span>';
+        else if (r.status === 'pendente') badge = '<span title="Pendente" style="font-size:0.85rem">⏳</span>';
+        else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
+        const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
+        const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
+        const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
+        const opacity = r.status === 'ignorado' ? '0.55' : '1';
+        return `
+            <div class="cycle-expense-row" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+                <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
+                <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                    <div style="font-size:0.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.description}${childTag}</div>
+                    <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}${r.kind === 'fixed' ? ' · fixa' : ''}</div>
+                </div>
+                <div style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</div>
+                <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+            </div>
+        `;
+    }).join('');
 }
 
 function renderBudgetAlerts(monthExp) {
