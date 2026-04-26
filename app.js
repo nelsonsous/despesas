@@ -3862,19 +3862,32 @@ function renderFixedItemChrono(f) {
     const maxDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
     const day = Math.min(f.dayOfMonth, maxDay);
     const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    // Match the category view's quick-actions for fixed rows so users have the
+    // same shortcuts (toggle paid, duplicate, skip, delete) regardless of mode.
     return `
         <div class="expense-item" onclick="editFixed('${f.id}')" style="cursor:pointer;border-left:3px solid ${cat.color || '#9E9E9E'}">
             <div class="expense-icon" style="background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'}">
                 <i class="fas ${cat.icon}"></i>
             </div>
             <div style="flex:1;min-width:0">
-                <div class="expense-desc">${f.description} <span style="font-size:0.62rem;background:#EDE7F6;color:var(--primary);padding:1px 5px;border-radius:4px;font-weight:700">fixa</span></div>
-                <div class="expense-meta">
-                    <span>${formatDate(dateStr)}</span> &middot; <span>${cat.label}</span>${child ? ` &middot; <span>${child.name}</span>` : ''}
-                    &middot; <span style="color:${isPaid ? 'var(--success)' : 'var(--warning)'};font-weight:600">${isPaid ? 'Paga' : 'Pendente'}</span>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                    <div class="expense-desc">${f.description} <span style="font-size:0.62rem;background:#EDE7F6;color:var(--primary);padding:1px 5px;border-radius:4px;font-weight:700">fixa</span></div>
+                    <div class="expense-amount" style="flex-shrink:0">${formatCurrency(amount)}</div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px">
+                    <div class="expense-meta">
+                        <span>${formatDate(dateStr)}</span> &middot; <span>${cat.label}</span>${child ? ` &middot; <span>${child.name}</span>` : ''}
+                    </div>
+                    <div class="expense-actions" style="display:flex;align-items:center;gap:4px">
+                        <button onclick="event.stopPropagation();markFixedPaid('${f.id}', currentDate, ${!isPaid})" class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.62rem;padding:2px 6px" title="${isPaid ? 'Marcar como pendente' : 'Marcar como pago'}">
+                            ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
+                        </button>
+                        <button class="btn-icon" onclick="event.stopPropagation();duplicateFixed('${f.id}')" title="Duplicar" style="color:#E65100;padding:4px"><i class="fas fa-copy"></i></button>
+                        <button class="btn-icon" onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" title="Ignorar este mês" style="color:var(--text-light);padding:4px"><i class="fas fa-ban"></i></button>
+                        <button class="btn-icon" onclick="event.stopPropagation();confirmDeleteFixed('${f.id}')" title="Apagar" style="color:var(--danger);padding:4px"><i class="fas fa-trash"></i></button>
+                    </div>
                 </div>
             </div>
-            <div class="expense-amount">${formatCurrency(amount)}</div>
         </div>
     `;
 }
@@ -3915,18 +3928,36 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
 
     all.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    // Refresh the section title total so it reflects the chrono view contents
-    // (fixas + variáveis), not just variables — otherwise it shows the same
-    // number as "Outras Despesas" mode and the user can't tell what they're
-    // looking at. Sum each row by its visible amount: variables use .amount,
-    // fixed use the effective amount for the current month.
+    // Refresh the section title total. Match the dashboard "Ciclo Salarial"
+    // convention: "pago / total compromisso". The previous single-number
+    // version mixed already-paid spending with pending fixas (effectively
+    // showing future commitments as if spent), inflating the figure relative
+    // to the resumo card and confusing the user. Now we split:
+    //   pago     = variables that affect balance + fixas with status 'pago'
+    //   total    = pago + fixas pendentes (compromisso do mês)
+    // Rendered as `(N) 92,65 € / 944,29 €`, ignored fixas excluded earlier.
     const otherTotalEl = document.getElementById('other-expenses-total');
     if (otherTotalEl) {
-        const chronoTotal = all.reduce((s, e) => {
-            if (e._kind === 'fixed') return s + (getEffectiveFixedAmount(e._f, currentDate) || 0);
-            return expenseAffectsBalance(e) ? s + (e.amount || 0) : s;
-        }, 0);
-        otherTotalEl.textContent = all.length > 0 ? `(${all.length}) ${formatCurrency(chronoTotal)}` : '';
+        let paid = 0, pending = 0;
+        for (const e of all) {
+            if (e._kind === 'fixed') {
+                const amt = getEffectiveFixedAmount(e._f, currentDate) || 0;
+                if (e._isPaid) paid += amt; else pending += amt;
+            } else if (expenseAffectsBalance(e)) {
+                paid += e.amount || 0;
+            }
+        }
+        const total = paid + pending;
+        // Compact short form (no "EUR" suffix on the first number, € symbol
+        // on the total) so the split fits next to the toggle on a phone.
+        const shortPaid = formatCurrency(paid).replace(' EUR', '');
+        if (all.length === 0) {
+            otherTotalEl.innerHTML = '';
+        } else if (pending > 0) {
+            otherTotalEl.innerHTML = `(${all.length}) <span style="color:var(--primary)">${shortPaid}</span><span style="color:var(--text-light);font-weight:500"> / ${formatCurrency(total).replace(' EUR', ' €')}</span>`;
+        } else {
+            otherTotalEl.textContent = `(${all.length}) ${formatCurrency(paid)}`;
+        }
     }
 
     if (all.length === 0) {
