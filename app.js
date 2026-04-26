@@ -2896,21 +2896,55 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
 
     const today = new Date();
     const isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
-    if (!isCurrentMonth || totalExpenses === 0) {
+    if (!isCurrentMonth) {
         container.style.display = 'none';
         return;
     }
 
-    const dayOfMonth = today.getDate();
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const daysRemaining = daysInMonth - dayOfMonth;
-    const dailyAvg = totalExpenses / dayOfMonth;
-    const projected = dailyAvg * daysInMonth;
-    const dailyBudget = daysRemaining > 0 && totalIncome > 0 ? Math.max(0, (totalIncome - totalExpenses) / daysRemaining) : 0;
-    const monthPct = Math.round((dayOfMonth / daysInMonth) * 100);
+    // When salary is configured, pivot from calendar-month to salary cycle so
+    // "ritmo" reflects what the user actually has between paychecks.
+    const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
+    const useCycle = !!cycle && today >= cycle.start && today <= cycle.end;
 
-    const projColor = projected > totalIncome ? 'var(--danger)' : projected > totalIncome * 0.8 ? 'var(--warning)' : 'var(--success)';
-    const projBg = projected > totalIncome ? '#FFEBEE' : projected > totalIncome * 0.8 ? '#FFF8E1' : '#E8F5E9';
+    let dayOfMonth, daysInMonth, daysRemaining, monthPct, badgeLabel, progressLabel;
+    let cycleExpenses = totalExpenses, cycleIncome = totalIncome;
+
+    if (useCycle) {
+        const startStr = toLocalDateStr(cycle.start);
+        const endStr = toLocalDateStr(cycle.end);
+        // Cycle-scoped expenses (variable + paid fixed within window).
+        const breakdown = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
+        cycleExpenses = breakdown.expPaid;
+        cycleIncome = breakdown.incReceived || (breakdown.incReceived + breakdown.incPending);
+        const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
+        const daysIntoCycle = Math.max(1, Math.min(cycleLength, Math.round((today - cycle.start) / 86400000) + 1));
+        dayOfMonth = daysIntoCycle;
+        daysInMonth = cycleLength;
+        daysRemaining = Math.max(0, cycleLength - daysIntoCycle);
+        monthPct = Math.round((daysIntoCycle / cycleLength) * 100);
+        badgeLabel = `Dia ${daysIntoCycle}/${cycleLength} do ciclo`;
+        progressLabel = `${monthPct}% do ciclo passou · ${daysRemaining} dias restantes`;
+    } else {
+        dayOfMonth = today.getDate();
+        daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        daysRemaining = daysInMonth - dayOfMonth;
+        monthPct = Math.round((dayOfMonth / daysInMonth) * 100);
+        badgeLabel = `Dia ${dayOfMonth}/${daysInMonth}`;
+        progressLabel = `${monthPct}% do mês passou · ${daysRemaining} dias restantes`;
+    }
+
+    if (cycleExpenses === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    const dailyAvg = cycleExpenses / dayOfMonth;
+    const projected = dailyAvg * daysInMonth;
+    const refIncome = cycleIncome;
+    const dailyBudget = daysRemaining > 0 && refIncome > 0 ? Math.max(0, (refIncome - cycleExpenses) / daysRemaining) : 0;
+
+    const projColor = projected > refIncome ? 'var(--danger)' : projected > refIncome * 0.8 ? 'var(--warning)' : 'var(--success)';
+    const projBg = projected > refIncome ? '#FFEBEE' : projected > refIncome * 0.8 ? '#FFF8E1' : '#E8F5E9';
     const budgetColor = dailyBudget < 10 ? 'var(--danger)' : dailyBudget < 30 ? 'var(--warning)' : 'var(--success)';
     const budgetBg = dailyBudget < 10 ? '#FFEBEE' : dailyBudget < 30 ? '#FFF8E1' : '#E8F5E9';
 
@@ -2918,7 +2952,7 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
     container.innerHTML = `
         <div class="pace-header">
             <span class="pace-title"><i class="fas fa-gauge-high"></i> Ritmo de Gastos</span>
-            <span class="pace-badge">Dia ${dayOfMonth}/${daysInMonth}</span>
+            <span class="pace-badge">${badgeLabel}</span>
         </div>
         <div class="pace-stats">
             <div class="pace-stat">
@@ -2944,7 +2978,7 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
             </div>
         </div>
         <div class="pace-progress-bar"><div class="pace-progress-fill" style="width:${monthPct}%"></div></div>
-        <div class="pace-progress-label">${monthPct}% do mês passou · ${daysRemaining} dias restantes</div>
+        <div class="pace-progress-label">${progressLabel}</div>
     `;
 }
 
