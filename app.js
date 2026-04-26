@@ -2678,6 +2678,7 @@ function updateDashboard() {
     renderTopExpenses(monthExp);
     renderCategoryDonut();
     renderSalaryCycle();
+    renderCycleExpenses();
     renderPartnerSummary();
     renderAiInsightsCard();
     renderSavingsGoals();
@@ -2980,6 +2981,87 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
         <div class="pace-progress-bar"><div class="pace-progress-fill" style="width:${monthPct}%"></div></div>
         <div class="pace-progress-label">${progressLabel}</div>
     `;
+}
+
+// Collapsible "Despesas deste ciclo" section. Lists every expense (variable
+// + paid fixed) whose date falls inside the current salary cycle, sorted
+// desc. Hidden when no salary is configured. Open/closed state persists in
+// localStorage as vanessa_cycle_section_open.
+function toggleCycleSection() {
+    const body = document.getElementById('cycle-expenses-body');
+    const chev = document.getElementById('cycle-section-chevron');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (chev) chev.style.transform = isOpen ? '' : 'rotate(180deg)';
+    localStorage.setItem('vanessa_cycle_section_open', isOpen ? '0' : '1');
+}
+
+function renderCycleExpenses() {
+    const section = document.getElementById('cycle-expenses-section');
+    if (!section) return;
+    if (!isSalaryConfigured()) { section.style.display = 'none'; return; }
+
+    const today = new Date();
+    const viewYear = currentDate.getFullYear();
+    const viewMonth = currentDate.getMonth();
+    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+    const cycle = isCurrentMonth
+        ? (getSalaryCycleAt(today) || getSalaryCycleForMonth(viewYear, viewMonth))
+        : getSalaryCycleForMonth(viewYear, viewMonth);
+    if (!cycle) { section.style.display = 'none'; return; }
+
+    const startStr = toLocalDateStr(cycle.start);
+    const endStr = toLocalDateStr(cycle.end);
+
+    // Variable expenses inside the cycle window
+    const varExp = expenses
+        .map(adjustExpenseForCoParent)
+        .filter(e => e.date && e.date >= startStr && e.date <= endStr);
+
+    // Paid fixed inside the cycle (use existing helper for each calendar
+    // month the cycle touches, then filter by date).
+    const monthsTouched = new Set();
+    const walker = new Date(cycle.start.getFullYear(), cycle.start.getMonth(), 1);
+    const endMonth = new Date(cycle.end.getFullYear(), cycle.end.getMonth(), 1);
+    while (walker <= endMonth) {
+        monthsTouched.add(`${walker.getFullYear()}-${walker.getMonth()}`);
+        walker.setMonth(walker.getMonth() + 1);
+    }
+    const fixedExp = [];
+    for (const key of monthsTouched) {
+        const [y, m] = key.split('-').map(Number);
+        getPaidFixedAsExpenses(new Date(y, m, 1)).forEach(e => {
+            if (e.date >= startStr && e.date <= endStr) fixedExp.push(e);
+        });
+    }
+
+    const all = [...varExp, ...fixedExp].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
+    const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
+    const inCycle = today >= cycle.start && today <= cycle.end;
+    const dayN = inCycle ? Math.max(1, Math.min(cycleLength, Math.round((today - cycle.start) / 86400000) + 1)) : cycleLength;
+    const total = all.reduce((s, e) => s + (e.amount || 0), 0);
+    const sub = `📅 ${periodLabel} · Dia ${dayN}/${cycleLength} · ${all.length} ${all.length === 1 ? 'gasto' : 'gastos'} · ${formatCurrency(total)}`;
+
+    section.style.display = 'block';
+    const subEl = document.getElementById('cycle-expenses-sub');
+    if (subEl) subEl.textContent = sub;
+
+    const isOpen = localStorage.getItem('vanessa_cycle_section_open') === '1';
+    const body = document.getElementById('cycle-expenses-body');
+    const chev = document.getElementById('cycle-section-chevron');
+    if (body) body.style.display = isOpen ? 'block' : 'none';
+    if (chev) chev.style.transform = isOpen ? 'rotate(180deg)' : '';
+
+    if (!body) return;
+    if (all.length === 0) {
+        body.innerHTML = '<div class="empty-state" style="padding:14px 0"><p>Sem despesas neste ciclo</p></div>';
+        return;
+    }
+    body.innerHTML = all.map(e => renderExpenseItem(e)).join('');
 }
 
 function renderBudgetAlerts(monthExp) {

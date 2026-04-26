@@ -117,6 +117,18 @@
                 </div>
             </div>
 
+            <!-- Cycle expenses (collapsible list of expenses inside the current salary cycle) -->
+            <div id="cycle-expenses-section" class="cycle-expenses-section" style="display:none">
+                <div class="cycle-expenses-header" onclick="toggleCycleSection()">
+                    <div class="cycle-expenses-title">
+                        <span><i class="fas fa-calendar-week" style="color:var(--primary)"></i> Despesas deste ciclo</span>
+                        <span class="cycle-expenses-sub" id="cycle-expenses-sub">—</span>
+                    </div>
+                    <i id="cycle-section-chevron" class="fas fa-chevron-down" style="color:var(--text-light);font-size:0.85rem;transition:transform 0.2s"></i>
+                </div>
+                <div id="cycle-expenses-body" style="display:none;margin-top:12px"></div>
+            </div>
+
             <!-- Balance Hero Card -->
             <div class="balance-hero">
                 <div class="balance-hero-bg"></div>
