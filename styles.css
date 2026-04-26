@@ -2264,7 +2264,8 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .reports-period-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 .heatmap-table {
-    width: 100%;
+    /* Don't fix the width — let the table grow past the wrapper so the
+       overflow-x:auto wrapper can actually scroll. */
     border-collapse: separate;
     border-spacing: 2px;
     font-size: 0.7rem;
@@ -2273,6 +2274,7 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     padding: 4px 6px;
     text-align: center;
     color: var(--text);
+    white-space: nowrap;
 }
 .heatmap-table th { font-weight: 700; color: var(--text-light); font-size: 0.65rem; }
 .heatmap-table td.heatmap-row-label {
@@ -2280,8 +2282,39 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
+    /* Sticky-left so the row label stays visible while horizontally scrolling */
+    position: sticky;
+    left: 0;
+    background: var(--card-bg, #fff);
+    z-index: 1;
+    box-shadow: 2px 0 4px -2px rgba(0,0,0,0.08);
 }
-.heatmap-cell { border-radius: 4px; min-width: 38px; }
+.heatmap-table thead th:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--card-bg, #fff);
+    z-index: 2;
+}
+.heatmap-cell { border-radius: 4px; min-width: 44px; }
+
+/* Wrapper used around the heatmap to enable horizontal scroll on narrow screens */
+.heatmap-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+}
+.heatmap-scroll::after {
+    /* Subtle right-edge fade hinting that the table can scroll */
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 24px;
+    background: linear-gradient(to right, transparent, rgba(0,0,0,0.06));
+    pointer-events: none;
+    border-radius: 0 8px 8px 0;
+}
 
 .stack-bar {
     display: flex;
