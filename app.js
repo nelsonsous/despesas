@@ -1345,6 +1345,20 @@ function renderSalaryCycle() {
         }
     }
 
+    // Surface savings contributions made inside the cycle so the user can
+    // see where the money went — otherwise it looked like Disponível shrank
+    // for no visible reason.
+    const savingsRow = document.getElementById('salary-savings-row');
+    const savingsEl = document.getElementById('salary-savings');
+    if (savingsRow && savingsEl) {
+        if (cycleSavings > 0) {
+            savingsRow.style.display = '';
+            animateNumber(savingsEl, cycleSavings);
+        } else {
+            savingsRow.style.display = 'none';
+        }
+    }
+
     animateNumber(document.getElementById('salary-fixed'), cycleFixed);
     // Surface overdue pendentes inline next to the Cativo label so the user
     // immediately sees what portion of the figure is items already past their
@@ -13033,8 +13047,11 @@ function renderDriveSyncUI() {
     const btnLabel = document.getElementById('drive-sync-btn-label');
     const syncBtn = document.getElementById('drive-sync-now-btn');
     const reauthBtn = document.getElementById('drive-reauth-btn');
+    const helpBox = document.getElementById('drive-403-help');
     if (!status || !btnLabel) return;
     const authIssue = /\b(401|403)\b|Reautoriza|expirou/i.test(_driveLastError || '');
+    const is403 = /\b403\b/.test(_driveLastError || '');
+    if (helpBox) helpBox.style.display = is403 ? '' : 'none';
     if (isDriveConnected()) {
         btnLabel.textContent = 'Desconectar';
         if (syncBtn) syncBtn.style.display = '';
