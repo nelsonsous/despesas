@@ -2893,12 +2893,14 @@ function renderPartnerSummary() {
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
     const container = document.getElementById('spending-pace');
+    const inlineRow = document.getElementById('salary-cycle-pace-row');
     if (!container) return;
 
     const today = new Date();
     const isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
     if (!isCurrentMonth) {
         container.style.display = 'none';
+        if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
         return;
     }
 
@@ -2936,6 +2938,7 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
 
     if (cycleExpenses === 0) {
         container.style.display = 'none';
+        if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
         return;
     }
 
@@ -2949,6 +2952,39 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
     const budgetColor = dailyBudget < 10 ? 'var(--danger)' : dailyBudget < 30 ? 'var(--warning)' : 'var(--success)';
     const budgetBg = dailyBudget < 10 ? '#FFEBEE' : dailyBudget < 30 ? '#FFF8E1' : '#E8F5E9';
 
+    // When the salary cycle drives the math, the standalone "Ritmo" card is
+    // redundant with the salary-cycle-card right above it. Inline a compact
+    // 3-stat row inside that card and hide the standalone container.
+    if (useCycle && inlineRow) {
+        container.style.display = 'none';
+        inlineRow.style.display = 'block';
+        inlineRow.innerHTML = `
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.18)">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.65rem;color:rgba(255,255,255,0.75);margin-bottom:6px;letter-spacing:0.04em;text-transform:uppercase">
+                    <span><i class="fas fa-gauge-high"></i> Ritmo do ciclo</span>
+                    <span>${monthPct}% · ${daysRemaining} ${daysRemaining === 1 ? 'dia' : 'dias'}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
+                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Média/dia</div>
+                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(dailyAvg)}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
+                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Projeção</div>
+                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(projected)}</div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:6px 8px">
+                        <div style="font-size:0.6rem;color:rgba(255,255,255,0.7)">Pode/dia</div>
+                        <div style="font-size:0.85rem;font-weight:700;color:#fff">${formatCurrency(dailyBudget)}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Calendar-month fallback (no salary configured) — render the standalone card.
+    if (inlineRow) { inlineRow.style.display = 'none'; inlineRow.innerHTML = ''; }
     container.style.display = 'block';
     container.innerHTML = `
         <div class="pace-header">
