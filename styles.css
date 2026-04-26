@@ -2223,13 +2223,17 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 }
 .view-toggle-inline .view-toggle-btn {
     flex: 0 0 auto;
-    width: 30px;
     height: 26px;
-    padding: 0;
-    font-size: 0.78rem;
+    padding: 0 9px;
+    font-size: 0.7rem;
+    font-weight: 600;
     border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
 }
-.view-toggle-inline .view-toggle-btn i { font-size: 0.8rem; }
+.view-toggle-inline .view-toggle-btn i { font-size: 0.72rem; }
 
 .expense-filter-chips {
     display: flex;

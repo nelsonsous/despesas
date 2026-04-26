@@ -3914,6 +3914,20 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
 
     all.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
+    // Refresh the section title total so it reflects the chrono view contents
+    // (fixas + variáveis), not just variables — otherwise it shows the same
+    // number as "Outras Despesas" mode and the user can't tell what they're
+    // looking at. Sum each row by its visible amount: variables use .amount,
+    // fixed use the effective amount for the current month.
+    const otherTotalEl = document.getElementById('other-expenses-total');
+    if (otherTotalEl) {
+        const chronoTotal = all.reduce((s, e) => {
+            if (e._kind === 'fixed') return s + (getEffectiveFixedAmount(e._f, currentDate) || 0);
+            return expenseAffectsBalance(e) ? s + (e.amount || 0) : s;
+        }, 0);
+        otherTotalEl.textContent = all.length > 0 ? `(${all.length}) ${formatCurrency(chronoTotal)}` : '';
+    }
+
     if (all.length === 0) {
         container.innerHTML = '<div class="empty-state"><i class="fas fa-receipt"></i><p>Sem despesas para mostrar</p></div>';
         return;
