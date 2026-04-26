@@ -5712,113 +5712,44 @@ function renderWeekdayHeatmap() {
 function renderSmartInsights() {
     const container = document.getElementById('smart-insights');
     if (!container) return;
-
-    const monthExp = getEffectiveMonthExpenses(currentDate);
-    const monthInc = getEffectiveMonthIncomes(currentDate);
-    const totalExp = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
-    const totalInc = monthInc.reduce((s, e) => s + e.amount, 0);
-    const prevExp = getPrevMonthExpenses();
-    const prevTotal = prevExp.reduce((s, e) => s + e.amount, 0);
-    const insights = [];
-
-    // 1. Weekend spending pattern
-    const weekendExp = monthExp.filter(e => { const d = new Date(e.date).getDay(); return d === 0 || d === 6; });
-    const weekendTotal = weekendExp.reduce((s, e) => s + e.amount, 0);
-    if (weekendTotal > 0 && totalExp > 0) {
-        const weekendPct = (weekendTotal / totalExp * 100).toFixed(0);
-        if (weekendPct > 35) {
-            insights.push({ icon: 'fa-calendar-week', color: '#FF9800',
-                text: `<strong>${weekendPct}% dos gastos</strong> sao ao fim-de-semana (${formatCurrency(weekendTotal)}). Tente planear atividades gratuitas.` });
-        }
-    }
-
-    // 2. Spending trend
-    if (prevTotal > 0 && totalExp > 0) {
-        const change = ((totalExp - prevTotal) / prevTotal * 100).toFixed(0);
-        if (change > 15) {
-            insights.push({ icon: 'fa-arrow-trend-up', color: '#E53935',
-                text: `Gastos aumentaram <strong>${change}%</strong> face ao mes anterior. Reveja categorias em crescimento.` });
-        } else if (change < -10) {
-            insights.push({ icon: 'fa-arrow-trend-down', color: '#4CAF50',
-                text: `Parabens! Reduziu gastos em <strong>${Math.abs(change)}%</strong> face ao mes anterior.` });
-        }
-    }
-
-    // 3. Top growing category
-    const grouped = {};
-    monthExp.forEach(e => { grouped[e.category] = (grouped[e.category] || 0) + e.amount; });
-    const prevGrouped = {};
-    prevExp.forEach(e => { prevGrouped[e.category] = (prevGrouped[e.category] || 0) + e.amount; });
-    const cats = getEffectiveCategories();
-    let biggestGrowth = null;
-    Object.entries(grouped).forEach(([cat, val]) => {
-        const prevVal = prevGrouped[cat] || 0;
-        if (prevVal > 0 && val > prevVal * 1.3 && val - prevVal > 20) {
-            const increase = ((val - prevVal) / prevVal * 100).toFixed(0);
-            if (!biggestGrowth || val - prevVal > biggestGrowth.diff) {
-                biggestGrowth = { cat, val, prevVal, increase, diff: val - prevVal };
-            }
-        }
+    let items;
+    try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
+    const dismissed = new Set(getDismissedInsights());
+    const shownMap = getShownInsightsMap();
+    const visible = items.filter(i => !dismissed.has(i.id) && !_isInsightExpired(i.id, shownMap));
+    if (visible.length === 0) { container.style.display = 'none'; return; }
+    const sevRank = { warn: 0, info: 1, positive: 2 };
+    visible.sort((a, b) => {
+        const aFresh = shownMap[a.id] ? 1 : 0;
+        const bFresh = shownMap[b.id] ? 1 : 0;
+        if (aFresh !== bFresh) return aFresh - bFresh;
+        return (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3);
     });
-    if (biggestGrowth) {
-        insights.push({ icon: 'fa-chart-line', color: '#FF5722',
-            text: `<strong>${cats[biggestGrowth.cat]?.label}</strong> subiu ${biggestGrowth.increase}% (${formatCurrency(biggestGrowth.prevVal)} → ${formatCurrency(biggestGrowth.val)}).` });
-    }
-
-    // 4. Savings rate warning
-    if (totalInc > 0) {
-        const savingsRate = ((totalInc - totalExp) / totalInc * 100);
-        if (savingsRate < 10 && savingsRate >= 0) {
-            insights.push({ icon: 'fa-piggy-bank', color: '#FF9800',
-                text: `Taxa de poupanca de apenas <strong>${savingsRate.toFixed(0)}%</strong>. O ideal e poupar pelo menos 20%.` });
-        } else if (savingsRate < 0) {
-            insights.push({ icon: 'fa-exclamation-triangle', color: '#E53935',
-                text: `Esta a gastar <strong>mais do que ganha</strong> este mes. Reveja os gastos nao essenciais.` });
-        } else if (savingsRate >= 30) {
-            insights.push({ icon: 'fa-trophy', color: '#4CAF50',
-                text: `Excelente! Taxa de poupanca de <strong>${savingsRate.toFixed(0)}%</strong>. Continue assim!` });
-        }
-    }
-
-    // 5. Budget warnings
-    Object.entries(categoryBudgets).forEach(([cat, budget]) => {
-        const spent = grouped[cat] || 0;
-        const pct = (spent / budget * 100);
-        if (pct >= 100) {
-            insights.push({ icon: 'fa-ban', color: '#E53935',
-                text: `Ultrapassou o limite de <strong>${cats[cat]?.label}</strong>: ${formatCurrency(spent)} de ${formatCurrency(budget)} (${pct.toFixed(0)}%).` });
-        } else if (pct >= 80) {
-            insights.push({ icon: 'fa-exclamation-circle', color: '#FF9800',
-                text: `Proximo do limite em <strong>${cats[cat]?.label}</strong>: ${formatCurrency(spent)} de ${formatCurrency(budget)} (${pct.toFixed(0)}%).` });
-        }
-    });
-
-    // 6. Frequent small expenses
-    const smallExp = monthExp.filter(e => e.amount <= 5 && !e.isFixedExpense);
-    if (smallExp.length >= 10) {
-        const smallTotal = smallExp.reduce((s, e) => s + e.amount, 0);
-        insights.push({ icon: 'fa-coins', color: '#9C27B0',
-            text: `Tem <strong>${smallExp.length} gastos pequenos</strong> (≤5 EUR) que somam ${formatCurrency(smallTotal)}. Pequenos gastos acumulam-se.` });
-    }
-
-    if (insights.length === 0) {
-        container.style.display = 'none';
-        return;
-    }
-
+    const capped = visible.slice(0, 3);
+    const liveIds = new Set(items.map(i => i.id));
+    let mapChanged = false;
+    capped.forEach(i => { if (!shownMap[i.id]) { shownMap[i.id] = Date.now(); mapChanged = true; } });
+    Object.keys(shownMap).forEach(k => { if (!liveIds.has(k)) { delete shownMap[k]; mapChanged = true; } });
+    if (mapChanged) _saveShownInsightsMap(shownMap);
+    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     container.style.display = 'block';
     container.innerHTML = `
         <h3 class="card-title"><i class="fas fa-lightbulb"></i> Insights Inteligentes</h3>
-        ${insights.map(i => `
-            <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-                <div style="width:28px;height:28px;border-radius:50%;background:${i.color}15;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                    <i class="fas ${i.icon}" style="font-size:0.75rem;color:${i.color}"></i>
+        <div id="insights-list">
+            ${capped.map(i => `
+                <div class="insight-row severity-${i.severity}">
+                    <div class="insight-icon">${escapeHtml(i.icon || '•')}</div>
+                    <div class="insight-body">
+                        <div class="insight-title">${escapeHtml(i.title)}</div>
+                        <div class="insight-subtitle">${escapeHtml(i.subtitle)}</div>
+                    </div>
+                    <button class="insight-dismiss" onclick="dismissInsight('${i.id.replace(/'/g, "\\'")}')" title="Ocultar">✕</button>
                 </div>
-                <div style="font-size:0.8rem;line-height:1.4">${i.text}</div>
-            </div>
-        `).join('')}
+            `).join('')}
+        </div>
     `;
 }
+
 
 function renderIncomeVsExpenses() {
     const container = document.getElementById('income-vs-expenses-chart');
@@ -12383,12 +12314,18 @@ function dismissInsight(id) {
     const arr = getDismissedInsights();
     if (!arr.includes(id)) arr.push(id);
     setDismissedInsights(arr);
-    renderInsights();
+    if (typeof renderSmartInsights === 'function') renderSmartInsights();
 }
 function resetInsightsDismissed() {
     setDismissedInsights([]);
-    renderInsights();
+    _saveShownInsightsMap({});
+    if (typeof renderSmartInsights === 'function') renderSmartInsights();
     if (typeof showToast === 'function') showToast('Insights restaurados');
+}
+function renderInsights() {
+    const legacy = document.getElementById('insights-card');
+    if (legacy) legacy.style.display = 'none';
+    if (typeof renderSmartInsights === 'function') renderSmartInsights();
 }
 
 function _isoWeek(d) {
@@ -12575,7 +12512,89 @@ function computeInsights() {
         }
     }
 
-    // ---- 6. Objetivos de poupanca
+    // ---- 6a. Padrão fim-de-semana
+    const monthExpAll = (typeof getEffectiveMonthExpenses === 'function')
+        ? getEffectiveMonthExpenses(today).filter(expenseAffectsBalance) : monthExp;
+    const monthIncAll = (typeof getEffectiveMonthIncomes === 'function')
+        ? getEffectiveMonthIncomes(today) : [];
+    const totalExpMonth = monthExpAll.reduce((s, e) => s + e.amount, 0);
+    const totalIncMonth = monthIncAll.reduce((s, e) => s + e.amount, 0);
+    const weekendExp = monthExpAll.filter(e => { const d = new Date(e.date).getDay(); return d === 0 || d === 6; });
+    const weekendTotal = weekendExp.reduce((s, e) => s + e.amount, 0);
+    if (weekendTotal > 0 && totalExpMonth > 0) {
+        const pct = Math.round(weekendTotal / totalExpMonth * 100);
+        if (pct > 35) {
+            out.push({
+                id: `weekend-share-${_monthKey(today)}`,
+                severity: 'warn',
+                icon: '📅',
+                title: `${pct}% dos gastos ao fim-de-semana`,
+                subtitle: `${formatCurrency(weekendTotal)} de ${formatCurrency(totalExpMonth)} — planeia atividades gratuitas`
+            });
+        }
+    }
+
+    // ---- 6b. Taxa de poupança do mês
+    if (totalIncMonth > 0) {
+        const rate = (totalIncMonth - totalExpMonth) / totalIncMonth * 100;
+        if (rate < 0) {
+            out.push({
+                id: `savings-rate-neg-${_monthKey(today)}`,
+                severity: 'warn',
+                icon: '⚠️',
+                title: 'Estás a gastar mais do que ganhas',
+                subtitle: `Receitas ${formatCurrency(totalIncMonth)} vs despesas ${formatCurrency(totalExpMonth)}`
+            });
+        } else if (rate < 10) {
+            out.push({
+                id: `savings-rate-low-${_monthKey(today)}`,
+                severity: 'warn',
+                icon: '🐖',
+                title: `Taxa de poupança ${rate.toFixed(0)}%`,
+                subtitle: 'O ideal é poupar pelo menos 20% do que entra'
+            });
+        } else if (rate >= 30) {
+            out.push({
+                id: `savings-rate-high-${_monthKey(today)}`,
+                severity: 'positive',
+                icon: '🏆',
+                title: `Taxa de poupança ${rate.toFixed(0)}%`,
+                subtitle: 'Excelente — continua assim'
+            });
+        }
+    }
+
+    // ---- 6c. Orçamento por categoria
+    if (typeof categoryBudgets === 'object' && categoryBudgets) {
+        const grouped = {};
+        monthExpAll.forEach(e => { grouped[e.category] = (grouped[e.category] || 0) + e.amount; });
+        Object.entries(categoryBudgets).forEach(([cat, budget]) => {
+            const spent = grouped[cat] || 0;
+            if (!budget || spent <= 0) return;
+            const pct = spent / budget * 100;
+            if (pct >= 100) {
+                out.push({
+                    id: `budget-over-${cat}-${_monthKey(today)}`,
+                    severity: 'warn',
+                    icon: '🚫',
+                    title: `Ultrapassaste o orçamento de ${catLabel(cat)}`,
+                    subtitle: `${formatCurrency(spent)} de ${formatCurrency(budget)} (${pct.toFixed(0)}%)`,
+                    category: cat
+                });
+            } else if (pct >= 80) {
+                out.push({
+                    id: `budget-near-${cat}-${_monthKey(today)}`,
+                    severity: 'info',
+                    icon: '🛎️',
+                    title: `Próximo do limite em ${catLabel(cat)}`,
+                    subtitle: `${formatCurrency(spent)} de ${formatCurrency(budget)} (${pct.toFixed(0)}%)`,
+                    category: cat
+                });
+            }
+        });
+    }
+
+    // ---- 7. Objetivos de poupanca
     if (Array.isArray(savingsGoals)) {
         savingsGoals.forEach(g => {
             if (!g.target || !g.savedSoFar) return;
@@ -12595,60 +12614,6 @@ function computeInsights() {
     return out;
 }
 
-function renderInsights() {
-    const card = document.getElementById('insights-card');
-    if (!card) return;
-    const list = document.getElementById('insights-list');
-    if (!list) return;
-    let items;
-    try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
-    const dismissed = new Set(getDismissedInsights());
-    const shownMap = getShownInsightsMap();
-    // Drop dismissed AND ones that have been on screen for >7 days without
-    // being acknowledged — keeps the panel rotating with fresher signals.
-    const visible = items.filter(i => !dismissed.has(i.id) && !_isInsightExpired(i.id, shownMap));
-    if (visible.length === 0) {
-        card.style.display = 'none';
-        return;
-    }
-    const sevRank = { warn: 0, info: 1, positive: 2 };
-    // Prefer fresh insights (not yet seen) over already-shown ones, then sort
-    // by severity. Without this, a stale "warn" would always crowd out a new
-    // "positive" the user has never seen.
-    visible.sort((a, b) => {
-        const aFresh = shownMap[a.id] ? 1 : 0;
-        const bFresh = shownMap[b.id] ? 1 : 0;
-        if (aFresh !== bFresh) return aFresh - bFresh;
-        return (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3);
-    });
-    const capped = visible.slice(0, 3);
-    // Stamp first-shown for everything that made the visible cut — and prune
-    // entries that are no longer being computed so the map can't grow forever.
-    const liveIds = new Set(items.map(i => i.id));
-    let mapChanged = false;
-    capped.forEach(i => { if (!shownMap[i.id]) { shownMap[i.id] = Date.now(); mapChanged = true; } });
-    Object.keys(shownMap).forEach(k => { if (!liveIds.has(k)) { delete shownMap[k]; mapChanged = true; } });
-    if (mapChanged) _saveShownInsightsMap(shownMap);
-
-    const periodEl = document.getElementById('insights-card-period');
-    if (periodEl) {
-        const hasWeekly = capped.some(i => /-W\d{2}$/.test(i.id));
-        periodEl.textContent = hasWeekly ? 'Esta semana' : 'Este mês';
-    }
-
-    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    list.innerHTML = capped.map(i => `
-        <div class="insight-row severity-${i.severity}">
-            <div class="insight-icon">${escapeHtml(i.icon || '•')}</div>
-            <div class="insight-body">
-                <div class="insight-title">${escapeHtml(i.title)}</div>
-                <div class="insight-subtitle">${escapeHtml(i.subtitle)}</div>
-            </div>
-            <button class="insight-dismiss" onclick="dismissInsight('${i.id.replace(/'/g, "\\'")}')" title="Ocultar">✕</button>
-        </div>
-    `).join('');
-    card.style.display = '';
-}
 
 // ============================================================
 // Feature 6: Google Drive sync via appDataFolder
