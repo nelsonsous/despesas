@@ -1857,6 +1857,16 @@ function loadData() {
             t.expenseId = back ? back.id : null;
         }));
     } catch {}
+    // Migrate grouped expense entries to use stable `eid` (string id) so the
+    // X button references a specific entry by identity, not by array index —
+    // index-based removal could delete the wrong entry after sort/re-render.
+    expenses.forEach(e => {
+        if (e.isGrouped && Array.isArray(e.entries)) {
+            e.entries.forEach(en => {
+                if (!en.eid) en.eid = generateId();
+            });
+        }
+    });
     const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
     const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
@@ -3615,7 +3625,7 @@ function addGroupedEntry(id) {
     const e = expenses[idx];
     if (!e.isGrouped) {
         e.isGrouped = true;
-        e.entries = [{ date: e.date, amount: e.amount, notes: e.notes || '', type: e.type }];
+        e.entries = [{ eid: generateId(), date: e.date, amount: e.amount, notes: e.notes || '', type: e.type }];
         expenses[idx] = e;
     }
     pendingGroupedEntryId = id;
@@ -3668,7 +3678,7 @@ function saveGroupedEntry(event) {
         : e.type;
     const withPartner = !!document.getElementById('grouped-entry-with-partner')?.checked;
     e.entries = e.entries || [];
-    e.entries.push({ date, amount, notes, type: entryType, withPartner });
+    e.entries.push({ eid: generateId(), date, amount, notes, type: entryType, withPartner });
     e.amount = computeGroupedTotal(e);
     e.date = [...e.entries].sort((a, b) => b.date.localeCompare(a.date))[0].date;
     e.updatedAt = new Date().toISOString();
@@ -3684,12 +3694,20 @@ function closeGroupedEntryModal() {
     pendingGroupedEntryId = null;
 }
 
-function removeGroupedEntry(expenseId, entryIndex) {
+function removeGroupedEntry(expenseId, entryRef) {
     const idx = expenses.findIndex(e => e.id === expenseId);
     if (idx < 0) return;
     const e = expenses[idx];
     if (!e.isGrouped || !Array.isArray(e.entries)) return;
-    e.entries.splice(entryIndex, 1);
+    // entryRef can be an eid (string) or a numeric index (legacy callers).
+    let removeIdx = -1;
+    if (typeof entryRef === 'string') {
+        removeIdx = e.entries.findIndex(en => en.eid === entryRef);
+    } else if (typeof entryRef === 'number') {
+        removeIdx = entryRef;
+    }
+    if (removeIdx < 0 || removeIdx >= e.entries.length) return;
+    e.entries.splice(removeIdx, 1);
     if (e.entries.length === 0) {
         // Remove whole grouped expense
         expenses.splice(idx, 1);
@@ -3884,14 +3902,15 @@ function renderExpenseItem(e) {
     const groupedEntriesHtml = (e.isGrouped && Array.isArray(e.entries))
         ? `<div id="grouped-entries-${e.id}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
             ${[...e.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((entry, idx) => {
-                const realIdx = e.entries.indexOf(entry);
                 const tLabel = entryTypeLabel(entry.type || e.type);
                 const showTag = tLabel && children.length >= 2;
+                // Prefer the stable eid; fall back to index if (legacy) eid missing.
+                const ref = entry.eid ? `'${entry.eid}'` : `${e.entries.indexOf(entry)}`;
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:0.78rem;border-bottom:1px solid var(--border)">
                     <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}${showTag ? ` · <span style="color:var(--primary);font-weight:600">${tLabel}</span>` : ''}</span>
                     <span style="display:flex;align-items:center;gap:6px">
                         <span style="font-weight:600">${formatCurrency(entry.amount)}</span>
-                        <button class="btn-icon" onclick="event.stopPropagation();removeGroupedEntry('${e.id}', ${realIdx})" title="Remover" style="padding:2px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
+                        <button class="btn-icon" onclick="event.stopPropagation();removeGroupedEntry('${e.id}', ${ref})" title="Remover" style="padding:2px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
                     </span>
                 </div>`;
             }).join('')}
@@ -9494,6 +9513,10 @@ function deleteExpense() {
 function closeConfirm() {
     document.getElementById('modal-confirm').classList.remove('active');
     pendingDeleteId = null;
+    // Restore the default footer button in case a previous flow (e.g. fixed
+    // expense delete with two inline choices) hid it.
+    const confirmBtn = document.getElementById('confirm-btn');
+    if (confirmBtn) confirmBtn.style.display = '';
 }
 
 // ===== MODALS =====
@@ -10592,28 +10615,69 @@ function confirmDeleteFixed(id) {
     const prevMonthKey = getFixedMonthKey(prevDate);
     const hasPastData = f.startDate < currentMonthKey;
     const confirmBtn = document.getElementById('confirm-btn');
+    const msgEl = document.getElementById('confirm-message');
+
+    // Shared post-mutation refresh. Defer one frame so the modal animation
+    // doesn't visually fight the DOM swap (was the source of "só desaparece
+    // depois de sair e voltar" — sometimes the manager modal still showed
+    // the deleted row because the innerHTML write happened before the close).
+    const refresh = () => {
+        try { renderFixedList(); } catch (err) { console.warn('renderFixedList failed', err); }
+        try { updateAll(); } catch (err) { console.warn('updateAll failed', err); }
+        requestAnimationFrame(() => {
+            try { renderFixedList(); } catch {}
+            try { renderExpenses(); } catch {}
+        });
+    };
+
     if (hasPastData) {
-        document.getElementById('confirm-message').textContent = `"${f.description}" tem dados em meses anteriores. Sera desativada a partir deste mes (historico fica guardado).`;
-        confirmBtn.textContent = 'Desativar';
-        confirmBtn.onclick = () => {
-            const idx = fixedExpenses.findIndex(x => x.id === id);
-            if (idx >= 0) fixedExpenses[idx].endDate = prevMonthKey;
-            saveData();
-            closeConfirm();
-            renderFixedList();
-            updateAll();
-            showToast('Despesa fixa desativada');
-        };
+        // Two real choices: keep history (deactivate) or wipe everything.
+        // Render a richer message with two action buttons inline so the user
+        // sees both options at a glance and the previous "Desativar" button
+        // doesn't masquerade as a delete.
+        msgEl.innerHTML = `
+            <strong>"${f.description}"</strong> tem registos em meses anteriores.<br><br>
+            <button id="confirm-deactivate-btn" class="btn btn-secondary" style="width:100%;margin-bottom:8px">
+                <i class="fas fa-pause"></i> Desativar (manter histórico)
+            </button>
+            <button id="confirm-hard-delete-btn" class="btn btn-danger" style="width:100%">
+                <i class="fas fa-trash"></i> Apagar tudo (incluindo histórico)
+            </button>
+        `;
+        confirmBtn.style.display = 'none';
+        // Attach the inline-button handlers right after we paint them.
+        requestAnimationFrame(() => {
+            const dBtn = document.getElementById('confirm-deactivate-btn');
+            const hBtn = document.getElementById('confirm-hard-delete-btn');
+            if (dBtn) dBtn.onclick = () => {
+                const idx = fixedExpenses.findIndex(x => x.id === id);
+                if (idx >= 0) fixedExpenses[idx].endDate = prevMonthKey;
+                saveData();
+                closeConfirm();
+                confirmBtn.style.display = '';
+                refresh();
+                showToast('Despesa fixa desativada');
+            };
+            if (hBtn) hBtn.onclick = () => {
+                fixedExpenses = fixedExpenses.filter(x => x.id !== id);
+                fixedStatus = fixedStatus.filter(s => s.fixedId !== id);
+                saveData();
+                closeConfirm();
+                confirmBtn.style.display = '';
+                refresh();
+                showToast('Despesa fixa removida (histórico incluído)');
+            };
+        });
     } else {
-        document.getElementById('confirm-message').textContent = `Apagar despesa fixa "${f.description}"? Nao afeta despesas ja registadas.`;
+        msgEl.textContent = `Apagar despesa fixa "${f.description}"? Não afeta despesas já registadas.`;
+        confirmBtn.style.display = '';
         confirmBtn.textContent = 'Apagar';
         confirmBtn.onclick = () => {
             fixedExpenses = fixedExpenses.filter(x => x.id !== id);
             fixedStatus = fixedStatus.filter(s => s.fixedId !== id);
             saveData();
             closeConfirm();
-            renderFixedList();
-            updateAll();
+            refresh();
             showToast('Despesa fixa removida');
         };
     }
