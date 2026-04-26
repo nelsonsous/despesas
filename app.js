@@ -4741,9 +4741,27 @@ function renderChildrenTab() {
 }
 
 // ===== REPORTS =====
+// One-shot migration: previous default was 6M, but on phones the heatmap
+// only fits ~5 months even with horizontal scroll, so 3M is the new default.
+// We migrate existing users away from the old 6M default exactly once; if
+// they re-pick 6M after the migration we respect it (the flag prevents us
+// from overwriting it again on the next load).
+(function migrateReportsPeriodDefault() {
+    try {
+        if (localStorage.getItem('vanessa_reports_period_migrated_v2') === '1') return;
+        if (localStorage.getItem('vanessa_reports_period') === '6M' ||
+            localStorage.getItem('vanessa_reports_period') === '6') {
+            localStorage.setItem('vanessa_reports_period', '3');
+        }
+        localStorage.setItem('vanessa_reports_period_migrated_v2', '1');
+    } catch (e) { /* storage disabled — fall back to in-memory default */ }
+})();
+
 function getReportsPeriod() {
-    const v = parseInt(localStorage.getItem('vanessa_reports_period'), 10);
-    return [3, 6, 12].includes(v) ? v : 6;
+    const raw = localStorage.getItem('vanessa_reports_period');
+    // Accept both "3" and legacy "3M" forms.
+    const v = parseInt(raw, 10);
+    return [3, 6, 12].includes(v) ? v : 3;
 }
 function setReportsPeriod(months) {
     localStorage.setItem('vanessa_reports_period', String(months));
