@@ -136,6 +136,41 @@ body {
 .header-actions .btn-icon:hover { background: rgba(255,255,255,0.22); }
 .header-actions .btn-icon i { font-size: 0.9rem; }
 
+.header-overflow-wrap { position: relative; display: inline-flex; }
+.header-overflow-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 230px;
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+    padding: 6px;
+    display: none;
+    z-index: 1500;
+}
+.header-overflow-menu.open { display: block; }
+.overflow-item {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+.overflow-item:hover { background: rgba(127,127,127,0.12); }
+.overflow-item i { width: 18px; text-align: center; color: var(--text-light); }
+.overflow-item-danger { color: #C62828; }
+.overflow-item-danger i { color: #C62828; }
+.overflow-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
 /* ===== Navigation ===== */
 .tab-nav {
     display: flex;

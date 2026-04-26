@@ -1,13 +1,13 @@
 // ===== DATA STORE =====
-const STORAGE_KEY = 'vanessa_despesas';
-const INCOME_KEY = 'vanessa_receitas';
-const FIXED_KEY = 'vanessa_fixas';
-const FIXED_STATUS_KEY = 'vanessa_fixas_status';
-const CUSTOM_CAT_KEY = 'vanessa_cat_despesas';
-const CUSTOM_INC_CAT_KEY = 'vanessa_cat_receitas';
-const CHILDREN_KEY = 'vanessa_filhos';
-const FIXED_INCOME_KEY = 'vanessa_fixas_receitas';
-const FIXED_INCOME_STATUS_KEY = 'vanessa_fixas_receitas_status';
+const STORAGE_KEY = 'despesas_despesas';
+const INCOME_KEY = 'despesas_receitas';
+const FIXED_KEY = 'despesas_fixas';
+const FIXED_STATUS_KEY = 'despesas_fixas_status';
+const CUSTOM_CAT_KEY = 'despesas_cat_despesas';
+const CUSTOM_INC_CAT_KEY = 'despesas_cat_receitas';
+const CHILDREN_KEY = 'despesas_filhos';
+const FIXED_INCOME_KEY = 'despesas_fixas_receitas';
+const FIXED_INCOME_STATUS_KEY = 'despesas_fixas_receitas_status';
 let salaryDay = null;
 // 'fixed-day' | 'last-working-day' | 'working-day-after'. Controls how the
 // salary date for each month is computed — useful for salaries that arrive
@@ -26,15 +26,15 @@ let activeChildId = null;
 let currentDate = new Date();
 let pendingAttachment = null;
 let pendingIncomeAttachment = null;
-const LAST_CAT_KEY = 'vanessa_last_category';
-const USER_NAME_KEY = 'vanessa_user_name';
-const USER_NIF_KEY = 'vanessa_user_nif';
-const APP_TITLE_KEY = 'vanessa_app_title';
-const HOUSEHOLD_MODE_KEY = 'vanessa_household_mode';
-const SPOUSE_NAME_KEY = 'vanessa_spouse_name';
-const SPOUSE_PCT_KEY = 'vanessa_spouse_pct';
-const PARTNER_NAME_KEY = 'vanessa_partner_name';
-const PARTNER_PCT_KEY = 'vanessa_partner_pct';
+const LAST_CAT_KEY = 'despesas_last_category';
+const USER_NAME_KEY = 'despesas_user_name';
+const USER_NIF_KEY = 'despesas_user_nif';
+const APP_TITLE_KEY = 'despesas_app_title';
+const HOUSEHOLD_MODE_KEY = 'despesas_household_mode';
+const SPOUSE_NAME_KEY = 'despesas_spouse_name';
+const SPOUSE_PCT_KEY = 'despesas_spouse_pct';
+const PARTNER_NAME_KEY = 'despesas_partner_name';
+const PARTNER_PCT_KEY = 'despesas_partner_pct';
 
 function getPartnerName() {
     return (localStorage.getItem(PARTNER_NAME_KEY) || '').trim();
@@ -61,13 +61,13 @@ function getSpousePct() {
     const v = parseInt(localStorage.getItem(SPOUSE_PCT_KEY) || '50');
     return isNaN(v) ? 50 : Math.max(0, Math.min(100, v));
 }
-const TEMPLATES_KEY = 'vanessa_templates';
-const PREPAID_KEY = 'vanessa_prepaid_cards';
-const GOALS_KEY = 'vanessa_savings_goals';
-const NETWORTH_KEY = 'vanessa_net_worth';
-const BUDGETS_KEY = 'vanessa_budgets';
-const INBOX_KEY = 'vanessa_inbox';
-const THEME_KEY = 'vanessa_theme';
+const TEMPLATES_KEY = 'despesas_templates';
+const PREPAID_KEY = 'despesas_prepaid_cards';
+const GOALS_KEY = 'despesas_savings_goals';
+const NETWORTH_KEY = 'despesas_net_worth';
+const BUDGETS_KEY = 'despesas_budgets';
+const INBOX_KEY = 'despesas_inbox';
+const THEME_KEY = 'despesas_theme';
 let expenseTemplates = [];   // { id, description, amount, category, type, split, essential, icon }
 let categoryBudgets = {};    // { category: maxAmount }
 let prepaidCards = [];       // { id, name, icon, color, createdAt, transactions: [{id, type:'topup'|'spend', amount, description, date, expenseId?}] }
@@ -134,8 +134,8 @@ const INCOME_CATEGORIES = {
 
 // ===== AI SYNC MODULE (Gemini + Gmail) =====
 let pendingExpenses = [];
-const PENDING_KEY = 'vanessa_pending_ai';
-const AI_CFG_KEY = 'vanessa_ai_cfg';
+const PENDING_KEY = 'despesas_pending_ai';
+const AI_CFG_KEY = 'despesas_ai_cfg';
 
 let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', mistralKey: '', mistralModel: 'mistral-small-latest', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
 let _googleTokenClient = null;
@@ -1767,6 +1767,22 @@ function populateCategorySelects() {
 }
 
 function loadData() {
+    // One-shot migration: rename legacy vanessa_* keys to despesas_* (no data loss)
+    if (!localStorage.getItem('despesas_migrated_v1')) {
+        const legacy = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('vanessa_')) legacy.push(k);
+        }
+        legacy.forEach(k => {
+            const newK = 'despesas_' + k.slice('vanessa_'.length);
+            if (localStorage.getItem(newK) === null) {
+                localStorage.setItem(newK, localStorage.getItem(k));
+            }
+            localStorage.removeItem(k);
+        });
+        localStorage.setItem('despesas_migrated_v1', '1');
+    }
     const data = localStorage.getItem(STORAGE_KEY);
     expenses = data ? JSON.parse(data) : [];
     const incData = localStorage.getItem(INCOME_KEY);
@@ -1884,9 +1900,9 @@ function loadData() {
             });
         }
     });
-    const savedSalaryDay = localStorage.getItem('vanessa_salary_day');
+    const savedSalaryDay = localStorage.getItem('despesas_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
-    const savedSalaryMode = localStorage.getItem('vanessa_salary_mode');
+    const savedSalaryMode = localStorage.getItem('despesas_salary_mode');
     salaryMode = savedSalaryMode || 'fixed-day';
 }
 
@@ -2416,7 +2432,7 @@ function getCarryOver(date) {
 }
 
 function getCarryOverStored(date) {
-    const key = `vanessa_carryover_${date.getFullYear()}_${date.getMonth()}`;
+    const key = `despesas_carryover_${date.getFullYear()}_${date.getMonth()}`;
     const stored = localStorage.getItem(key);
     if (stored !== null) return parseFloat(stored);
     // For current and future months, don't auto-calculate recursively (avoid infinite loop)
@@ -2424,7 +2440,7 @@ function getCarryOverStored(date) {
 }
 
 function saveCarryOver(date, amount) {
-    const key = `vanessa_carryover_${date.getFullYear()}_${date.getMonth()}`;
+    const key = `despesas_carryover_${date.getFullYear()}_${date.getMonth()}`;
     localStorage.setItem(key, amount.toString());
 }
 
@@ -2715,8 +2731,8 @@ function updateDashboard() {
     }
     // First-render: if "acertar" has no stored preference and there's nothing
     // owed, default to closed. Otherwise honour the saved/default state.
-    if (localStorage.getItem('vanessa_dash_section_acertar') === null && splitAmount === 0) {
-        localStorage.setItem('vanessa_dash_section_acertar', '0');
+    if (localStorage.getItem('despesas_dash_section_acertar') === null && splitAmount === 0) {
+        localStorage.setItem('despesas_dash_section_acertar', '0');
     }
     initDashSections();
 
@@ -3039,11 +3055,11 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
 
 // ===== Consolidated dashboard balance card: collapsible sub-sections =====
 // Each sub-section's open/closed state persists independently in
-// localStorage under vanessa_dash_section_<key>. Defaults: projecao=open,
+// localStorage under despesas_dash_section_<key>. Defaults: projecao=open,
 // acertar=open if any owed > 0 (handled by caller), anexos=closed.
 const DASH_SECTION_DEFAULTS = { projecao: true, acertar: true, anexos: false };
 function getDashSectionOpen(key) {
-    const raw = localStorage.getItem('vanessa_dash_section_' + key);
+    const raw = localStorage.getItem('despesas_dash_section_' + key);
     if (raw === '1') return true;
     if (raw === '0') return false;
     return DASH_SECTION_DEFAULTS[key] !== false;
@@ -3057,7 +3073,7 @@ function applyDashSectionState(key) {
 }
 function toggleDashSection(key) {
     const open = getDashSectionOpen(key);
-    localStorage.setItem('vanessa_dash_section_' + key, open ? '0' : '1');
+    localStorage.setItem('despesas_dash_section_' + key, open ? '0' : '1');
     applyDashSectionState(key);
 }
 function initDashSections() {
@@ -3067,7 +3083,7 @@ function initDashSections() {
 // Collapsible "Despesas deste ciclo" section. Lists every expense (variable
 // + paid fixed) whose date falls inside the current salary cycle, sorted
 // desc. Hidden when no salary is configured. Open/closed state persists in
-// localStorage as vanessa_cycle_section_open.
+// localStorage as despesas_cycle_section_open.
 function toggleCycleSection() {
     const body = document.getElementById('cycle-expenses-body');
     const chev = document.getElementById('cycle-section-chevron');
@@ -3075,7 +3091,7 @@ function toggleCycleSection() {
     const isOpen = body.style.display !== 'none';
     body.style.display = isOpen ? 'none' : 'block';
     if (chev) chev.style.transform = isOpen ? '' : 'rotate(180deg)';
-    localStorage.setItem('vanessa_cycle_section_open', isOpen ? '0' : '1');
+    localStorage.setItem('despesas_cycle_section_open', isOpen ? '0' : '1');
 }
 
 function renderCycleExpenses() {
@@ -3194,7 +3210,7 @@ function renderCycleExpenses() {
     const subEl = document.getElementById('cycle-expenses-sub');
     if (subEl) subEl.textContent = sub;
 
-    const isOpen = localStorage.getItem('vanessa_cycle_section_open') === '1';
+    const isOpen = localStorage.getItem('despesas_cycle_section_open') === '1';
     const body = document.getElementById('cycle-expenses-body');
     const chev = document.getElementById('cycle-section-chevron');
     if (body) body.style.display = isOpen ? 'block' : 'none';
@@ -3596,13 +3612,13 @@ function initVariableExpensesState() {
         if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
     // Filter bar: collapsed by default unless a filter is active or the user
-    // explicitly opened it (persisted in vanessa_expenses_filters_open).
+    // explicitly opened it (persisted in despesas_expenses_filters_open).
     initFiltersBar();
 }
 
 // ----- Collapsible filter bar (Categoria + Tipo) -----
 function isFiltersBarOpen() {
-    const stored = localStorage.getItem('vanessa_expenses_filters_open');
+    const stored = localStorage.getItem('despesas_expenses_filters_open');
     if (stored === '1') return true;
     if (stored === '0') return false;
     // No explicit choice: open if any filter is active.
@@ -3640,7 +3656,7 @@ function applyFiltersBarOpen(open) {
 function toggleFiltersBar() {
     const cur = isFiltersBarOpen();
     const next = !cur;
-    localStorage.setItem('vanessa_expenses_filters_open', next ? '1' : '0');
+    localStorage.setItem('despesas_expenses_filters_open', next ? '1' : '0');
     applyFiltersBarOpen(next);
 }
 function initFiltersBar() {
@@ -3650,18 +3666,18 @@ function initFiltersBar() {
 
 // Persisted toggle for the despesas tab list view ('category' | 'chrono').
 function getExpensesView() {
-    return localStorage.getItem('vanessa_expenses_view') === 'chrono' ? 'chrono' : 'category';
+    return localStorage.getItem('despesas_expenses_view') === 'chrono' ? 'chrono' : 'category';
 }
 function setExpensesView(view) {
-    localStorage.setItem('vanessa_expenses_view', view === 'chrono' ? 'chrono' : 'category');
+    localStorage.setItem('despesas_expenses_view', view === 'chrono' ? 'chrono' : 'category');
     renderExpenses();
 }
 function getExpensesChronoFilter() {
-    const v = localStorage.getItem('vanessa_expenses_filter') || 'all';
+    const v = localStorage.getItem('despesas_expenses_filter') || 'all';
     return ['all','pending','paid','fixed','variable'].includes(v) ? v : 'all';
 }
 function setExpenseFilter(f) {
-    localStorage.setItem('vanessa_expenses_filter', f);
+    localStorage.setItem('despesas_expenses_filter', f);
     renderExpenses();
 }
 
@@ -4821,7 +4837,7 @@ function renderChildrenTab() {
         const coParentShare = splitTotal * (child.splitPct / 100);
         const coParentPaid = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
         const coParentPending = coParentShare - coParentPaid;
-        const vanessaPays = total - coParentPaid;
+        const userPays = total - coParentPaid;
         // Co-parent receitas — receitas tagged with this child via the
         // "Pagamento do co-progenitor" toggle. Listed as a separate row so
         // they don't fight with the expense-share math.
@@ -4847,7 +4863,7 @@ function renderChildrenTab() {
                     </div>
                     <div class="split-row">
                         <span>${getUserNameOrDefault()} paga efetivo</span>
-                        <span class="bold" style="color:var(--primary)">${formatCurrency(vanessaPays)}</span>
+                        <span class="bold" style="color:var(--primary)">${formatCurrency(userPays)}</span>
                     </div>
                     <div class="split-row highlight">
                         <span>${child.coParentName} deve (${child.splitPct}%)</span>
@@ -4913,23 +4929,23 @@ function renderChildrenTab() {
 // from overwriting it again on the next load).
 (function migrateReportsPeriodDefault() {
     try {
-        if (localStorage.getItem('vanessa_reports_period_migrated_v2') === '1') return;
-        if (localStorage.getItem('vanessa_reports_period') === '6M' ||
-            localStorage.getItem('vanessa_reports_period') === '6') {
-            localStorage.setItem('vanessa_reports_period', '3');
+        if (localStorage.getItem('despesas_reports_period_migrated_v2') === '1') return;
+        if (localStorage.getItem('despesas_reports_period') === '6M' ||
+            localStorage.getItem('despesas_reports_period') === '6') {
+            localStorage.setItem('despesas_reports_period', '3');
         }
-        localStorage.setItem('vanessa_reports_period_migrated_v2', '1');
+        localStorage.setItem('despesas_reports_period_migrated_v2', '1');
     } catch (e) { /* storage disabled — fall back to in-memory default */ }
 })();
 
 function getReportsPeriod() {
-    const raw = localStorage.getItem('vanessa_reports_period');
+    const raw = localStorage.getItem('despesas_reports_period');
     // Accept both "3" and legacy "3M" forms.
     const v = parseInt(raw, 10);
     return [3, 6, 12].includes(v) ? v : 3;
 }
 function setReportsPeriod(months) {
-    localStorage.setItem('vanessa_reports_period', String(months));
+    localStorage.setItem('despesas_reports_period', String(months));
     renderReports();
 }
 
@@ -4958,7 +4974,7 @@ function renderReports() {
 // Categories × months heatmap. Rows = categories, columns = last N months,
 // each cell shaded by spend magnitude relative to the table max. Period
 // (3/6/12 months) controlled by the chips at the top of the card and
-// persisted in vanessa_reports_period.
+// persisted in despesas_reports_period.
 function renderCategoryHeatmap() {
     const container = document.getElementById('reports-heatmap-body');
     if (!container) return;
@@ -10301,12 +10317,12 @@ function renderPrepaidCards() {
 }
 
 function getPrepaidCollapsed() {
-    try { return JSON.parse(localStorage.getItem('vanessa_prepaid_collapsed') || '{}') || {}; } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem('despesas_prepaid_collapsed') || '{}') || {}; } catch { return {}; }
 }
 function togglePrepaidCard(cardId) {
     const map = getPrepaidCollapsed();
     map[cardId] = !map[cardId];
-    localStorage.setItem('vanessa_prepaid_collapsed', JSON.stringify(map));
+    localStorage.setItem('despesas_prepaid_collapsed', JSON.stringify(map));
     renderPrepaidCards();
 }
 
@@ -11141,6 +11157,25 @@ function setCategoryBudget(category, value) {
     saveData();
 }
 
+function toggleHeaderOverflow(ev) {
+    if (ev) ev.stopPropagation();
+    const m = document.getElementById('header-overflow-menu');
+    const b = document.getElementById('header-overflow-btn');
+    if (!m) return;
+    const open = m.classList.toggle('open');
+    if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function closeHeaderOverflow() {
+    const m = document.getElementById('header-overflow-menu');
+    const b = document.getElementById('header-overflow-btn');
+    if (m) m.classList.remove('open');
+    if (b) b.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', (e) => {
+    const wrap = document.querySelector('.header-overflow-wrap');
+    if (wrap && !wrap.contains(e.target)) closeHeaderOverflow();
+});
+
 function showSettingsModal() {
     renderChildrenList();
     renderCatList('expense');
@@ -11232,13 +11267,13 @@ function saveProfileName() {
     if (sdInput) {
         const sd = parseInt(sdInput.value);
         salaryDay = (sd >= 1 && sd <= 31) ? sd : null;
-        if (salaryDay) localStorage.setItem('vanessa_salary_day', salaryDay);
-        else localStorage.removeItem('vanessa_salary_day');
+        if (salaryDay) localStorage.setItem('despesas_salary_day', salaryDay);
+        else localStorage.removeItem('despesas_salary_day');
     }
     const smode = document.querySelector('input[name="salary-mode"]:checked')?.value;
     if (smode) {
         salaryMode = smode;
-        localStorage.setItem('vanessa_salary_mode', salaryMode);
+        localStorage.setItem('despesas_salary_mode', salaryMode);
     }
     applyAppTitle();
     applyHouseholdMode();
@@ -12321,7 +12356,19 @@ if (window.matchMedia) {
 // Feature 5: Insights Automaticos (local math, no AI calls)
 // ============================================================
 
-const INSIGHTS_DISMISSED_KEY = 'vanessa_insights_dismissed';
+const INSIGHTS_DISMISSED_KEY = 'despesas_insights_dismissed';
+const INSIGHTS_SHOWN_KEY = 'despesas_insights_shown'; // { id: firstShownAtMs }
+const INSIGHTS_TTL_DAYS = 7; // un-dismissed insights rotate out after this window
+
+function getShownInsightsMap() {
+    try { return JSON.parse(localStorage.getItem(INSIGHTS_SHOWN_KEY) || '{}') || {}; } catch { return {}; }
+}
+function _saveShownInsightsMap(m) { localStorage.setItem(INSIGHTS_SHOWN_KEY, JSON.stringify(m)); }
+function _isInsightExpired(id, map) {
+    const at = map[id];
+    if (!at) return false;
+    return (Date.now() - at) > INSIGHTS_TTL_DAYS * 86400000;
+}
 
 function getDismissedInsights() {
     try {
@@ -12556,14 +12603,32 @@ function renderInsights() {
     let items;
     try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
     const dismissed = new Set(getDismissedInsights());
-    const visible = items.filter(i => !dismissed.has(i.id));
+    const shownMap = getShownInsightsMap();
+    // Drop dismissed AND ones that have been on screen for >7 days without
+    // being acknowledged — keeps the panel rotating with fresher signals.
+    const visible = items.filter(i => !dismissed.has(i.id) && !_isInsightExpired(i.id, shownMap));
     if (visible.length === 0) {
         card.style.display = 'none';
         return;
     }
     const sevRank = { warn: 0, info: 1, positive: 2 };
-    visible.sort((a, b) => (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3));
-    const capped = visible.slice(0, 5);
+    // Prefer fresh insights (not yet seen) over already-shown ones, then sort
+    // by severity. Without this, a stale "warn" would always crowd out a new
+    // "positive" the user has never seen.
+    visible.sort((a, b) => {
+        const aFresh = shownMap[a.id] ? 1 : 0;
+        const bFresh = shownMap[b.id] ? 1 : 0;
+        if (aFresh !== bFresh) return aFresh - bFresh;
+        return (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3);
+    });
+    const capped = visible.slice(0, 3);
+    // Stamp first-shown for everything that made the visible cut — and prune
+    // entries that are no longer being computed so the map can't grow forever.
+    const liveIds = new Set(items.map(i => i.id));
+    let mapChanged = false;
+    capped.forEach(i => { if (!shownMap[i.id]) { shownMap[i.id] = Date.now(); mapChanged = true; } });
+    Object.keys(shownMap).forEach(k => { if (!liveIds.has(k)) { delete shownMap[k]; mapChanged = true; } });
+    if (mapChanged) _saveShownInsightsMap(shownMap);
 
     const periodEl = document.getElementById('insights-card-period');
     if (periodEl) {
@@ -12591,11 +12656,11 @@ function renderInsights() {
 // resolution = pick a side (Carregar do Drive | Manter local).
 // ============================================================
 
-const DRIVE_TOKEN_KEY = 'vanessa_drive_token';        // { accessToken, expiresAt }
-const DRIVE_FILE_ID_KEY = 'vanessa_drive_file_id';
-const DRIVE_DIRTY_KEY = 'vanessa_drive_dirty';
-const DRIVE_LAST_SYNC_KEY = 'vanessa_last_sync_at';
-const DRIVE_CONNECTED_KEY = 'vanessa_drive_connected';
+const DRIVE_TOKEN_KEY = 'despesas_drive_token';        // { accessToken, expiresAt }
+const DRIVE_FILE_ID_KEY = 'despesas_drive_file_id';
+const DRIVE_DIRTY_KEY = 'despesas_drive_dirty';
+const DRIVE_LAST_SYNC_KEY = 'despesas_last_sync_at';
+const DRIVE_CONNECTED_KEY = 'despesas_drive_connected';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const DRIVE_FILE_NAME = 'despesas.json';
 
@@ -12606,7 +12671,7 @@ let _driveLastError = '';
 
 function _driveGetClientId() {
     try {
-        const stored = localStorage.getItem('vanessa_google_client_id');
+        const stored = localStorage.getItem('despesas_google_client_id');
         if (stored) return stored;
     } catch {}
     if (typeof aiCfg === 'object' && aiCfg && aiCfg.googleClientId) return aiCfg.googleClientId;
@@ -12633,6 +12698,21 @@ function _driveSetDirty(v) {
     updateDriveCloudIcon();
 }
 function _driveIsDirty() { return localStorage.getItem(DRIVE_DIRTY_KEY) === '1'; }
+
+// Throw a tagged auth error on 401/403 and drop the stale token so the next
+// call goes through the OAuth consent screen again. Drive responds with 403
+// when the granted scopes don't include drive.appdata, when the API isn't
+// enabled in the Cloud project, or when consent was withdrawn.
+function _driveCheckAuthFailure(status) {
+    if (status === 401 || status === 403) {
+        localStorage.removeItem(DRIVE_TOKEN_KEY);
+        const err = new Error(status === 403
+            ? 'Acesso negado pelo Google (403). Reautoriza o Drive.'
+            : 'Sessão Google expirou (401). Reautoriza o Drive.');
+        err.driveAuth = true;
+        throw err;
+    }
+}
 
 function _driveInitTokenClient() {
     if (_driveTokenClient) return _driveTokenClient;
@@ -12688,7 +12768,27 @@ function driveConnectClicked() {
     }
     const c = _driveInitTokenClient();
     if (!c) { if (typeof showToast === 'function') showToast('Falha a inicializar Google'); return; }
-    c.requestAccessToken();
+    // Force the consent screen so the user explicitly grants drive.appdata —
+    // a stale grant without this scope is the typical cause of the 403 on list.
+    c.requestAccessToken({ prompt: 'consent' });
+}
+
+// Drop the cached token and re-run the OAuth consent flow. Used after a 403
+// or whenever the user clicks "Reautorizar" in the settings panel.
+function driveReauthorize() {
+    localStorage.removeItem(DRIVE_TOKEN_KEY);
+    _driveLastError = '';
+    if (!_driveGetClientId()) {
+        if (typeof showToast === 'function') showToast('Configura o Google Client ID no separador IA');
+        return;
+    }
+    if (!window.google?.accounts?.oauth2) {
+        if (typeof showToast === 'function') showToast('A carregar biblioteca Google...');
+        return;
+    }
+    const c = _driveInitTokenClient();
+    if (!c) { if (typeof showToast === 'function') showToast('Falha a inicializar Google'); return; }
+    c.requestAccessToken({ prompt: 'consent' });
 }
 
 function _driveEnsureToken(silent) {
@@ -12715,9 +12815,9 @@ function _driveBuildPayload() {
         userName: (typeof getUserName === 'function') ? getUserName() : '',
         appTitle: (typeof getAppTitle === 'function') ? getAppTitle() : '',
         householdMode: (typeof getHouseholdMode === 'function') ? getHouseholdMode() : '',
-        spouseName: localStorage.getItem(typeof SPOUSE_NAME_KEY !== 'undefined' ? SPOUSE_NAME_KEY : 'vanessa_spouse_name') || '',
+        spouseName: localStorage.getItem(typeof SPOUSE_NAME_KEY !== 'undefined' ? SPOUSE_NAME_KEY : 'despesas_spouse_name') || '',
         spousePct: (typeof getSpousePct === 'function') ? getSpousePct() : 50,
-        salaryDay: localStorage.getItem('vanessa_salary_day') || ''
+        salaryDay: localStorage.getItem('despesas_salary_day') || ''
     };
     return {
         version: 2,
@@ -12739,14 +12839,15 @@ function _driveBuildPayload() {
         settings
     };
     // NOTE intentionally excluded from sync payload:
-    //   vanessa_drive_file_id, vanessa_drive_dirty, vanessa_drive_token,
-    //   vanessa_drive_connected, vanessa_last_sync_at, vanessa_insights_dismissed
+    //   despesas_drive_file_id, despesas_drive_dirty, despesas_drive_token,
+    //   despesas_drive_connected, despesas_last_sync_at, despesas_insights_dismissed
     // (avoids token leakage and per-device-state recursion).
 }
 
 async function _driveListFile(token) {
     const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,modifiedTime,size)';
     const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    _driveCheckAuthFailure(r.status);
     if (!r.ok) throw new Error('Drive list: ' + r.status);
     const j = await r.json();
     return (j.files || []).find(f => f.name === DRIVE_FILE_NAME) || null;
@@ -12756,6 +12857,7 @@ async function _driveDownload(token, fileId) {
     const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { Authorization: 'Bearer ' + token }
     });
+    _driveCheckAuthFailure(r.status);
     if (!r.ok) throw new Error('Drive download: ' + r.status);
     return r.json();
 }
@@ -12767,10 +12869,11 @@ async function _driveUpload(token, payloadStr, existingFileId) {
             headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
             body: payloadStr
         });
+        _driveCheckAuthFailure(r.status);
         if (!r.ok) throw new Error('Drive upload (PATCH): ' + r.status);
         return r.json();
     }
-    const boundary = '----vanessa-drive-' + Math.random().toString(36).slice(2);
+    const boundary = '----despesas-drive-' + Math.random().toString(36).slice(2);
     const meta = { name: DRIVE_FILE_NAME, parents: ['appDataFolder'] };
     const body =
         `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
@@ -12781,6 +12884,7 @@ async function _driveUpload(token, payloadStr, existingFileId) {
         headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/related; boundary=' + boundary },
         body
     });
+    _driveCheckAuthFailure(r.status);
     if (!r.ok) throw new Error('Drive upload (POST): ' + r.status);
     return r.json();
 }
@@ -12813,6 +12917,11 @@ async function driveSyncNow() {
     } catch (e) {
         _driveLastError = e.message || String(e);
         if (typeof showToast === 'function') showToast('Erro Drive: ' + _driveLastError);
+        if (e && e.driveAuth) {
+            // Token rejected by Drive — auto-trigger the consent screen so the
+            // user can re-grant the appdata scope without hunting in settings.
+            try { driveReauthorize(); } catch {}
+        }
     } finally {
         _driveSyncInFlight = false;
         updateDriveCloudIcon();
@@ -12891,7 +13000,7 @@ function _driveApplyRemote(remote) {
     if (Array.isArray(remote.prepaidCards)) { prepaidCards = remote.prepaidCards; localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards)); }
     if (remote.netWorth) { netWorth = remote.netWorth; localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth)); }
     if (remote.settings && typeof remote.settings.salaryDay !== 'undefined') {
-        if (remote.settings.salaryDay) localStorage.setItem('vanessa_salary_day', remote.settings.salaryDay);
+        if (remote.settings.salaryDay) localStorage.setItem('despesas_salary_day', remote.settings.salaryDay);
     }
     // TODO v2: implement field-level merge instead of overwrite. For now
     // conflict policy is "pick a side" (Carregar do Drive | Manter local).
@@ -12958,10 +13067,13 @@ function renderDriveSyncUI() {
     const status = document.getElementById('drive-sync-status');
     const btnLabel = document.getElementById('drive-sync-btn-label');
     const syncBtn = document.getElementById('drive-sync-now-btn');
+    const reauthBtn = document.getElementById('drive-reauth-btn');
     if (!status || !btnLabel) return;
+    const authIssue = /\b(401|403)\b|Reautoriza|expirou/i.test(_driveLastError || '');
     if (isDriveConnected()) {
         btnLabel.textContent = 'Desconectar';
         if (syncBtn) syncBtn.style.display = '';
+        if (reauthBtn) reauthBtn.style.display = authIssue ? '' : 'none';
         let txt;
         if (_driveLastError) txt = 'Erro: ' + _driveLastError;
         else if (_driveIsDirty()) txt = 'Por sincronizar (alterações locais)';
@@ -12970,6 +13082,7 @@ function renderDriveSyncUI() {
     } else {
         btnLabel.textContent = 'Conectar Google Drive';
         if (syncBtn) syncBtn.style.display = 'none';
+        if (reauthBtn) reauthBtn.style.display = 'none';
         status.textContent = 'Por ligar';
     }
 }
