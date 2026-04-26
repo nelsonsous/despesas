@@ -1010,24 +1010,19 @@ body:not(.mode-married) .show-when-married { display: none !important; }
 }
 .action-chip-ai      { background: #EEE7FF; color: #5A3BD8; border-color: #B9A4F0; }
 .action-chip-pdf     { background: #EDE7F6; color: var(--primary); border-color: rgba(108,92,231,0.25); }
-@media (max-width: 380px) {
-    .action-chip-ai span, .action-chip-pdf span { display: none; }
-    .action-chip-ai, .action-chip-pdf { width: 38px; height: 38px; justify-content: center; padding: 0; border-radius: 50%; }
-}
-/* On phones, collapse all action chips to icon-only round buttons; the
-   row shrinks to roughly half its previous height and frees scroll space. */
+/* On phones, keep labels visible — icon-only is unclear without hover/tooltip.
+   Compact instead: tighter padding, smaller font. */
 @media (max-width: 480px) {
-    .action-chip span { display: none; }
     .action-chip {
-        width: 38px;
-        height: 38px;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        gap: 5px;
+        flex: 1;
+        min-width: 0;
         justify-content: center;
-        padding: 0;
-        border-radius: 50%;
-        flex: 0 0 auto;
     }
-    .action-chip-receipt { flex: 1; border-radius: 19px; }
-    .action-chips-row { gap: 8px; margin-bottom: 8px; }
+    .action-chip i { font-size: 0.85rem; }
+    .action-chips-row { gap: 6px; margin-bottom: 8px; }
 }
 
 /* ===== Collapsible filter bar (Despesas tab) ===== */
