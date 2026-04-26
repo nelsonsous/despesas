@@ -4605,10 +4605,22 @@ function renderChildrenTab() {
 }
 
 // ===== REPORTS =====
+function getReportsPeriod() {
+    const v = parseInt(localStorage.getItem('vanessa_reports_period'), 10);
+    return [3, 6, 12].includes(v) ? v : 6;
+}
+function setReportsPeriod(months) {
+    localStorage.setItem('vanessa_reports_period', String(months));
+    renderReports();
+}
+
 function renderReports() {
     renderIncomeVsExpenses();
     renderMonthlyEvolution();
     renderSalaryCycleReport();
+    renderCategoryHeatmap();
+    renderFixedVsVariable();
+    renderTopExpensesAllTime();
     renderPartnerSpending();
     renderIrsTracker();
     renderSubscriptionAudit();
@@ -4622,6 +4634,160 @@ function renderReports() {
     renderPeopleSpending();
     renderWeekdayHeatmap();
     renderSmartInsights();
+}
+
+// Categories × months heatmap. Rows = categories, columns = last N months,
+// each cell shaded by spend magnitude relative to the table max. Period
+// (3/6/12 months) controlled by the chips at the top of the card and
+// persisted in vanessa_reports_period.
+function renderCategoryHeatmap() {
+    const container = document.getElementById('reports-heatmap-body');
+    if (!container) return;
+    const N = getReportsPeriod();
+    // Sync chip active state
+    const chipBars = document.querySelectorAll('.reports-period-chips');
+    chipBars.forEach(bar => {
+        bar.querySelectorAll('.reports-period-chip').forEach(b => {
+            b.classList.toggle('active', parseInt(b.dataset.period, 10) === N);
+        });
+    });
+
+    const today = new Date();
+    const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const monthDates = [];
+    for (let i = N - 1; i >= 0; i--) {
+        monthDates.push(new Date(today.getFullYear(), today.getMonth() - i, 1));
+    }
+
+    const cats = getEffectiveCategories();
+    const totals = {}; // cat -> [m0, m1, ...]
+    let maxCell = 0;
+    monthDates.forEach((d, idx) => {
+        const monthExp = getEffectiveMonthExpenses(d).filter(e => !e.splitVirtualPartner);
+        monthExp.forEach(e => {
+            const k = e.category || 'outros';
+            if (!totals[k]) totals[k] = new Array(monthDates.length).fill(0);
+            totals[k][idx] += (e.amount || 0);
+            if (totals[k][idx] > maxCell) maxCell = totals[k][idx];
+        });
+    });
+
+    const sortedCats = Object.entries(totals)
+        .map(([k, arr]) => ({ k, arr, sum: arr.reduce((s, v) => s + v, 0) }))
+        .filter(r => r.sum > 0)
+        .sort((a, b) => b.sum - a.sum);
+
+    if (sortedCats.length === 0 || maxCell === 0) {
+        container.innerHTML = '<p class="empty-state">Sem despesas para mostrar</p>';
+        return;
+    }
+
+    const headerCells = monthDates.map(d => `<th>${months[d.getMonth()]}<br><span style="font-size:0.55rem;opacity:0.7">${String(d.getFullYear()).slice(2)}</span></th>`).join('');
+    const rows = sortedCats.map(({ k, arr }) => {
+        const c = cats[k] || cats.outros;
+        const cells = arr.map(v => {
+            const intensity = v === 0 ? 0 : Math.max(0.08, v / maxCell);
+            const bg = `rgba(108,92,231,${intensity.toFixed(2)})`;
+            const color = intensity > 0.55 ? '#fff' : 'var(--text)';
+            return `<td class="heatmap-cell" style="background:${bg};color:${color}" title="${c?.label || k}: ${formatCurrency(v)}">${v > 0 ? formatCurrency(v) : '·'}</td>`;
+        }).join('');
+        return `<tr><td class="heatmap-row-label"><i class="fas ${c?.icon || 'fa-circle'}" style="color:${c?.color || '#9E9E9E'}"></i> ${c?.label || k}</td>${cells}</tr>`;
+    }).join('');
+
+    container.innerHTML = `<table class="heatmap-table"><thead><tr><th></th>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// Fixed vs variable, last N months stacked. Cativo (fixas pagas) vs
+// discricionário (variáveis). Pure HTML+CSS — no chart library.
+function renderFixedVsVariable() {
+    const container = document.getElementById('reports-fixed-var-body');
+    if (!container) return;
+    const N = getReportsPeriod();
+    const today = new Date();
+    const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+    const data = [];
+    let maxTotal = 0;
+    for (let i = N - 1; i >= 0; i--) {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const monthExp = getEffectiveMonthExpenses(d);
+        let fixed = 0, variable = 0;
+        monthExp.forEach(e => {
+            if (e.isFixedExpense) fixed += (e.amount || 0);
+            else variable += (e.amount || 0);
+        });
+        const tot = fixed + variable;
+        if (tot > maxTotal) maxTotal = tot;
+        data.push({ d, fixed, variable, total: tot });
+    }
+
+    if (maxTotal === 0) {
+        container.innerHTML = '<p class="empty-state">Sem dados</p>';
+        return;
+    }
+
+    const fixedColor = '#5A4BD1';
+    const varColor = '#A29BFE';
+    const rows = data.map(r => {
+        const fixedPct = r.total > 0 ? (r.fixed / maxTotal) * 100 : 0;
+        const varPct = r.total > 0 ? (r.variable / maxTotal) * 100 : 0;
+        return `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.72rem">
+                <div style="width:36px;color:var(--text-light);font-weight:600">${monthsShort[r.d.getMonth()]}</div>
+                <div class="stack-bar" style="flex:1">
+                    <div class="stack-bar-seg" style="width:${fixedPct}%;background:${fixedColor}" title="Fixas: ${formatCurrency(r.fixed)}"></div>
+                    <div class="stack-bar-seg" style="width:${varPct}%;background:${varColor}" title="Variáveis: ${formatCurrency(r.variable)}"></div>
+                </div>
+                <div style="width:80px;text-align:right;color:var(--text);font-weight:700">${formatCurrency(r.total)}</div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div style="display:flex;gap:14px;font-size:0.7rem;color:var(--text-light);margin-bottom:10px">
+            <span><span style="display:inline-block;width:10px;height:10px;background:${fixedColor};border-radius:2px;vertical-align:middle"></span> Fixas (cativo)</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:${varColor};border-radius:2px;vertical-align:middle"></span> Variáveis (discricionário)</span>
+        </div>
+        ${rows}
+    `;
+}
+
+// Top 10 single expenses across the last 12 months. Always 12-month window
+// regardless of the period chips (the title already says "12 meses-ish"
+// implicitly — keep it simple and consistent).
+function renderTopExpensesAllTime() {
+    const container = document.getElementById('reports-top10-body');
+    if (!container) return;
+    const today = new Date();
+    const since = new Date(today.getFullYear(), today.getMonth() - 11, 1);
+    const sinceStr = toLocalDateStr(since);
+
+    const cats = getEffectiveCategories();
+    const all = expenses
+        .filter(e => e.date && e.date >= sinceStr)
+        .map(adjustExpenseForCoParent)
+        .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+        .slice(0, 10);
+
+    if (all.length === 0) {
+        container.innerHTML = '<p class="empty-state">Sem despesas nos últimos 12 meses</p>';
+        return;
+    }
+
+    container.innerHTML = all.map((e, i) => {
+        const c = cats[e.category] || cats.outros;
+        return `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <div style="width:24px;text-align:center;font-weight:800;color:var(--text-light);font-size:0.75rem">${i + 1}</div>
+                <div style="width:30px;height:30px;border-radius:8px;background:${c?.color || '#9E9E9E'}22;color:${c?.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center"><i class="fas ${c?.icon || 'fa-circle'}"></i></div>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.description || '(sem descrição)'}</div>
+                    <div style="font-size:0.68rem;color:var(--text-light)">${formatDate(e.date)} · ${c?.label || e.category}</div>
+                </div>
+                <div style="font-weight:700;color:var(--danger);white-space:nowrap">${formatCurrency(e.amount)}</div>
+            </div>
+        `;
+    }).join('');
 }
 
 // Partner-specific spending highlight card. Shows totals for the month and
