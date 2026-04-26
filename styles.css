@@ -1992,6 +1992,7 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .tab-content.active > .card,
 .tab-content.active > .summary-cards,
 .tab-content.active > .balance-hero,
+.tab-content.active > .dash-balance-card,
 .tab-content.active > .salary-cycle-card,
 .tab-content.active > .month-selector {
     animation: cardRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -2243,6 +2244,80 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     color: var(--text-light);
     font-weight: 500;
 }
+
+/* ===== Consolidated dashboard balance card ===== */
+.dash-balance-card {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, rgba(108,92,231,0.12));
+    border-radius: 22px;
+    padding: 0;
+    margin-bottom: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(108,92,231,0.08);
+}
+.dash-balance-card .balance-hero {
+    border-radius: 22px 22px 0 0;
+    margin: 0;
+}
+.dash-section {
+    border-top: 1px solid rgba(108,92,231,0.10);
+    background: var(--surface, #F0F1FF);
+}
+.dash-section + .dash-section { background: transparent; }
+.dash-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+    gap: 8px;
+}
+.dash-section-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.dash-section-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex-shrink: 0;
+}
+.dash-section-icon {
+    color: var(--primary);
+    font-size: 0.85rem;
+    width: 16px;
+    text-align: center;
+}
+.dash-section-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text, #2A1F4F);
+    letter-spacing: 0.02em;
+}
+.dash-section-summary {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    font-weight: 600;
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dash-section-chevron {
+    color: var(--text-light);
+    font-size: 0.78rem;
+    transition: transform 0.2s ease;
+}
+.dash-section-chevron.is-open { transform: rotate(180deg); }
+.dash-section-body {
+    padding: 0 14px 14px;
+}
+.dash-section-body .summary-cards { margin: 0; }
+.dash-section-body #balance-card { margin: 0 !important; }
 
 /* ===== Reports — heatmap + cycle bars ===== */
 .reports-period-chips {

@@ -2666,6 +2666,37 @@ function updateDashboard() {
     }
     document.getElementById('total-attachments').textContent = attachmentCount;
 
+    // Dashboard balance card — sub-section header summaries
+    const projSummaryEl = document.getElementById('dash-summary-projecao');
+    if (projSummaryEl) {
+        if (pendingExpenses > 0 || pendingIncomes > 0) {
+            projSummaryEl.textContent = `${available >= 0 ? '+' : ''}${formatCurrency(available)}`;
+        } else {
+            projSummaryEl.textContent = `${spentPct.toFixed(0)}% gasto`;
+        }
+    }
+    const acertarSummaryEl = document.getElementById('dash-summary-acertar');
+    if (acertarSummaryEl) {
+        const owedName = isMarriedMode()
+            ? getSpouseName()
+            : (children.length === 1 ? (children[0].coParentName || 'co-prog.') : 'co-prog.');
+        if (splitAmount > 0) {
+            acertarSummaryEl.textContent = `${owedName} deve ${formatCurrency(splitAmount)}`;
+        } else {
+            acertarSummaryEl.textContent = `Pessoal ${formatCurrency(personal)}`;
+        }
+    }
+    const anexosSummaryEl = document.getElementById('dash-summary-anexos');
+    if (anexosSummaryEl) {
+        anexosSummaryEl.textContent = String(attachmentCount || 0);
+    }
+    // First-render: if "acertar" has no stored preference and there's nothing
+    // owed, default to closed. Otherwise honour the saved/default state.
+    if (localStorage.getItem('vanessa_dash_section_acertar') === null && splitAmount === 0) {
+        localStorage.setItem('vanessa_dash_section_acertar', '0');
+    }
+    initDashSections();
+
     // YTD strip
     renderYTDStrip();
     // Spending pace
@@ -3017,6 +3048,33 @@ function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
         <div class="pace-progress-bar"><div class="pace-progress-fill" style="width:${monthPct}%"></div></div>
         <div class="pace-progress-label">${progressLabel}</div>
     `;
+}
+
+// ===== Consolidated dashboard balance card: collapsible sub-sections =====
+// Each sub-section's open/closed state persists independently in
+// localStorage under vanessa_dash_section_<key>. Defaults: projecao=open,
+// acertar=open if any owed > 0 (handled by caller), anexos=closed.
+const DASH_SECTION_DEFAULTS = { projecao: true, acertar: true, anexos: false };
+function getDashSectionOpen(key) {
+    const raw = localStorage.getItem('vanessa_dash_section_' + key);
+    if (raw === '1') return true;
+    if (raw === '0') return false;
+    return DASH_SECTION_DEFAULTS[key] !== false;
+}
+function applyDashSectionState(key) {
+    const body = document.getElementById('dash-body-' + key);
+    const chev = document.getElementById('dash-chevron-' + key);
+    const open = getDashSectionOpen(key);
+    if (body) body.style.display = open ? 'block' : 'none';
+    if (chev) chev.classList.toggle('is-open', open);
+}
+function toggleDashSection(key) {
+    const open = getDashSectionOpen(key);
+    localStorage.setItem('vanessa_dash_section_' + key, open ? '0' : '1');
+    applyDashSectionState(key);
+}
+function initDashSections() {
+    ['projecao', 'acertar', 'anexos'].forEach(applyDashSectionState);
 }
 
 // Collapsible "Despesas deste ciclo" section. Lists every expense (variable

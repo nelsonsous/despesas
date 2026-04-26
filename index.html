@@ -131,70 +131,152 @@
                 <div id="cycle-expenses-body" style="display:none;margin-top:12px"></div>
             </div>
 
-            <!-- Balance Hero Card -->
-            <div class="balance-hero">
-                <div class="balance-hero-bg"></div>
-                <div class="balance-hero-content">
-                    <div class="balance-hero-label">Saldo do Mes</div>
-                    <div class="balance-hero-amount" id="kpi-balance">0 €</div>
-                    <div class="balance-hero-pills">
-                        <div class="balance-pill income-pill">
-                            <i class="fas fa-arrow-trend-up"></i>
-                            <div>
-                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Receitas</div>
-                                <div id="kpi-income">0 €</div>
+            <!-- Consolidated Balance Card: hero + collapsible sub-sections -->
+            <div class="dash-balance-card" id="dashboard-balance-card">
+                <!-- Hero (always visible) -->
+                <div class="balance-hero">
+                    <div class="balance-hero-bg"></div>
+                    <div class="balance-hero-content">
+                        <div class="balance-hero-label">Saldo do Mes</div>
+                        <div class="balance-hero-amount" id="kpi-balance">0 €</div>
+                        <div class="balance-hero-pills">
+                            <div class="balance-pill income-pill">
+                                <i class="fas fa-arrow-trend-up"></i>
+                                <div>
+                                    <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Receitas</div>
+                                    <div id="kpi-income">0 €</div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="balance-pill expense-pill">
-                            <i class="fas fa-arrow-trend-down"></i>
-                            <div>
-                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Despesas</div>
-                                <div id="kpi-expenses">0 €</div>
+                            <div class="balance-pill expense-pill">
+                                <i class="fas fa-arrow-trend-down"></i>
+                                <div>
+                                    <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Despesas</div>
+                                    <div id="kpi-expenses">0 €</div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="balance-pill" id="kpi-savings-pill" style="display:none;background:rgba(255,255,255,0.18)">
-                            <i class="fas fa-piggy-bank"></i>
-                            <div>
-                                <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Poupei</div>
-                                <div id="kpi-savings">0 €</div>
+                            <div class="balance-pill" id="kpi-savings-pill" style="display:none;background:rgba(255,255,255,0.18)">
+                                <i class="fas fa-piggy-bank"></i>
+                                <div>
+                                    <div style="font-size:0.6rem;opacity:0.8;font-weight:500">Poupei</div>
+                                    <div id="kpi-savings">0 €</div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Balance KPI (legacy wrapper kept for forecast chips + bar) -->
-            <div class="card balance-card" id="balance-card" style="margin-top:-4px">
-                <div style="display:none" id="_kpi-balance-hidden"></div>
-                <div class="forecast-chips" id="balance-fixed-row" style="display:none">
-                    <div class="forecast-chip forecast-chip-income">
-                        <div class="forecast-chip-icon"><i class="fas fa-arrow-down"></i></div>
-                        <div class="forecast-chip-body">
-                            <div class="forecast-chip-label">Por receber</div>
-                            <div class="forecast-chip-value" id="kpi-income-pending">0,00 EUR</div>
+                <!-- Sub-section: Projeção -->
+                <div class="dash-section" id="dash-section-projecao">
+                    <div class="dash-section-header" onclick="toggleDashSection('projecao')">
+                        <div class="dash-section-header-left">
+                            <i class="fas fa-chart-line dash-section-icon"></i>
+                            <span class="dash-section-title">Projeção</span>
+                        </div>
+                        <div class="dash-section-header-right">
+                            <span class="dash-section-summary" id="dash-summary-projecao">—</span>
+                            <i class="fas fa-chevron-down dash-section-chevron" id="dash-chevron-projecao"></i>
                         </div>
                     </div>
-                    <div class="forecast-chip forecast-chip-expense">
-                        <div class="forecast-chip-icon"><i class="fas fa-lock"></i></div>
-                        <div class="forecast-chip-body">
-                            <div class="forecast-chip-label">Cativo</div>
-                            <div class="forecast-chip-value" id="kpi-fixed-pending">0,00 EUR</div>
-                        </div>
-                    </div>
-                    <div class="forecast-chip forecast-chip-balance" id="forecast-chip-balance">
-                        <div class="forecast-chip-icon"><i class="fas fa-scale-balanced"></i></div>
-                        <div class="forecast-chip-body">
-                            <div class="forecast-chip-label" id="kpi-available-label">Saldo projetado</div>
-                            <div class="forecast-chip-value" id="kpi-available">0,00 EUR</div>
+                    <div class="dash-section-body" id="dash-body-projecao">
+                        <!-- Legacy wrapper kept for forecast chips + bar -->
+                        <div class="card balance-card" id="balance-card" style="margin:0;padding:0;background:transparent;box-shadow:none;border:none">
+                            <div style="display:none" id="_kpi-balance-hidden"></div>
+                            <div class="forecast-chips" id="balance-fixed-row" style="display:none">
+                                <div class="forecast-chip forecast-chip-income">
+                                    <div class="forecast-chip-icon"><i class="fas fa-arrow-down"></i></div>
+                                    <div class="forecast-chip-body">
+                                        <div class="forecast-chip-label">Por receber</div>
+                                        <div class="forecast-chip-value" id="kpi-income-pending">0,00 EUR</div>
+                                    </div>
+                                </div>
+                                <div class="forecast-chip forecast-chip-expense">
+                                    <div class="forecast-chip-icon"><i class="fas fa-lock"></i></div>
+                                    <div class="forecast-chip-body">
+                                        <div class="forecast-chip-label">Cativo</div>
+                                        <div class="forecast-chip-value" id="kpi-fixed-pending">0,00 EUR</div>
+                                    </div>
+                                </div>
+                                <div class="forecast-chip forecast-chip-balance" id="forecast-chip-balance">
+                                    <div class="forecast-chip-icon"><i class="fas fa-scale-balanced"></i></div>
+                                    <div class="forecast-chip-body">
+                                        <div class="forecast-chip-label" id="kpi-available-label">Saldo projetado</div>
+                                        <div class="forecast-chip-value" id="kpi-available">0,00 EUR</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="balance-bar-container">
+                                <div class="balance-bar">
+                                    <div class="balance-bar-spent" id="balance-bar-spent"></div>
+                                    <div class="balance-bar-fixed" id="balance-bar-fixed"></div>
+                                </div>
+                                <div class="balance-bar-label" id="balance-bar-label">0% gasto</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="balance-bar-container">
-                    <div class="balance-bar">
-                        <div class="balance-bar-spent" id="balance-bar-spent"></div>
-                        <div class="balance-bar-fixed" id="balance-bar-fixed"></div>
+
+                <!-- Sub-section: A acertar (per-child / co-parent / spouse split) -->
+                <div class="dash-section" id="dash-section-acertar">
+                    <div class="dash-section-header" onclick="toggleDashSection('acertar')">
+                        <div class="dash-section-header-left">
+                            <i class="fas fa-handshake dash-section-icon"></i>
+                            <span class="dash-section-title">A acertar</span>
+                        </div>
+                        <div class="dash-section-header-right">
+                            <span class="dash-section-summary" id="dash-summary-acertar">—</span>
+                            <i class="fas fa-chevron-down dash-section-chevron" id="dash-chevron-acertar"></i>
+                        </div>
                     </div>
-                    <div class="balance-bar-label" id="balance-bar-label">0% gasto</div>
+                    <div class="dash-section-body" id="dash-body-acertar">
+                        <div class="summary-cards" id="dash-summary-cards-split">
+                            <div class="card personal-card">
+                                <div class="card-icon"><i class="fas fa-user"></i></div>
+                                <div class="card-info">
+                                    <span class="card-label">Pessoal</span>
+                                    <span class="card-value" id="total-personal">0,00 EUR</span>
+                                </div>
+                            </div>
+                            <div class="card laura-card">
+                                <div class="card-icon"><i class="fas fa-children"></i></div>
+                                <div class="card-info">
+                                    <span class="card-label" id="children-card-label">Filhos</span>
+                                    <span class="card-value" id="total-laura">0,00 EUR</span>
+                                </div>
+                            </div>
+                            <div class="card split-card">
+                                <div class="card-icon"><i class="fas fa-divide"></i></div>
+                                <div class="card-info">
+                                    <span class="card-label" id="split-card-label">Co-prog. devem</span>
+                                    <span class="card-value" id="total-split">0,00 EUR</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-section: Anexos (count from monthly expenses with attachments) -->
+                <div class="dash-section" id="dash-section-anexos">
+                    <div class="dash-section-header" onclick="toggleDashSection('anexos')">
+                        <div class="dash-section-header-left">
+                            <i class="fas fa-paperclip dash-section-icon"></i>
+                            <span class="dash-section-title">Anexos</span>
+                        </div>
+                        <div class="dash-section-header-right">
+                            <span class="dash-section-summary" id="dash-summary-anexos">0</span>
+                            <i class="fas fa-chevron-down dash-section-chevron" id="dash-chevron-anexos"></i>
+                        </div>
+                    </div>
+                    <div class="dash-section-body" id="dash-body-anexos">
+                        <div class="summary-cards" id="dash-summary-cards-anexos">
+                            <div class="card attachments-card">
+                                <div class="card-icon"><i class="fas fa-paperclip"></i></div>
+                                <div class="card-info">
+                                    <span class="card-label">Anexos do mês</span>
+                                    <span class="card-value" id="total-attachments">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -238,36 +320,7 @@
             <!-- Category Donut Chart -->
             <div class="card donut-section" id="category-donut-container"></div>
 
-            <div class="summary-cards">
-                <div class="card personal-card">
-                    <div class="card-icon"><i class="fas fa-user"></i></div>
-                    <div class="card-info">
-                        <span class="card-label">Pessoal</span>
-                        <span class="card-value" id="total-personal">0,00 EUR</span>
-                    </div>
-                </div>
-                <div class="card laura-card">
-                    <div class="card-icon"><i class="fas fa-children"></i></div>
-                    <div class="card-info">
-                        <span class="card-label" id="children-card-label">Filhos</span>
-                        <span class="card-value" id="total-laura">0,00 EUR</span>
-                    </div>
-                </div>
-                <div class="card split-card">
-                    <div class="card-icon"><i class="fas fa-divide"></i></div>
-                    <div class="card-info">
-                        <span class="card-label" id="split-card-label">Co-prog. devem</span>
-                        <span class="card-value" id="total-split">0,00 EUR</span>
-                    </div>
-                </div>
-                <div class="card attachments-card">
-                    <div class="card-icon"><i class="fas fa-paperclip"></i></div>
-                    <div class="card-info">
-                        <span class="card-label">Anexos</span>
-                        <span class="card-value" id="total-attachments">0</span>
-                    </div>
-                </div>
-            </div>
+            <!-- (Personal / Filhos / Split / Anexos summary cards moved into #dashboard-balance-card sub-sections "A acertar" + "Anexos") -->
 
             <!-- YTD strip on dashboard -->
             <div class="card" id="ytd-strip" style="display:none"></div>
