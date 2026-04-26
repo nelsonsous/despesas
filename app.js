@@ -3173,10 +3173,8 @@ function renderCycleExpenses() {
                 <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                 <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
                 <div style="flex:1;min-width:0;display:flex;flex-direction:column">
-                    <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden">
-                        ${r.kind === 'fixed'
-                            ? '<span class="cycle-row-tag tag-fixed"><i class="fas fa-repeat"></i> Fixa</span>'
-                            : '<span class="cycle-row-tag tag-var"><i class="fas fa-tag"></i> Avulsa</span>'}
+                    <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                        ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
                         <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                     </div>
                     <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
