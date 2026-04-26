@@ -3612,14 +3612,17 @@ function renderExpenses() {
     if (view === 'chrono') {
         if (fixedSection) fixedSection.style.display = 'none';
         if (titleEl) titleEl.style.display = 'flex';
+        // Label is empty — the toggle on the right already indicates the
+        // active mode, so the redundant text was just stealing horizontal
+        // room and forcing the total to wrap.
         const labelEl = document.getElementById('other-expenses-label');
-        if (labelEl) labelEl.textContent = 'Cronológica';
+        if (labelEl) labelEl.textContent = '';
         renderExpensesChrono(monthExp, filterCat, filterType);
         return;
     }
-    // Category view: restore default label.
+    // Category view: same reasoning — toggle conveys the mode, no label needed.
     const labelEl = document.getElementById('other-expenses-label');
-    if (labelEl) labelEl.textContent = 'Outras Despesas';
+    if (labelEl) labelEl.textContent = '';
 
     if (activeFixed.length > 0 && !filterCat && !filterType) {
         fixedSection.style.display = 'block';

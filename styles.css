@@ -2224,7 +2224,7 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .view-toggle-inline .view-toggle-btn {
     flex: 0 0 auto;
     height: 26px;
-    padding: 0 9px;
+    padding: 0 8px;
     font-size: 0.7rem;
     font-weight: 600;
     border-radius: 7px;
@@ -2234,6 +2234,15 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     white-space: nowrap;
 }
 .view-toggle-inline .view-toggle-btn i { font-size: 0.72rem; }
+/* Inactive button shrinks to icon-only — keeps the toggle compact while the
+   active state still reads as a labelled tab. Saves ~60px on a phone, which
+   is enough to keep the section title + total on a single line. */
+.view-toggle-inline .view-toggle-btn:not(.active) .toggle-label { display: none; }
+.view-toggle-inline .view-toggle-btn:not(.active) {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+}
 
 .expense-filter-chips {
     display: flex;

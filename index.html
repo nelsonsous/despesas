@@ -435,13 +435,13 @@
             </div>
 
             <h3 class="section-title" id="other-expenses-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-                <span style="display:inline-flex;align-items:center;gap:8px;flex:1;min-width:0">
-                    <span id="other-expenses-label">Outras Despesas</span>
-                    <span id="other-expenses-total" style="font-size:0.85rem;color:var(--primary);font-weight:700"></span>
+                <span style="display:inline-flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden">
+                    <span id="other-expenses-label" style="text-transform:none;letter-spacing:0;font-size:0.85rem;color:var(--text-light);font-weight:500;flex-shrink:0"></span>
+                    <span id="other-expenses-total" style="font-size:0.9rem;color:var(--primary);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0"></span>
                 </span>
                 <span id="expense-view-toggle" class="view-toggle view-toggle-inline" role="tablist" aria-label="Modo de visualização">
-                    <button class="view-toggle-btn active" data-view="category" onclick="setExpensesView('category')" title="Agrupadas por categoria" aria-label="Por categoria"><i class="fas fa-folder-tree"></i> Categoria</button>
-                    <button class="view-toggle-btn" data-view="chrono" onclick="setExpensesView('chrono')" title="Lista cronológica corrida" aria-label="Cronológica"><i class="fas fa-calendar-day"></i> Cronologia</button>
+                    <button class="view-toggle-btn active" data-view="category" onclick="setExpensesView('category')" title="Agrupadas por categoria" aria-label="Por categoria"><i class="fas fa-folder-tree"></i><span class="toggle-label"> Categoria</span></button>
+                    <button class="view-toggle-btn" data-view="chrono" onclick="setExpensesView('chrono')" title="Lista cronológica corrida" aria-label="Cronológica"><i class="fas fa-calendar-day"></i><span class="toggle-label"> Cronologia</span></button>
                 </span>
             </h3>
             <div id="expenses-list" class="expenses-list"></div>
