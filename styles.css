@@ -21,6 +21,58 @@
     --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* ===== Dark theme palette =====
+   Auto: applies when the OS is in dark mode AND no manual override.
+   Manual override: data-theme="dark" on <html>. The :not selector on the
+   media query rules out auto when the user picked light explicitly. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #15151E;
+        --surface: #1F1F2E;
+        --card-bg: #25253A;
+        --text: #ECECEC;
+        --text-light: #A0A0B5;
+        --text-muted: #6F6F85;
+        --border: #2E2E45;
+        --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.45);
+    }
+}
+:root[data-theme="dark"] {
+    --bg: #15151E;
+    --surface: #1F1F2E;
+    --card-bg: #25253A;
+    --text: #ECECEC;
+    --text-light: #A0A0B5;
+    --text-muted: #6F6F85;
+    --border: #2E2E45;
+    --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+/* Per-element dark overrides where the existing CSS uses hardcoded
+   light backgrounds. Keep this list pragmatic — dashboard, despesas,
+   receitas, header, FAB, basic modals. Deep modals may have rough
+   edges; flagged with TODO: dark and left for a follow-up. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .savings-flow-pill { background: #3A2530; color: #FFB1CC; }
+    :root:not([data-theme="light"]) .savings-flow-pill.flow-in { background: #3A2D20; color: #FFB78A; }
+    :root:not([data-theme="light"]) .savings-flow-row { background: #3A2530; }
+    :root:not([data-theme="light"]) .cycle-expense-row.savings-row { background: #3A2530; }
+    :root:not([data-theme="light"]) .prepaid-group-row { background: #2A2233 !important; }
+    :root:not([data-theme="light"]) .inbox-item { background: var(--surface); }
+    :root:not([data-theme="light"]) .toast { background: #2E2E45; color: #fff; }
+}
+:root[data-theme="dark"] .savings-flow-pill { background: #3A2530; color: #FFB1CC; }
+:root[data-theme="dark"] .savings-flow-pill.flow-in { background: #3A2D20; color: #FFB78A; }
+:root[data-theme="dark"] .savings-flow-row { background: #3A2530; }
+:root[data-theme="dark"] .cycle-expense-row.savings-row { background: #3A2530; }
+:root[data-theme="dark"] .prepaid-group-row { background: #2A2233 !important; }
+:root[data-theme="dark"] .inbox-item { background: var(--surface); }
+:root[data-theme="dark"] .toast { background: #2E2E45; color: #fff; }
+/* TODO: dark — deeper PDF/AI/security/grouped-entry modals may need
+   spot-fixes if the palette mismatch becomes visible in real use. */
+
 /* ===== Reset ===== */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { font-size: 16px; }

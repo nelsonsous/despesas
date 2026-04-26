@@ -67,6 +67,7 @@ const GOALS_KEY = 'vanessa_savings_goals';
 const NETWORTH_KEY = 'vanessa_net_worth';
 const BUDGETS_KEY = 'vanessa_budgets';
 const INBOX_KEY = 'vanessa_inbox';
+const THEME_KEY = 'vanessa_theme';
 let expenseTemplates = [];   // { id, description, amount, category, type, split, essential, icon }
 let categoryBudgets = {};    // { category: maxAmount }
 let prepaidCards = [];       // { id, name, icon, color, createdAt, transactions: [{id, type:'topup'|'spend', amount, description, date, expenseId?}] }
@@ -11137,6 +11138,12 @@ function showSettingsModal() {
     document.querySelectorAll('input[name="household-mode"]').forEach(r => {
         r.onchange = toggleSpouseSettingsUI;
     });
+    // Theme picker — sync radio with persisted preference, swap immediately on change.
+    const themeRadio = document.querySelector(`input[name="app-theme"][value="${getTheme()}"]`);
+    if (themeRadio) themeRadio.checked = true;
+    document.querySelectorAll('input[name="app-theme"]').forEach(r => {
+        r.onchange = () => setTheme(r.value);
+    });
 }
 
 function toggleSpouseSettingsUI() {
@@ -12248,4 +12255,34 @@ function revertInboxEntry(entryId) {
     saveInbox(inbox.filter(e => e.id !== entryId));
     renderInboxList();
     showToast('Revertido para pendente');
+}
+
+// ===== Theme (auto / light / dark) =====
+function getTheme() {
+    return localStorage.getItem(THEME_KEY) || 'auto';
+}
+
+function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === 'auto') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', theme);
+}
+
+function setTheme(theme) {
+    if (!['auto','light','dark'].includes(theme)) theme = 'auto';
+    localStorage.setItem(THEME_KEY, theme);
+    applyTheme(theme);
+}
+
+// Apply persisted theme as early as possible (before DOMContentLoaded
+// fires for first render so we don't flash light → dark on cold boot).
+try { applyTheme(getTheme()); } catch {}
+
+// Listen for OS-level changes when in auto mode so the app re-renders
+// when the user toggles dark mode in their system settings.
+if (window.matchMedia) {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handle = () => { if (getTheme() === 'auto') applyTheme('auto'); };
+    if (mq.addEventListener) mq.addEventListener('change', handle);
+    else if (mq.addListener) mq.addListener(handle);
 }
