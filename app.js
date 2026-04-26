@@ -3168,8 +3168,23 @@ function renderCycleExpenses() {
         return;
     }
 
+    // Today marker: only inject if cycle contains today AND list crosses today.
+    const todayStrCycle = toLocalDateStr(today);
+    const cycleContainsToday = today >= cycle.start && today <= cycle.end;
+    const cycleHasPast = all.some(r => r.date && r.date < todayStrCycle);
+    const cycleHasFuture = all.some(r => r.date && r.date >= todayStrCycle);
+    const showCycleTodayMarker = cycleContainsToday && cycleHasPast && cycleHasFuture;
+    let cycleMarkerInserted = false;
+
     // Compact row: status badge · date · description · category · amount · jump-to-edit
     body.innerHTML = all.map(r => {
+        let markerPrefix = '';
+        if (showCycleTodayMarker && !cycleMarkerInserted && r.date && r.date < todayStrCycle) {
+            markerPrefix = '<div class="today-marker"><span>HOJE</span></div>';
+            cycleMarkerInserted = true;
+        }
+        const isFutureRow = r.date && r.date > todayStrCycle;
+        const futureClass = (showCycleTodayMarker && isFutureRow && r.status !== 'pago') ? ' future-row' : '';
         const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
         const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
         const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
@@ -3182,7 +3197,8 @@ function renderCycleExpenses() {
         const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
         const opacity = r.status === 'ignorado' ? '0.55' : '1';
         return `
-            <div class="cycle-expense-row" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+            ${markerPrefix}
+            <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
                 <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
                 <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                 <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
@@ -3992,8 +4008,29 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = toLocalDateStr(yesterday);
 
+    // Inject "HOJE" marker only when viewing the current month and the
+    // sorted (date desc) list straddles today. Past rows render at full
+    // opacity; future unpaid rows dim slightly so the user instantly sees
+    // what's still pending vs already happened.
+    const today2 = new Date();
+    const isCurrentMonthChrono = currentDate.getFullYear() === today2.getFullYear()
+        && currentDate.getMonth() === today2.getMonth();
+    const dateKeys = Array.from(byDay.keys());
+    const hasPast = dateKeys.some(k => k && k < todayStr);
+    const hasFutureOrToday = dateKeys.some(k => k && k >= todayStr);
+    const showTodayMarker = isCurrentMonthChrono && hasPast && hasFutureOrToday;
+    let todayMarkerInserted = false;
+
     const out = [];
     for (const [dateStr, items] of byDay) {
+        // We're walking date-desc. The boundary is between "future/today" rows
+        // (date >= today) and "past" rows (date < today). Marker goes BEFORE
+        // the first row whose date < today.
+        if (showTodayMarker && !todayMarkerInserted && dateStr && dateStr < todayStr) {
+            out.push('<div class="today-marker"><span>HOJE</span></div>');
+            todayMarkerInserted = true;
+        }
+        const isFutureDay = dateStr && dateStr > todayStr;
         let label;
         if (dateStr === todayStr) label = 'Hoje';
         else if (dateStr === yesterdayStr) label = 'Ontem';
@@ -4007,7 +4044,13 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
             .reduce((s, e) => s + (e._kind === 'fixed' ? getEffectiveFixedAmount(e._f, currentDate) : (e.amount || 0)), 0);
         out.push(`<div class="day-separator"><span>— ${label} (${items.length})</span><span class="day-separator-total">${formatCurrency(dayTotal)}</span></div>`);
         for (const e of items) {
-            out.push(e._kind === 'fixed' ? renderFixedItemChrono(e._f) : renderExpenseItem(e));
+            const html = e._kind === 'fixed' ? renderFixedItemChrono(e._f) : renderExpenseItem(e);
+            // Dim only future, unpaid rows. Already-paid keeps full opacity.
+            if (showTodayMarker && isFutureDay && !e._isPaid) {
+                out.push(`<div class="future-row">${html}</div>`);
+            } else {
+                out.push(html);
+            }
         }
     }
     container.innerHTML = out.join('');
