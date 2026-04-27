@@ -12223,8 +12223,10 @@ function renderInboxList() {
     if (!list) return;
     const inbox = getInbox().filter(e => e.status === 'unread').slice().sort((a, b) =>
         (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const clearBtn = document.getElementById('inbox-clear-all-btn');
+    if (clearBtn) clearBtn.style.display = inbox.length ? '' : 'none';
     if (!inbox.length) {
-        list.innerHTML = '<div class="empty-state" style="padding:30px 0"><i class="fas fa-inbox"></i><p>Sem mensagens</p></div>';
+        list.innerHTML = '<div class="empty-state" style="padding:30px 0"><i class="fas fa-inbox"></i><p>Sem notificações</p></div>';
         refreshInboxBadge();
         return;
     }
@@ -12238,13 +12240,12 @@ function renderInboxList() {
                     <div class="inbox-item-icon" style="color:${color}"><i class="fas ${icon}"></i></div>
                     <div class="inbox-item-body">
                         <div class="inbox-item-desc">${e.description}</div>
-                        <div class="inbox-item-sub">Marcada automaticamente em ${formatDate(e.date)}</div>
+                        <div class="inbox-item-sub">Registada automaticamente em ${formatDate(e.date)}</div>
                     </div>
-                    <div class="inbox-item-amount" style="color:${color}">${sign}${formatCurrency(e.amount)}</div>
-                </div>
-                <div class="inbox-item-actions">
-                    <button class="btn btn-sm btn-primary" onclick="confirmInboxEntry('${e.id}')"><i class="fas fa-check"></i> Confirmar</button>
-                    <button class="btn btn-sm btn-secondary" onclick="revertInboxEntry('${e.id}')"><i class="fas fa-rotate-left"></i> Reverter</button>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <div class="inbox-item-amount" style="color:${color}">${sign}${formatCurrency(e.amount)}</div>
+                        <button class="btn-icon" style="font-size:0.8rem;opacity:0.5" onclick="dismissInboxEntry('${e.id}')" title="Dispensar">✕</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -12252,33 +12253,23 @@ function renderInboxList() {
     refreshInboxBadge();
 }
 
-function confirmInboxEntry(entryId) {
+function dismissInboxEntry(entryId) {
     const inbox = getInbox();
     const entry = inbox.find(e => e.id === entryId);
     if (entry) entry.status = 'confirmed';
     saveInbox(inbox);
     renderInboxList();
     refreshInboxBadge();
-    showToast('Confirmado');
 }
 
-function revertInboxEntry(entryId) {
-    const inbox = getInbox();
-    const entry = inbox.find(e => e.id === entryId);
-    if (!entry) return;
-    // Force the underlying status back to pendente. We synthesize a Date
-    // for the entry's month so the existing markers respect manual override.
-    const [y, m] = entry.month.split('-').map(Number);
-    const d = new Date(y, m - 1, 1);
-    if (entry.kind === 'expense') {
-        markFixedPaid(entry.refId, d, false);
-    } else {
-        markFixedIncomePaid(entry.refId, d, false);
-    }
-    saveInbox(inbox.filter(e => e.id !== entryId));
+function clearAllInbox() {
+    const inbox = getInbox().map(e => ({ ...e, status: 'confirmed' }));
+    saveInbox(inbox);
     renderInboxList();
-    showToast('Revertido para pendente');
+    refreshInboxBadge();
+    showToast('Notificações limpas');
 }
+
 
 // ===== Theme (auto / light / dark) =====
 function getTheme() {
