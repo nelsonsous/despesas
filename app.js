@@ -3084,7 +3084,7 @@ function renderThirdPartySplits() {
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
                     <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
-                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedMonthStr}-01'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-hand-holding-dollar"></i> Recebi</button>
+                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedMonthStr}-01'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-hand-holding-dollar"></i> Recebi</button>
                 </div>
             </div>`).join('')}
         </div>`;
