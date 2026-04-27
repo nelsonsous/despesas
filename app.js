@@ -3037,19 +3037,21 @@ function renderThirdPartySplits() {
         }
     });
 
-    // Fixed expenses with splits — check current + previous month
-    const monthsToCheck = [currentDate, new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)];
-    monthsToCheck.forEach(monthDate => {
-        (fixedExpenses || []).forEach(f => {
-            if (!Array.isArray(f.splits) || !f.splits.length) return;
-            const st = getFixedStatusForMonth(f.id, monthDate);
-            const splitsPaid = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
-            f.splits.forEach((s, i) => {
-                if (splitsPaid[i]) return;
-                const nameKey = (s.name || '').toLowerCase().trim();
-                const dayStr = `${monthDate.getFullYear()}-${String(monthDate.getMonth()+1).padStart(2,'0')}-${String(Math.min(f.dayOfMonth||1, 28)).padStart(2,'0')}`;
-                addItem(nameKey, s.name, { expId: f.id, splitIdx: i, legacy: false, fixed: true, fixedDate: monthDate, amount: parseFloat(s.amount) || 0, description: f.description || '(sem descrição)', date: dayStr });
-            });
+    // Fixed expenses with splits — only current calendar month
+    const cycleMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    ;(fixedExpenses || []).forEach(f => {
+        if (!Array.isArray(f.splits) || !f.splits.length) return;
+        // Only show if the fixed expense day has arrived this month
+        const today = new Date();
+        const isCurrentMonth = cycleMonthDate.getMonth() === today.getMonth() && cycleMonthDate.getFullYear() === today.getFullYear();
+        if (isCurrentMonth && today.getDate() < f.dayOfMonth) return; // day not yet arrived
+        const st = getFixedStatusForMonth(f.id, cycleMonthDate);
+        const splitsPaid = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
+        f.splits.forEach((s, i) => {
+            if (splitsPaid[i]) return;
+            const nameKey = (s.name || '').toLowerCase().trim();
+            const dayStr = `${cycleMonthDate.getFullYear()}-${String(cycleMonthDate.getMonth()+1).padStart(2,'0')}-${String(Math.min(f.dayOfMonth||1, 28)).padStart(2,'0')}`;
+            addItem(nameKey, s.name, { expId: f.id, splitIdx: i, legacy: false, fixed: true, fixedMonthStr: dayStr.slice(0,7), amount: parseFloat(s.amount) || 0, description: f.description || '(sem descrição)', date: dayStr });
         });
     });
 
@@ -3083,7 +3085,7 @@ function renderThirdPartySplits() {
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
                     <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
-                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedDate ? new Date(item.fixedDate).toISOString().slice(0,10) : item.date}'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
+                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedMonthStr}-01'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
                 </div>
             </div>`).join('')}
         </div>`;
