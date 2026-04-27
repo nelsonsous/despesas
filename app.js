@@ -2748,8 +2748,11 @@ function updateDashboard() {
         anexosSummaryEl.textContent = String(attachmentCount || 0);
     }
     // First-render: if "acertar" has no stored preference and there's nothing
-    // owed, default to closed. Otherwise honour the saved/default state.
-    if (localStorage.getItem('despesas_dash_section_acertar') === null && splitAmount === 0) {
+    // owed (co-parent AND third-party splits), default to closed.
+    const hasThirdPartySplits = expenses.some(e =>
+        Array.isArray(e.splits) && e.splits.some(s => !s.paid && s.name)
+    );
+    if (localStorage.getItem('despesas_dash_section_acertar') === null && splitAmount === 0 && !hasThirdPartySplits) {
         localStorage.setItem('despesas_dash_section_acertar', '0');
     }
     initDashSections();
@@ -2780,6 +2783,7 @@ function updateDashboard() {
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
+    renderThirdPartySplits();
     renderInsights();
     renderAiInsightsCard();
     renderSavingsGoals();
@@ -2992,6 +2996,77 @@ function renderPartnerSummary() {
             }).join('')}
         </div>` : ''}
     `;
+}
+
+function renderThirdPartySplits() {
+    const container = document.getElementById('third-party-splits');
+    if (!container) return;
+
+    // Names to exclude (already shown in co-parent / children cards)
+    const excludeNames = new Set();
+    const partnerName = (getPartnerName() || '').toLowerCase().trim();
+    if (partnerName) excludeNames.add(partnerName);
+    (children || []).forEach(c => { if (c.name) excludeNames.add(c.name.toLowerCase().trim()); });
+    (children || []).forEach(c => { if (c.coParentName) excludeNames.add(c.coParentName.toLowerCase().trim()); });
+
+    // Collect all unpaid splits from ALL expenses (not just current month)
+    const byPerson = {}; // name → [{ expId, splitIdx, amount, description, date }]
+    expenses.forEach(e => {
+        if (!Array.isArray(e.splits)) return;
+        e.splits.forEach((s, i) => {
+            if (s.paid) return;
+            const nameKey = (s.name || '').toLowerCase().trim();
+            if (!nameKey || excludeNames.has(nameKey)) return;
+            if (!byPerson[nameKey]) byPerson[nameKey] = { displayName: s.name, items: [] };
+            byPerson[nameKey].items.push({ expId: e.id, splitIdx: i, amount: s.amount, description: e.description || '(sem descrição)', date: e.date });
+        });
+    });
+
+    const entries = Object.values(byPerson).filter(p => p.items.length > 0);
+    if (!entries.length) { container.innerHTML = ''; return; }
+
+    // Sort by total owed desc
+    entries.sort((a, b) => {
+        const ta = a.items.reduce((s, i) => s + i.amount, 0);
+        const tb = b.items.reduce((s, i) => s + i.amount, 0);
+        return tb - ta;
+    });
+
+    container.innerHTML = entries.map(p => {
+        const total = p.items.reduce((s, i) => s + i.amount, 0);
+        const sorted = [...p.items].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        return `
+        <div style="margin-bottom:10px;background:var(--card,var(--surface,#fff));border-radius:10px;overflow:hidden;border:1px solid rgba(127,127,127,0.12)">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(90,59,216,0.06)">
+                <div style="display:flex;align-items:center;gap:8px">
+                    <i class="fas fa-user-clock" style="color:var(--primary);font-size:0.9rem"></i>
+                    <span style="font-weight:700;font-size:0.9rem">${p.displayName}</span>
+                </div>
+                <span style="font-weight:800;color:var(--primary)">${formatCurrency(total)}</span>
+            </div>
+            ${sorted.map(item => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-top:1px solid rgba(127,127,127,0.07)">
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.description}</div>
+                    <div style="font-size:0.7rem;color:var(--text-light)">${formatDate(item.date)}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
+                    <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
+                    <button onclick="toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
+                </div>
+            </div>`).join('')}
+        </div>`;
+    }).join('');
+
+    // Update summary line
+    const totalOwed = entries.reduce((s, p) => s + p.items.reduce((ss, i) => ss + i.amount, 0), 0);
+    const summaryEl = document.getElementById('dash-summary-acertar');
+    if (summaryEl && totalOwed > 0) {
+        const current = summaryEl.textContent || '';
+        if (!current.includes('devem')) {
+            summaryEl.textContent = `${entries.length} ${entries.length === 1 ? 'pessoa' : 'pessoas'} · ${formatCurrency(totalOwed)}`;
+        }
+    }
 }
 
 function renderSpendingPace(monthExp, totalIncome, totalExpenses) {
