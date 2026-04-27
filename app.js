@@ -5694,34 +5694,55 @@ function renderPeopleSpending() {
 function renderWeekdayHeatmap() {
     const container = document.getElementById('weekday-heatmap');
     if (!container) return;
-    const monthExp = getEffectiveMonthExpenses(currentDate);
-    if (monthExp.length === 0) { container.style.display = 'none'; return; }
-    const byDay = [0, 0, 0, 0, 0, 0, 0];
-    const countByDay = [0, 0, 0, 0, 0, 0, 0];
-    monthExp.forEach(e => {
-        const dow = new Date(e.date).getDay();
-        byDay[dow] += e.amount;
-        countByDay[dow] += 1;
+    // Build the current calendar week: Mon..Sun
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayDow = today.getDay(); // 0=Sun,1=Mon…
+    const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    // Collect one date string per weekday slot [Mon,Tue,Wed,Thu,Fri,Sat,Sun]
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        return toLocalDateStr(d);
     });
-    // Average per transaction for each weekday (avoids distortion from large fixed payments)
-    const avgByDay = byDay.map((total, dow) => countByDay[dow] > 0 ? total / countByDay[dow] : 0);
-    const max = Math.max(...avgByDay, 1);
-    const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+    const todayStr = toLocalDateStr(today);
+    // Get all expenses for the month(s) touched by this week and filter to week dates
+    const allExp = getEffectiveMonthExpenses(currentDate);
+    const weekDateSet = new Set(weekDates);
+    const weekExp = allExp.filter(e => weekDateSet.has(e.date));
+    // Also pull prior-month expenses if week started in previous month
+    if (weekDates[0] < toLocalDateStr(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1))) {
+        const prevDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+        getEffectiveMonthExpenses(prevDate).forEach(e => { if (weekDateSet.has(e.date)) weekExp.push(e); });
+    }
+    // Sum per weekday slot index 0=Mon … 6=Sun
+    const bySlot = [0, 0, 0, 0, 0, 0, 0];
+    weekExp.forEach(e => {
+        const idx = weekDates.indexOf(e.date);
+        if (idx >= 0) bySlot[idx] += e.amount;
+    });
+    const max = Math.max(...bySlot, 1);
+    const dayNames = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
     container.style.display = 'block';
     container.innerHTML = `
         <h3 class="card-title"><i class="fas fa-calendar-day"></i> Gastos por dia da semana</h3>
-        <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px">Média por transação · mês atual</div>
+        <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px">Semana atual · total por dia</div>
         <div style="display:flex;gap:4px;align-items:flex-end;height:100px;padding:4px 0">
-            ${[1,2,3,4,5,6,0].map(dow => {
-                const avg = avgByDay[dow];
-                const count = countByDay[dow];
-                const h = (avg / max * 100).toFixed(0);
-                const isWeekend = dow === 0 || dow === 6;
-                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-                    <div style="font-size:0.6rem;color:var(--text-light);text-align:center;line-height:1.2">${avg > 0 ? formatCurrency(avg).replace(' EUR','').replace(',00','') : ''}</div>
-                    <div style="width:100%;height:${h}%;min-height:${avg > 0 ? 3 : 0}px;background:${isWeekend ? 'var(--warning)' : 'var(--primary)'};border-radius:4px 4px 0 0;transition:height 0.3s"></div>
-                    <div style="font-size:0.7rem;font-weight:600">${dayNames[dow]}</div>
-                    <div style="font-size:0.6rem;color:var(--text-light)">${count > 0 ? count + 'x' : ''}</div>
+            ${dayNames.map((name, idx) => {
+                const val = bySlot[idx];
+                const dateStr = weekDates[idx];
+                const isFuture = dateStr > todayStr;
+                const isToday = dateStr === todayStr;
+                const isWeekend = idx >= 5;
+                const h = isFuture ? 0 : (val / max * 100).toFixed(0);
+                const barColor = isFuture ? 'var(--text-light)' : isWeekend ? 'var(--warning)' : 'var(--primary)';
+                const opacity = isFuture ? '0.15' : '1';
+                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;opacity:${opacity}">
+                    <div style="font-size:0.6rem;color:var(--text-light);text-align:center;line-height:1.2">${!isFuture && val > 0 ? formatCurrency(val).replace(' EUR','').replace(',00','') : ''}</div>
+                    <div style="width:100%;height:${h}%;min-height:${!isFuture && val > 0 ? 3 : 0}px;background:${barColor};border-radius:4px 4px 0 0;transition:height 0.3s"></div>
+                    <div style="font-size:0.7rem;font-weight:${isToday ? '800' : '600'};text-decoration:${isToday ? 'underline' : 'none'}">${name}</div>
                 </div>`;
             }).join('')}
         </div>
