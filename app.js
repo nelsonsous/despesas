@@ -1986,16 +1986,16 @@ function getFixedStatusForMonth(fixedId, date) {
 // Returns effective status considering auto-pay when day of month has arrived
 function getEffectiveFixedStatus(f, date) {
     const explicit = getFixedStatusForMonth(f.id, date);
-    if (explicit) return explicit;
+    // Explicit 'pago' or 'ignorado' always wins; explicit 'pendente' is just
+    // the natural default and does NOT block auto-approval when the day arrives.
+    if (explicit && explicit.status !== 'pendente') return explicit;
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     if (isCurrentMonth && today.getDate() >= f.dayOfMonth) {
-        // Audit trail: record the auto-approval once so the user can confirm
-        // or revert it from the inbox. No-op if already recorded/confirmed.
         recordInboxAutoApproval('expense', f, date);
         return { status: 'pago', auto: true };
     }
-    return { status: 'pendente', auto: false };
+    return explicit || { status: 'pendente', auto: false };
 }
 
 function isFixedSkipped(fixedId, date) {
