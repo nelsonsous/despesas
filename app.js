@@ -3068,25 +3068,22 @@ function renderThirdPartySplits() {
         const total = p.items.reduce((s, i) => s + i.amount, 0);
         const sorted = [...p.items].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         return `
-        <div style="margin-bottom:10px;background:var(--card,var(--surface,#fff));border-radius:10px;overflow:hidden;border:1px solid rgba(127,127,127,0.12)">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(90,59,216,0.06)">
-                <div style="display:flex;align-items:center;gap:8px">
-                    <i class="fas fa-user-clock" style="color:var(--primary);font-size:0.9rem"></i>
-                    <span style="font-weight:700;font-size:0.9rem">${p.displayName}</span>
-                </div>
-                <span style="font-weight:800;color:var(--primary)">${formatCurrency(total)}</span>
-            </div>
-            ${sorted.map(item => `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-top:1px solid rgba(127,127,127,0.07)">
-                <div style="flex:1;min-width:0">
-                    <div style="font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.description}</div>
-                    <div style="font-size:0.7rem;color:var(--text-light)">${formatDate(item.date)}</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
-                    <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
-                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedMonthStr}-01'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-hand-holding-dollar"></i> Recebi</button>
-                </div>
-            </div>`).join('')}
+        <div style="margin-bottom:10px">
+            <div style="font-size:0.72rem;color:var(--text-light);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:5px;padding:0 2px">${p.displayName} · ${formatCurrency(total)}</div>
+            ${sorted.map(item => {
+                const onclick = item.fixed
+                    ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedMonthStr}-01'),${item.splitIdx})`
+                    : item.legacy
+                        ? `toggleSplitWithReceived('${item.expId}')`
+                        : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`;
+                return `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+                    <div style="font-size:0.82rem;color:var(--text-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${item.description} <span style="font-size:0.7rem">${formatDate(item.date)}</span></div>
+                    <button onclick="${onclick}" class="fixed-status-badge status-pendente" style="border:none;cursor:pointer;white-space:nowrap;margin-left:8px;flex-shrink:0">
+                        <i class="fas fa-clock"></i> ${p.displayName} ${formatCurrency(item.amount)}?
+                    </button>
+                </div>`;
+            }).join('')}
         </div>`;
     }).join('');
 
