@@ -3080,7 +3080,7 @@ function renderThirdPartySplits() {
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
                     <div style="font-size:0.82rem;color:var(--text-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${item.description} <span style="font-size:0.7rem">${formatDate(item.date)}</span></div>
                     <button onclick="${onclick}" class="fixed-status-badge status-pendente" style="border:none;cursor:pointer;white-space:nowrap;margin-left:8px;flex-shrink:0">
-                        <i class="fas fa-clock"></i> ${p.displayName} ${formatCurrency(item.amount)}?
+                        <i class="fas fa-clock"></i> ${p.displayName} ${formatCurrency(item.amount)}
                     </button>
                 </div>`;
             }).join('')}
