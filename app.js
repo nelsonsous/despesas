@@ -1986,9 +1986,10 @@ function getFixedStatusForMonth(fixedId, date) {
 // Returns effective status considering auto-pay when day of month has arrived
 function getEffectiveFixedStatus(f, date) {
     const explicit = getFixedStatusForMonth(f.id, date);
-    // Explicit 'pago' or 'ignorado' always wins; explicit 'pendente' is just
-    // the natural default and does NOT block auto-approval when the day arrives.
-    if (explicit && explicit.status !== 'pendente') return explicit;
+    // 'pago', 'ignorado', or manualPendente (user explicitly reverted) always wins.
+    // Plain 'pendente' without manualPendente is just the natural default and
+    // does NOT block auto-approval when the day arrives.
+    if (explicit && (explicit.status !== 'pendente' || explicit.manualPendente)) return explicit;
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
     if (isCurrentMonth && today.getDate() >= f.dayOfMonth) {
@@ -2096,8 +2097,11 @@ function markFixedPaid(fixedId, date, paid) {
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
     if (idx >= 0) {
         fixedStatus[idx].status = paid ? 'pago' : 'pendente';
+        // When user explicitly sets to pendente, lock it so auto-approval doesn't override
+        if (!paid) fixedStatus[idx].manualPendente = true;
+        else delete fixedStatus[idx].manualPendente;
     } else {
-        fixedStatus.push({ fixedId, month: monthKey, status: paid ? 'pago' : 'pendente' });
+        fixedStatus.push({ fixedId, month: monthKey, status: paid ? 'pago' : 'pendente', ...(paid ? {} : { manualPendente: true }) });
     }
     saveData();
     updateAll();
@@ -6549,8 +6553,9 @@ async function generateAiMonthNarrative(date) {
         const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
         const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
         const daysLeft = Math.max(0, daysTotal - daysElapsed);
+        const cycleSavingsAI = Math.max(0, getGoalsContributionInRange(cycle.start, cycle.end));
         const totalBudget = b.incReceived || (b.expPaid + b.expPending);
-        const available = totalBudget - b.expPaid - b.expPending;
+        const available = totalBudget - b.expPaid - b.expPending - cycleSavingsAI;
         const dailyRate = b.expPaidVariable > 0 ? b.expPaidVariable / daysElapsed : 0;
         const dailyBudget = daysLeft > 0 && available > 0 ? available / daysLeft : 0;
         const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -6562,7 +6567,7 @@ Dados do ciclo (EUR):
 Recebido: ${b.incReceived.toFixed(2)}
 Gasto até agora: ${b.expPaid.toFixed(2)} (dos quais ${b.expPaidVariable.toFixed(2)} variável)
 Fixo cativo a sair: ${b.expPending.toFixed(2)}
-Disponível no ciclo: ${available.toFixed(2)}
+${cycleSavingsAI > 0 ? `Poupança alocada neste ciclo: ${cycleSavingsAI.toFixed(2)}\n` : ''}Disponível no ciclo (após poupança): ${available.toFixed(2)}
 Ritmo atual variável: ${dailyRate.toFixed(2)}/dia
 Podes gastar (budget): ${dailyBudget.toFixed(2)}/dia nos próximos ${daysLeft} dias
 
