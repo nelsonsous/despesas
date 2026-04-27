@@ -5703,20 +5703,25 @@ function renderWeekdayHeatmap() {
         byDay[dow] += e.amount;
         countByDay[dow] += 1;
     });
-    const max = Math.max(...byDay, 1);
+    // Average per transaction for each weekday (avoids distortion from large fixed payments)
+    const avgByDay = byDay.map((total, dow) => countByDay[dow] > 0 ? total / countByDay[dow] : 0);
+    const max = Math.max(...avgByDay, 1);
     const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
     container.style.display = 'block';
     container.innerHTML = `
         <h3 class="card-title"><i class="fas fa-calendar-day"></i> Gastos por dia da semana</h3>
-        <div style="display:flex;gap:4px;align-items:flex-end;height:120px;padding:8px 0">
+        <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px">Média por transação · mês atual</div>
+        <div style="display:flex;gap:4px;align-items:flex-end;height:100px;padding:4px 0">
             ${[1,2,3,4,5,6,0].map(dow => {
-                const val = byDay[dow];
-                const h = (val / max * 100).toFixed(0);
+                const avg = avgByDay[dow];
+                const count = countByDay[dow];
+                const h = (avg / max * 100).toFixed(0);
                 const isWeekend = dow === 0 || dow === 6;
                 return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-                    <div style="font-size:0.65rem;color:var(--text-light)">${val > 0 ? formatCurrency(val).replace(',00', '') : ''}</div>
-                    <div style="width:100%;height:${h}%;min-height:2px;background:${isWeekend ? 'var(--warning)' : 'var(--primary)'};border-radius:4px 4px 0 0;transition:height 0.3s" title="${dayNames[dow]}: ${formatCurrency(val)} (${countByDay[dow]}x)"></div>
+                    <div style="font-size:0.6rem;color:var(--text-light);text-align:center;line-height:1.2">${avg > 0 ? formatCurrency(avg).replace(' EUR','').replace(',00','') : ''}</div>
+                    <div style="width:100%;height:${h}%;min-height:${avg > 0 ? 3 : 0}px;background:${isWeekend ? 'var(--warning)' : 'var(--primary)'};border-radius:4px 4px 0 0;transition:height 0.3s"></div>
                     <div style="font-size:0.7rem;font-weight:600">${dayNames[dow]}</div>
+                    <div style="font-size:0.6rem;color:var(--text-light)">${count > 0 ? count + 'x' : ''}</div>
                 </div>`;
             }).join('')}
         </div>
