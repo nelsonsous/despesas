@@ -2718,7 +2718,8 @@ function updateDashboard() {
     const splitCardEl = document.querySelector('.split-card');
     if (splitCardEl) {
         const hide = (isMarriedMode() && splitAmount === 0 && !monthExp.some(e => e.splitSpouse)) ||
-                     (!isMarriedMode() && children.length === 0);
+                     (!isMarriedMode() && children.length === 0) ||
+                     (!isMarriedMode() && splitAmount === 0);
         splitCardEl.style.display = hide ? 'none' : '';
     }
     document.getElementById('total-attachments').textContent = attachmentCount;
@@ -2750,7 +2751,8 @@ function updateDashboard() {
     // First-render: if "acertar" has no stored preference and there's nothing
     // owed (co-parent AND third-party splits), default to closed.
     const hasThirdPartySplits = expenses.some(e =>
-        Array.isArray(e.splits) && e.splits.some(s => !s.paid && s.name)
+        (Array.isArray(e.splits) && e.splits.some(s => !s.paid && s.name)) ||
+        (e.splitWithName && !e.splitWithReceived)
     );
     if (localStorage.getItem('despesas_dash_section_acertar') === null && splitAmount === 0 && !hasThirdPartySplits) {
         localStorage.setItem('despesas_dash_section_acertar', '0');
@@ -3010,16 +3012,29 @@ function renderThirdPartySplits() {
     (children || []).forEach(c => { if (c.coParentName) excludeNames.add(c.coParentName.toLowerCase().trim()); });
 
     // Collect all unpaid splits from ALL expenses (not just current month)
-    const byPerson = {}; // name → [{ expId, splitIdx, amount, description, date }]
+    // Handles both formats: new e.splits[] and legacy e.splitWithName
+    const byPerson = {}; // nameKey → { displayName, items[] }
+    const addItem = (nameKey, displayName, item) => {
+        if (!nameKey || excludeNames.has(nameKey)) return;
+        if (!byPerson[nameKey]) byPerson[nameKey] = { displayName, items: [] };
+        byPerson[nameKey].items.push(item);
+    };
     expenses.forEach(e => {
-        if (!Array.isArray(e.splits)) return;
-        e.splits.forEach((s, i) => {
-            if (s.paid) return;
-            const nameKey = (s.name || '').toLowerCase().trim();
-            if (!nameKey || excludeNames.has(nameKey)) return;
-            if (!byPerson[nameKey]) byPerson[nameKey] = { displayName: s.name, items: [] };
-            byPerson[nameKey].items.push({ expId: e.id, splitIdx: i, amount: s.amount, description: e.description || '(sem descrição)', date: e.date });
-        });
+        // New format: e.splits[]
+        if (Array.isArray(e.splits)) {
+            e.splits.forEach((s, i) => {
+                if (s.paid) return;
+                const nameKey = (s.name || '').toLowerCase().trim();
+                addItem(nameKey, s.name, { expId: e.id, splitIdx: i, legacy: false, amount: s.amount, description: e.description || '(sem descrição)', date: e.date });
+            });
+        }
+        // Legacy format: e.splitWithName / e.splitWithReceived
+        if (e.splitWithName && !e.splitWithReceived) {
+            const nameKey = e.splitWithName.toLowerCase().trim();
+            const pct = parseFloat(e.splitWithPct) || 50;
+            const amount = (e.amount || 0) * pct / 100;
+            addItem(nameKey, e.splitWithName, { expId: e.id, splitIdx: -1, legacy: true, amount, description: e.description || '(sem descrição)', date: e.date });
+        }
     });
 
     const entries = Object.values(byPerson).filter(p => p.items.length > 0);
@@ -3052,7 +3067,7 @@ function renderThirdPartySplits() {
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
                     <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
-                    <button onclick="toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
+                    <button onclick="${item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
                 </div>
             </div>`).join('')}
         </div>`;
