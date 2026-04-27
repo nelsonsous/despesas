@@ -3037,21 +3037,20 @@ function renderThirdPartySplits() {
         }
     });
 
-    // Fixed expenses with splits — only current calendar month
-    const cycleMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    // Fixed expenses with splits — always today's real month, only if day has arrived
+    const today = new Date();
+    const realMonthDate = new Date(today.getFullYear(), today.getMonth(), 1);
     ;(fixedExpenses || []).forEach(f => {
         if (!Array.isArray(f.splits) || !f.splits.length) return;
-        // Only show if the fixed expense day has arrived this month
-        const today = new Date();
-        const isCurrentMonth = cycleMonthDate.getMonth() === today.getMonth() && cycleMonthDate.getFullYear() === today.getFullYear();
-        if (isCurrentMonth && today.getDate() < f.dayOfMonth) return; // day not yet arrived
-        const st = getFixedStatusForMonth(f.id, cycleMonthDate);
+        if (today.getDate() < f.dayOfMonth) return; // day not yet arrived this month
+        const st = getFixedStatusForMonth(f.id, realMonthDate);
         const splitsPaid = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
         f.splits.forEach((s, i) => {
             if (splitsPaid[i]) return;
             const nameKey = (s.name || '').toLowerCase().trim();
-            const dayStr = `${cycleMonthDate.getFullYear()}-${String(cycleMonthDate.getMonth()+1).padStart(2,'0')}-${String(Math.min(f.dayOfMonth||1, 28)).padStart(2,'0')}`;
-            addItem(nameKey, s.name, { expId: f.id, splitIdx: i, legacy: false, fixed: true, fixedMonthStr: dayStr.slice(0,7), amount: parseFloat(s.amount) || 0, description: f.description || '(sem descrição)', date: dayStr });
+            const monthStr = `${realMonthDate.getFullYear()}-${String(realMonthDate.getMonth()+1).padStart(2,'0')}`;
+            const dayStr = `${monthStr}-${String(Math.min(f.dayOfMonth||1, 28)).padStart(2,'0')}`;
+            addItem(nameKey, s.name, { expId: f.id, splitIdx: i, legacy: false, fixed: true, fixedMonthStr: monthStr, amount: parseFloat(s.amount) || 0, description: f.description || '(sem descrição)', date: dayStr });
         });
     });
 
