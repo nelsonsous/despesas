@@ -12141,7 +12141,12 @@ function getInbox() {
 }
 
 function saveInbox(arr) {
-    try { localStorage.setItem(INBOX_KEY, JSON.stringify(arr)); } catch {}
+    // Prune confirmed entries older than 2 months to keep inbox lean
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 2);
+    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}`;
+    const pruned = arr.filter(e => e.status !== 'confirmed' || (e.month || '') >= cutoffKey);
+    try { localStorage.setItem(INBOX_KEY, JSON.stringify(pruned)); } catch {}
 }
 
 function getFixedMonthKeyForInbox(date) {
@@ -12243,9 +12248,12 @@ function renderInboxList() {
 }
 
 function confirmInboxEntry(entryId) {
-    const inbox = getInbox().filter(e => e.id !== entryId);
+    const inbox = getInbox();
+    const entry = inbox.find(e => e.id === entryId);
+    if (entry) entry.status = 'confirmed';
     saveInbox(inbox);
     renderInboxList();
+    refreshInboxBadge();
     showToast('Confirmado');
 }
 
