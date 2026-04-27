@@ -2717,10 +2717,10 @@ function updateDashboard() {
     // Hide split card when no relevant split data
     const splitCardEl = document.querySelector('.split-card');
     if (splitCardEl) {
-        const hide = (isMarriedMode() && splitAmount === 0 && !monthExp.some(e => e.splitSpouse)) ||
-                     (!isMarriedMode() && children.length === 0) ||
-                     (!isMarriedMode() && splitAmount === 0);
+        const hide = splitAmount === 0;
         splitCardEl.style.display = hide ? 'none' : '';
+        const splitCardsWrap = document.getElementById('dash-summary-cards-split');
+        if (splitCardsWrap) splitCardsWrap.style.display = hide ? 'none' : '';
     }
     document.getElementById('total-attachments').textContent = attachmentCount;
 
@@ -2735,13 +2735,13 @@ function updateDashboard() {
     }
     const acertarSummaryEl = document.getElementById('dash-summary-acertar');
     if (acertarSummaryEl) {
-        const owedName = isMarriedMode()
-            ? getSpouseName()
-            : (children.length === 1 ? (children[0].coParentName || 'co-prog.') : 'co-prog.');
         if (splitAmount > 0) {
+            const owedName = isMarriedMode()
+                ? getSpouseName()
+                : (children.length === 1 ? (children[0].coParentName || 'co-prog.') : 'co-prog.');
             acertarSummaryEl.textContent = `${owedName} deve ${formatCurrency(splitAmount)}`;
         } else {
-            acertarSummaryEl.textContent = `Pessoal ${formatCurrency(personal)}`;
+            acertarSummaryEl.textContent = '—';
         }
     }
     const anexosSummaryEl = document.getElementById('dash-summary-anexos');
@@ -3037,6 +3037,22 @@ function renderThirdPartySplits() {
         }
     });
 
+    // Fixed expenses with splits — check current + previous month
+    const monthsToCheck = [currentDate, new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1)];
+    monthsToCheck.forEach(monthDate => {
+        (fixedExpenses || []).forEach(f => {
+            if (!Array.isArray(f.splits) || !f.splits.length) return;
+            const st = getFixedStatusForMonth(f.id, monthDate);
+            const splitsPaid = Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
+            f.splits.forEach((s, i) => {
+                if (splitsPaid[i]) return;
+                const nameKey = (s.name || '').toLowerCase().trim();
+                const dayStr = `${monthDate.getFullYear()}-${String(monthDate.getMonth()+1).padStart(2,'0')}-${String(Math.min(f.dayOfMonth||1, 28)).padStart(2,'0')}`;
+                addItem(nameKey, s.name, { expId: f.id, splitIdx: i, legacy: false, fixed: true, fixedDate: monthDate, amount: parseFloat(s.amount) || 0, description: f.description || '(sem descrição)', date: dayStr });
+            });
+        });
+    });
+
     const entries = Object.values(byPerson).filter(p => p.items.length > 0);
     if (!entries.length) { container.innerHTML = ''; return; }
 
@@ -3067,7 +3083,7 @@ function renderThirdPartySplits() {
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
                     <span style="font-size:0.82rem;color:var(--danger);font-weight:600">${formatCurrency(item.amount)}</span>
-                    <button onclick="${item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
+                    <button onclick="${item.fixed ? `toggleFixedSplitPaid('${item.expId}',new Date('${item.fixedDate ? new Date(item.fixedDate).toISOString().slice(0,10) : item.date}'),${item.splitIdx})` : item.legacy ? `toggleSplitWithReceived('${item.expId}')` : `toggleExpenseSplitPaid('${item.expId}',${item.splitIdx})`}" class="btn btn-sm" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;font-size:0.7rem;padding:3px 8px;white-space:nowrap"><i class="fas fa-check"></i> Recebido</button>
                 </div>
             </div>`).join('')}
         </div>`;

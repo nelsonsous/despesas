@@ -242,21 +242,11 @@
                     </div>
                     <div class="dash-section-body" id="dash-body-acertar">
                         <div id="third-party-splits"></div>
-                        <div class="summary-cards" id="dash-summary-cards-split">
-                            <div class="card personal-card">
-                                <div class="card-icon"><i class="fas fa-user"></i></div>
-                                <div class="card-info">
-                                    <span class="card-label">Pessoal</span>
-                                    <span class="card-value" id="total-personal">0,00 EUR</span>
-                                </div>
-                            </div>
-                            <div class="card laura-card">
-                                <div class="card-icon"><i class="fas fa-children"></i></div>
-                                <div class="card-info">
-                                    <span class="card-label" id="children-card-label">Filhos</span>
-                                    <span class="card-value" id="total-laura">0,00 EUR</span>
-                                </div>
-                            </div>
+                        <!-- hidden elements kept for JS compatibility -->
+                        <span id="total-personal" style="display:none">0</span>
+                        <span id="total-laura" style="display:none">0</span>
+                        <span id="children-card-label" style="display:none"></span>
+                        <div id="dash-summary-cards-split" style="display:none">
                             <div class="card split-card">
                                 <div class="card-icon"><i class="fas fa-divide"></i></div>
                                 <div class="card-info">
