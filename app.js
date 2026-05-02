@@ -2271,6 +2271,7 @@ function getEffectiveSplitPct(e, child) {
 
 function adjustExpenseForCoParent(e) {
     // Generic split-with-other takes precedence — the user explicitly tagged a person.
+    if (Array.isArray(e.splits) && e.splits.length > 0) return adjustExpenseForCustomSplit(e);
     if (e.splitWithName) return adjustExpenseForCustomSplit(e);
     // In married mode: apply spouse split
     if (isMarriedMode()) {
