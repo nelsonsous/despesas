@@ -2253,7 +2253,10 @@ function getPaidFixedAsExpenses(date) {
                 paidByFather,
                 essential: true,
                 isFixedExpense: true,
-                fixedId: f.id
+                fixedId: f.id,
+                mixChildId: f.mixChildId || null,
+                mixChildPct: f.mixChildPct || null,
+                mixChildSplitCoParent: f.mixChildSplitCoParent || false
             };
         });
 }
@@ -2405,7 +2408,9 @@ function getEffectiveMonthExpenses(date) {
     const withChildMix = real.flatMap(expandMixPersonalChild);
     const withPartnerMix = withChildMix.flatMap(expandMixPersonalPartner);
     const expanded = withPartnerMix.flatMap(expandSplitAcrossChildren);
-    const paidFixed = getPaidFixedAsExpenses(date).flatMap(expandSplitAcrossChildren);
+    const paidFixed = getPaidFixedAsExpenses(date)
+        .flatMap(expandMixPersonalChild)
+        .flatMap(expandSplitAcrossChildren);
     return [...expanded, ...paidFixed];
 }
 
@@ -3926,6 +3931,13 @@ function renderExpenses() {
                     return `<button onclick="event.stopPropagation();toggleFixedSplitPaid('${f.id}', currentDate, ${i})" class="fixed-status-badge ${paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem" title="${s.name}: ${formatCurrency(s.amount)}">${paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`;
                 }).join('')
                 : '';
+            // Mix-child badge for fixed expenses
+            let fixedMixChildBadge = '';
+            if (f.mixChildId && f.mixChildPct) {
+                const mc = children.find(c => c.id === f.mixChildId);
+                const mcName = mc ? mc.name : '?';
+                fixedMixChildBadge = `<span class="fixed-status-badge" style="background:#EDE7F6;color:var(--primary);font-size:0.65rem"><i class="fas fa-divide"></i> ${100 - f.mixChildPct}% / ${f.mixChildPct}% ${mcName}</span>`;
+            }
             // Mix-partner badge + per-month toggle for fixed expenses
             let fixedMixPartnerBadge = '';
             if (f.mixPartnerPct && f.mixPartnerName) {
@@ -3953,7 +3965,7 @@ function renderExpenses() {
             const varBadge = f.isVariable ? `<span style="font-size:0.65rem;color:var(--primary);font-weight:600;background:#EDE7F6;padding:1px 5px;border-radius:4px">~</span>` : '';
             const varEdit = f.isVariable ? `<button onclick="event.stopPropagation();editFixedAmount('${f.id}', currentDate)" class="btn-icon" style="color:var(--primary);padding:4px" title="Editar valor real"><i class="fas fa-pen-to-square"></i></button>` : '';
 
-            const hasExtraBadges = !!splitBadge || !!fixedSplitsBadge;
+            const hasExtraBadges = !!splitBadge || !!fixedSplitsBadge || !!fixedMixChildBadge;
             // Mirrors the variable-expense pattern: tap the row body to open
             // editFixed; the only buttons inline are the per-month toggles
             // (pago/pendente, ignorar) plus the "real value" pen for
@@ -3990,7 +4002,7 @@ function renderExpenses() {
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
-                    ${hasExtraBadges || fixedMixPartnerBadge ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}${fixedMixPartnerBadge}</div>` : ''}
+                    ${hasExtraBadges || fixedMixPartnerBadge ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">${splitBadge}${fixedSplitsBadge}${fixedMixChildBadge}${fixedMixPartnerBadge}</div>` : ''}
                 </div>
             `;
         }
@@ -8630,6 +8642,43 @@ function fixedDistributeEqually() {
     });
     showToast(`${parts} partes de ${formatCurrency(per)}`);
 }
+// Mix Pessoal+child for FIXED expenses — mirrors the one-off flow. Template
+// stores mixChildId + mixChildPct. Expanded to two virtuals by
+// expandMixPersonalChild when computing monthly totals.
+function toggleFixedMixChild() {
+    const cb = document.getElementById('fixed-mix-with-child');
+    const fields = document.getElementById('fixed-mix-child-fields');
+    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+    if (cb?.checked) populateFixedMixChildSelect();
+}
+
+function populateFixedMixChildSelect() {
+    const sel = document.getElementById('fixed-mix-child-id');
+    if (!sel) return;
+    const currentVal = sel.value;
+    sel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    if (currentVal && children.some(c => c.id === currentVal)) sel.value = currentVal;
+}
+
+function updateFixedMixChildUI(f) {
+    const grp = document.getElementById('fixed-mix-child-group');
+    if (!grp) return;
+    const currentType = document.querySelector('input[name="fixed-type"]:checked')?.value || 'personal';
+    const isPersonal = currentType === 'personal';
+    grp.style.display = (isPersonal && children.length >= 1) ? 'block' : 'none';
+    populateFixedMixChildSelect();
+    const cb = document.getElementById('fixed-mix-with-child');
+    const pct = document.getElementById('fixed-mix-child-pct');
+    const splitCb = document.getElementById('fixed-mix-child-split-coparent');
+    const sel = document.getElementById('fixed-mix-child-id');
+    const has = !!(f && f.mixChildId && f.mixChildPct);
+    if (cb) cb.checked = has;
+    if (pct) pct.value = f?.mixChildPct || 50;
+    if (sel && f?.mixChildId && children.some(c => c.id === f.mixChildId)) sel.value = f.mixChildId;
+    if (splitCb) splitCb.checked = !!(f && f.mixChildSplitCoParent);
+    toggleFixedMixChild();
+}
+
 // Mix Pessoal+partner for FIXED expenses — same concept as one-offs. Template
 // stores mixPartnerPct + optional sub-split. Paid-per-month state lives on the
 // per-month fixedStatus record (mixPartnerPaid).
@@ -11480,6 +11529,7 @@ function showAddFixed() {
     if (fOvFields) fOvFields.style.display = 'none';
     if (fOvInput) fOvInput.value = '';
     populateFixedSplitsUI(null);
+    updateFixedMixChildUI(null);
     updateFixedMixPartnerUI(null);
     populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
@@ -11529,6 +11579,7 @@ function editFixed(id) {
         if (fOvInput) fOvInput.value = '';
     }
     populateFixedSplitsUI(f);
+    updateFixedMixChildUI(f);
     updateFixedMixPartnerUI(f);
     populateSplitWithNamesList();
     document.getElementById('fixed-modal').classList.add('active');
@@ -11551,6 +11602,11 @@ function saveFixed(event) {
     // with per-month reimbursement tracked on fixedStatus.mixPartnerPaid.
     const mixPartnerSpentOn = mixPartnerOn;
     const mixPartnerSplitOn = mixPartnerOn && !!document.getElementById('fixed-mix-partner-split')?.checked;
+    const mixChildOn = ftype === 'personal' && children.length >= 1
+        && !!document.getElementById('fixed-mix-with-child')?.checked;
+    const mixChildId = mixChildOn ? (document.getElementById('fixed-mix-child-id')?.value || null) : null;
+    const mixChildPct = mixChildOn ? (parseFloat(document.getElementById('fixed-mix-child-pct')?.value) || 0) : 0;
+    const mixChildSplitCoParent = mixChildOn && !!document.getElementById('fixed-mix-child-split-coparent')?.checked;
     const fSplit = isChild ? (document.querySelector('input[name="fixed-split"]:checked')?.value === 'yes') : false;
     const fOvOn = !!document.getElementById('fixed-split-pct-override-on')?.checked;
     const fOvRaw = parseFloat(document.getElementById('fixed-split-pct-override')?.value);
@@ -11575,6 +11631,9 @@ function saveFixed(event) {
         mixPartnerName: mixPartnerOn && mixPartnerPct > 0 && mixPartnerPct < 100 ? partnerName : null,
         mixPartnerSpent: mixPartnerSpentOn,
         mixPartnerSplit: mixPartnerSplitOn,
+        mixChildId: mixChildOn && mixChildId && mixChildPct > 0 && mixChildPct < 100 ? mixChildId : null,
+        mixChildPct: mixChildOn && mixChildPct > 0 && mixChildPct < 100 ? mixChildPct : null,
+        mixChildSplitCoParent: mixChildSplitCoParent || false,
         updatedAt: new Date().toISOString()
     };
     if (id) {
@@ -11628,8 +11687,17 @@ function setupFixedTypeToggle() {
         radio.addEventListener('change', (e) => {
             const child = children.find(c => c.id === e.target.value);
             const canSplit = child && child.hasSplit !== false;
+            const isPersonal = e.target.value === 'personal';
             const splitGroup = document.getElementById('fixed-split-group');
             if (splitGroup) splitGroup.style.display = canSplit ? 'block' : 'none';
+            const mixChildGrp = document.getElementById('fixed-mix-child-group');
+            if (mixChildGrp) {
+                mixChildGrp.style.display = (isPersonal && children.length >= 1) ? 'block' : 'none';
+                if (!isPersonal) {
+                    const cb = document.getElementById('fixed-mix-with-child');
+                    if (cb) { cb.checked = false; toggleFixedMixChild(); }
+                }
+            }
         });
     });
 }
