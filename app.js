@@ -1291,9 +1291,10 @@ function renderSalaryCycle() {
         ? Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1))
         : daysTotal;
 
-    // Daily spending rate — total paid (fixed + variable) so it's comparable
-    // with dailyBudget, which already accounts for all outflows.
-    const dailyVarRate = daysElapsed > 0 ? b.expPaid / daysElapsed : 0;
+    // Variable-only daily rate — fixed expenses are committed costs that don't
+    // reflect day-to-day spending behaviour; dailyBudget is the variable budget
+    // (available after all fixed are accounted for), so the comparison is fair.
+    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
     const projectedVar = dailyVarRate * daysLeft;
     const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
 
@@ -1330,16 +1331,16 @@ function renderSalaryCycle() {
     // percentage comes from.
     const dailyBudget = (cycleContainsToday && daysLeft > 0) ? (available / daysLeft) : 0;
     if (rateEl) {
-        if (b.expPaid > 0 && dailyBudget > 0) {
+        if (b.expPaidVariable > 0 && dailyBudget > 0) {
             const diffPct = Math.round((dailyVarRate - dailyBudget) / dailyBudget * 100);
             const over = diffPct > 10;
             const under = diffPct < -10;
             const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
-            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyBudget)})${tag}`;
-            rateEl.title = `Comparado com o orçamento diário (Disponível ÷ ${daysLeft} dias restantes)`;
+            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia variável (orç. ${formatCurrency(dailyBudget)})${tag}`;
+            rateEl.title = `Ritmo variável comparado com o orçamento diário (Disponível ÷ ${daysLeft} dias restantes). Despesas fixas pagas não entram neste ritmo.`;
             rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
-        } else if (b.expPaid > 0) {
-            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
+        } else if (b.expPaidVariable > 0) {
+            rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia variável`;
             rateEl.style.color = '';
         } else {
             rateEl.textContent = '';
@@ -1413,7 +1414,7 @@ function renderSalaryCycle() {
     const cycleIsPast = today > cycleEnd;
     const cycleIsFuture = today < cycleStart;
     let showProjection = false;
-    if (cycleContainsToday && b.expPaid > 0 && daysLeft > 0) {
+    if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
         if (projLabelEl) projLabelEl.textContent = 'Ao ritmo atual';
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
