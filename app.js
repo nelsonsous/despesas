@@ -1291,8 +1291,9 @@ function renderSalaryCycle() {
         ? Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1))
         : daysTotal;
 
-    // Daily spending rate (variable only — fixed doesn't reflect daily behaviour)
-    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
+    // Daily spending rate — total paid (fixed + variable) so it's comparable
+    // with dailyBudget, which already accounts for all outflows.
+    const dailyVarRate = daysElapsed > 0 ? b.expPaid / daysElapsed : 0;
     const projectedVar = dailyVarRate * daysLeft;
     const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
 
@@ -1329,7 +1330,7 @@ function renderSalaryCycle() {
     // percentage comes from.
     const dailyBudget = (cycleContainsToday && daysLeft > 0) ? (available / daysLeft) : 0;
     if (rateEl) {
-        if (b.expPaidVariable > 0 && dailyBudget > 0) {
+        if (b.expPaid > 0 && dailyBudget > 0) {
             const diffPct = Math.round((dailyVarRate - dailyBudget) / dailyBudget * 100);
             const over = diffPct > 10;
             const under = diffPct < -10;
@@ -1337,7 +1338,7 @@ function renderSalaryCycle() {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyBudget)})${tag}`;
             rateEl.title = `Comparado com o orçamento diário (Disponível ÷ ${daysLeft} dias restantes)`;
             rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
-        } else if (b.expPaidVariable > 0) {
+        } else if (b.expPaid > 0) {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
             rateEl.style.color = '';
         } else {
@@ -1412,7 +1413,7 @@ function renderSalaryCycle() {
     const cycleIsPast = today > cycleEnd;
     const cycleIsFuture = today < cycleStart;
     let showProjection = false;
-    if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
+    if (cycleContainsToday && b.expPaid > 0 && daysLeft > 0) {
         if (projLabelEl) projLabelEl.textContent = 'Ao ritmo atual';
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
