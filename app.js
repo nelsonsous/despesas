@@ -1424,8 +1424,8 @@ function renderSalaryCycle() {
             const pessimisticVar = dailyVarRate * 1.3 * daysLeft;
             const incTotal = b.incReceived + b.incPending;
             const fixedTotal = b.expPaid + b.expPending;
-            const optimistic = incTotal - fixedTotal - optimisticVar;
-            const pessimistic = incTotal - fixedTotal - pessimisticVar;
+            const optimistic = incTotal - fixedTotal - optimisticVar - cycleSavings;
+            const pessimistic = incTotal - fixedTotal - pessimisticVar - cycleSavings;
             projEl.innerHTML = `<span style="font-weight:700">${sign}${formatCurrency(projectedEndBalance)}</span><span style="font-size:0.7em;opacity:0.85;margin-left:4px">(${formatCurrency(pessimistic)}…${formatCurrency(optimistic)})</span>`;
             projEl.style.color = color;
         }
