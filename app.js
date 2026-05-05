@@ -1339,12 +1339,13 @@ function renderSalaryCycle() {
             const over = diffPct > 10;
             const under = diffPct < -10;
             const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
+            const rateColor = over ? '#ff9f9f' : under ? '#69f0ae' : 'rgba(255,255,255,0.5)';
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyVariableBudgetRate)})${tag}`;
             rateEl.title = `Ritmo variáveis vs Podes gastar (Disponível ÷ ${daysLeft} dias restantes).`;
-            rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
+            rateEl.style.color = rateColor;
         } else if (b.expPaidVariable > 0) {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
-            rateEl.style.color = '';
+            rateEl.style.color = 'rgba(255,255,255,0.5)';
         } else {
             rateEl.textContent = '';
         }
