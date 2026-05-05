@@ -4738,7 +4738,7 @@ function renderExpenseItem(e) {
                     <div class="expense-actions" style="flex-shrink:0">
                         ${e.isGrouped && !isFixedVirtual ? `<button onclick="event.stopPropagation();addGroupedEntry('${e.id}')" title="Adicionar entrada" class="btn-grouped-add"><i class="fas fa-plus"></i></button>` : ''}
                         ${e.isGrouped && !isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();toggleGroupedExpand('${e.id}')" title="Ver entradas" style="color:var(--primary)"><i class="fas fa-chevron-down"></i></button>` : ''}
-                        ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button>` : ''}
+                        ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button><button class="btn-icon" onclick="event.stopPropagation();downloadAttachment('${e.id}')" title="Descarregar anexo"><i class="fas fa-download"></i></button>` : ''}
                         ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();saveAsTemplate('${e.id}')" title="Guardar como frequente"><i class="fas fa-star"></i></button>` : ''}
                         ${!isFixedVirtual && !e.isGrouped ? `<button class="btn-icon" onclick="event.stopPropagation();duplicateExpense('${e.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>` : ''}
                         ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();confirmDelete('${e.id}')" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
@@ -4876,7 +4876,7 @@ function renderIncomeTab() {
                 </div>
                 <div class="income-amount">+${formatCurrency(e.amount)}</div>
                 <div class="expense-actions">
-                    ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewIncomeAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button>` : ''}
+                    ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewIncomeAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button><button class="btn-icon" onclick="event.stopPropagation();downloadAttachmentById('${e.id}','income')" title="Descarregar anexo"><i class="fas fa-download"></i></button>` : ''}
                     <button class="btn-icon" onclick="event.stopPropagation();duplicateIncome('${e.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>
                     <button class="btn-icon" onclick="event.stopPropagation();confirmDeleteIncome('${e.id}')" title="Apagar">
                         <i class="fas fa-trash"></i>
@@ -8247,6 +8247,26 @@ function removePendingIncomeAttachment() {
     document.getElementById('income-attachment-preview').innerHTML = '';
 }
 
+function triggerDownload(attachment) {
+    const a = document.createElement('a');
+    a.href = attachment.data;
+    a.download = attachment.name || 'fatura.jpg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+function downloadAttachment(id) {
+    const e = expenses.find(x => x.id === id);
+    if (e?.attachment) triggerDownload(e.attachment);
+}
+
+function downloadAttachmentById(id, kind) {
+    const list = kind === 'income' ? incomes : expenses;
+    const e = list.find(x => x.id === id);
+    if (e?.attachment) triggerDownload(e.attachment);
+}
+
 function viewAttachment(id) {
     const e = expenses.find(x => x.id === id);
     if (!e?.attachment) return;
@@ -8259,12 +8279,19 @@ function viewIncomeAttachment(id) {
     showAttachmentViewer(e.attachment);
 }
 
+let _currentViewerAttachment = null;
+function downloadCurrentAttachment() {
+    if (_currentViewerAttachment) triggerDownload(_currentViewerAttachment);
+}
+
 function showAttachmentViewer(attachment) {
+    _currentViewerAttachment = attachment;
     const container = document.getElementById('attachment-viewer-content');
     const isPdf = attachment.type === 'application/pdf';
+    const dlBtn = `<button onclick="downloadCurrentAttachment()" class="btn btn-primary btn-block" style="margin-top:10px"><i class="fas fa-download"></i> Descarregar</button>`;
     container.innerHTML = isPdf
-        ? `<p>Ficheiro PDF: ${attachment.name}</p><a href="${attachment.data}" download="${attachment.name}" class="btn btn-primary btn-block"><i class="fas fa-download"></i> Descarregar</a>`
-        : `<img src="${attachment.data}" alt="Anexo"><br><a href="${attachment.data}" download="${attachment.name || 'fatura.jpg'}" class="btn btn-secondary btn-block" style="margin-top:10px"><i class="fas fa-download"></i> Descarregar</a>`;
+        ? `<p style="margin-bottom:8px"><i class="fas fa-file-pdf" style="color:#e53935"></i> ${attachment.name || 'documento.pdf'}</p>${dlBtn}`
+        : `<img src="${attachment.data}" alt="Anexo" style="max-width:100%;border-radius:8px">${dlBtn}`;
     document.getElementById('modal-attachment').classList.add('active');
 }
 
