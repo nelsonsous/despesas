@@ -1337,7 +1337,7 @@ function renderSalaryCycle() {
             const under = diffPct < -10;
             const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyVariableBudgetRate)})${tag}`;
-            rateEl.title = `Ritmo variável vs orçamento disponível por dia (Disponível ÷ ${daysLeft} dias). O orçamento é o mesmo número que "Podes gastar".`;
+            rateEl.title = `Ritmo variável vs "Podes gastar" — o orçamento aqui é o mesmo número que aparece em baixo.`;
             rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
         } else if (b.expPaidVariable > 0) {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
