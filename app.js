@@ -1291,10 +1291,9 @@ function renderSalaryCycle() {
         ? Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1))
         : daysTotal;
 
-    // Total daily rate (variable + fixed paid) — consistent with the Gasto
-    // total shown in the card (b.expPaid). Compared against available/daysLeft
-    // so both rate and budget account for the same outflows.
-    const dailyVarRate = daysElapsed > 0 ? b.expPaid / daysElapsed : 0;
+    // Variable-only rate compared against available/daysLeft (same as "Podes gastar").
+    // A separate row shows the total including fixed paid when relevant.
+    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
     const projectedVar = dailyVarRate * daysLeft;
     const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
 
@@ -1321,7 +1320,11 @@ function renderSalaryCycle() {
     const recPendEl = document.getElementById('salary-received-pending');
     if (recPendEl) recPendEl.textContent = b.incPending > 0 ? `+ ${formatCurrency(b.incPending)} por receber` : '';
 
+    // Variable total on the primary row; fixed paid on a secondary row when nonzero.
+    animateNumber(document.getElementById('salary-spent-var'), b.expPaidVariable);
     animateNumber(document.getElementById('salary-spent'), spentSinceSalary);
+    const spentTotalRow = document.getElementById('salary-spent-total-row');
+    if (spentTotalRow) spentTotalRow.style.display = b.expPaidFixed > 0 ? 'flex' : 'none';
     const rateEl = document.getElementById('salary-spent-rate');
     // Daily budget = what's left in the cycle / days remaining. This is
     // the reference point for the "X% acima/abaixo do orçamento" tag —
@@ -1331,15 +1334,15 @@ function renderSalaryCycle() {
     // percentage comes from.
     const dailyVariableBudgetRate = (cycleContainsToday && daysLeft > 0) ? (available / daysLeft) : 0;
     if (rateEl) {
-        if (b.expPaid > 0 && dailyVariableBudgetRate > 0) {
+        if (b.expPaidVariable > 0 && dailyVariableBudgetRate > 0) {
             const diffPct = Math.round((dailyVarRate - dailyVariableBudgetRate) / dailyVariableBudgetRate * 100);
             const over = diffPct > 10;
             const under = diffPct < -10;
             const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyVariableBudgetRate)})${tag}`;
-            rateEl.title = `Ritmo (variáveis + fixas pagas) ÷ dias. Orçamento = Disponível ÷ dias restantes, o mesmo que "Podes gastar".`;
+            rateEl.title = `Ritmo variáveis vs Podes gastar (Disponível ÷ ${daysLeft} dias restantes).`;
             rateEl.style.color = over ? 'var(--danger)' : under ? 'var(--success)' : '';
-        } else if (b.expPaid > 0) {
+        } else if (b.expPaidVariable > 0) {
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia`;
             rateEl.style.color = '';
         } else {
@@ -1414,7 +1417,7 @@ function renderSalaryCycle() {
     const cycleIsPast = today > cycleEnd;
     const cycleIsFuture = today < cycleStart;
     let showProjection = false;
-    if (cycleContainsToday && b.expPaid > 0 && daysLeft > 0) {
+    if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
         if (projLabelEl) projLabelEl.textContent = 'Ao ritmo atual';
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
