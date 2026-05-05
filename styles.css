@@ -2047,6 +2047,25 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     align-items: center;
     margin-bottom: 6px;
 }
+.salary-spent-group {
+    background: rgba(255,255,255,0.07);
+    border-radius: 8px;
+    padding: 7px 10px;
+    margin-bottom: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.salary-spent-group-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    display: block;
+    margin-bottom: 4px;
+}
+.salary-spent-group-body .salary-cycle-row {
+    margin-bottom: 0;
+}
 .salary-cycle-row-label {
     font-size: 0.78rem;
     color: rgba(255,255,255,0.7);
