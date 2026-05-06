@@ -1337,10 +1337,8 @@ function renderSalaryCycle() {
     if (rateEl) {
         if (b.expPaidVariable > 0 && dailyVariableBudgetRate > 0) {
             const diffPct = Math.round((dailyVarRate - dailyVariableBudgetRate) / dailyVariableBudgetRate * 100);
-            const over = diffPct > 10;
-            const under = diffPct < -10;
-            const tag = over ? ` · ${diffPct}% acima` : under ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
-            const rateColor = over ? '#ff9f9f' : under ? '#69f0ae' : 'rgba(255,255,255,0.5)';
+            const tag = diffPct > 0 ? ` · ${diffPct}% acima` : diffPct < 0 ? ` · ${Math.abs(diffPct)}% abaixo` : ' · no orçamento';
+            const rateColor = diffPct > 10 ? '#ff9f9f' : diffPct < -10 ? '#69f0ae' : 'rgba(255,255,255,0.5)';
             rateEl.textContent = `${formatCurrency(dailyVarRate)}/dia (orç. ${formatCurrency(dailyVariableBudgetRate)})${tag}`;
             rateEl.title = `Ritmo variáveis vs Podes gastar (Disponível ÷ ${daysLeft} dias restantes).`;
             rateEl.style.color = rateColor;
