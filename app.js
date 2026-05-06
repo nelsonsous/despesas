@@ -1282,7 +1282,7 @@ function renderSalaryCycle() {
     // because cycles often span two months.
     const cycleSavings = Math.max(0, getGoalsContributionInRange(cycleStart, cycleEnd));
 
-    const totalBudget = salaryIncome || (spentSinceSalary + cycleFixed + 500);
+    const totalBudget = salaryIncome || b.incPending || (spentSinceSalary + cycleFixed);
     const available = totalBudget - spentSinceSalary - cycleFixed - cycleSavings;
     const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed + cycleSavings) / totalBudget) * 100) : 0;
 
