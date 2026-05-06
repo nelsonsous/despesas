@@ -1263,7 +1263,7 @@ function renderSalaryCycle() {
 
     const cycleContainsToday = today >= cycleStart && today <= cycleEnd;
     const refDate = cycleContainsToday ? today : cycleEnd;
-    const daysLeft = cycleContainsToday ? Math.max(0, Math.round((cycleEnd - today) / 86400000)) : 0;
+    const daysLeft = cycleContainsToday ? Math.max(1, Math.round((cycleEnd - today) / 86400000) + 1) : 0;
 
     // Period label \u2014 use the real cycle boundaries (may vary per month when
     // salaryMode is "last-working-day" or "working-day-after").
@@ -6675,7 +6675,7 @@ async function generateAiMonthNarrative(date) {
         const b = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
         const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
         const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
-        const daysLeft = Math.max(0, daysTotal - daysElapsed);
+        const daysLeft = Math.max(1, Math.round((cycle.end - today) / 86400000) + 1);
         const cycleSavingsAI = Math.max(0, getGoalsContributionInRange(cycle.start, cycle.end));
         const totalBudget = b.incReceived || (b.expPaid + b.expPending);
         const available = totalBudget - b.expPaid - b.expPending - cycleSavingsAI;
