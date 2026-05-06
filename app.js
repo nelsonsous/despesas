@@ -1243,7 +1243,8 @@ function renderSalaryCycle() {
     const card = document.getElementById('salary-cycle-card');
     if (!card || !isSalaryConfigured()) { if (card) card.style.display = 'none'; return; }
 
-    const today = new Date();
+    const _todayRaw = new Date();
+    const today = new Date(_todayRaw.getFullYear(), _todayRaw.getMonth(), _todayRaw.getDate());
     const viewYear = currentDate.getFullYear();
     const viewMonth = currentDate.getMonth();
     const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
@@ -1263,7 +1264,7 @@ function renderSalaryCycle() {
 
     const cycleContainsToday = today >= cycleStart && today <= cycleEnd;
     const refDate = cycleContainsToday ? today : cycleEnd;
-    const daysLeft = cycleContainsToday ? Math.max(1, Math.round((cycleEnd - today) / 86400000) + 1) : 0;
+    const daysLeft = cycleContainsToday ? Math.max(0, Math.round((cycleEnd - today) / 86400000)) : 0;
 
     // Period label \u2014 use the real cycle boundaries (may vary per month when
     // salaryMode is "last-working-day" or "working-day-after").
@@ -3233,7 +3234,8 @@ function renderCycleExpenses() {
     if (!section) return;
     if (!isSalaryConfigured()) { section.style.display = 'none'; return; }
 
-    const today = new Date();
+    const _todayRaw2 = new Date();
+    const today = new Date(_todayRaw2.getFullYear(), _todayRaw2.getMonth(), _todayRaw2.getDate());
     const viewYear = currentDate.getFullYear();
     const viewMonth = currentDate.getMonth();
     const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
@@ -6604,7 +6606,8 @@ function renderAiInsightsCard() {
     card.style.display = 'block';
 
     // Swap the card title based on whether an active salary cycle is in view.
-    const today = new Date();
+    const _aiTodayRaw = new Date();
+    const today = new Date(_aiTodayRaw.getFullYear(), _aiTodayRaw.getMonth(), _aiTodayRaw.getDate());
     const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
     const viewIsCurrent = currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() === today.getMonth();
     const cycleActive = !!(cycle && viewIsCurrent && today >= cycle.start && today <= cycle.end);
@@ -6665,7 +6668,8 @@ async function generateAiMonthNarrative(date) {
     // If the viewed month carries an active salary cycle, the cycle is the
     // operational lens the user cares about — lead with it and make the month
     // comparison the supporting context.
-    const today = new Date();
+    const _genTodayRaw = new Date();
+    const today = new Date(_genTodayRaw.getFullYear(), _genTodayRaw.getMonth(), _genTodayRaw.getDate());
     const cycle = isSalaryConfigured() ? getSalaryCycleAt(today) : null;
     const viewIsCurrent = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
     const cycleActive = !!(cycle && viewIsCurrent && today >= cycle.start && today <= cycle.end);
@@ -6675,7 +6679,7 @@ async function generateAiMonthNarrative(date) {
         const b = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
         const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
         const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
-        const daysLeft = Math.max(1, Math.round((cycle.end - today) / 86400000) + 1);
+        const daysLeft = Math.max(0, Math.round((cycle.end - today) / 86400000));
         const cycleSavingsAI = Math.max(0, getGoalsContributionInRange(cycle.start, cycle.end));
         const totalBudget = b.incReceived || (b.expPaid + b.expPending);
         const available = totalBudget - b.expPaid - b.expPending - cycleSavingsAI;
