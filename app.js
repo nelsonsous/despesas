@@ -3247,19 +3247,29 @@ function renderCycleExpenses() {
     const cats = getEffectiveCategories();
 
     // Variable expenses inside the cycle window — co-parent split applied.
-    const varRows = expenses
-        .map(adjustExpenseForCoParent)
-        .filter(e => e.date && e.date >= startStr && e.date <= endStr)
-        .map(e => ({
-            kind: 'var',
-            id: e.id,
-            date: e.date,
-            description: e.description || '(sem descrição)',
-            category: e.category,
-            amount: e.amount || 0,
-            childId: e.type && e.type !== 'personal' ? e.type : null,
-            status: 'pago' // variables are always realised spend
-        }));
+    // Grouped expenses: only count individual entries whose date falls in the cycle.
+    const varRows = [];
+    expenses.forEach(e => {
+        if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
+            const cycleEntries = e.entries.filter(en => en.date && en.date >= startStr && en.date <= endStr);
+            if (cycleEntries.length === 0) return;
+            const inCycleTotal = cycleEntries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+            const fullAdj = adjustExpenseForCoParent(e);
+            const ratio = e.amount > 0 ? fullAdj.amount / e.amount : 1;
+            const latestDate = cycleEntries.map(en => en.date).sort().pop();
+            varRows.push({ kind: 'var', id: e.id, date: latestDate,
+                description: e.description || '(sem descrição)', category: e.category,
+                amount: inCycleTotal * Math.max(0, ratio),
+                childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
+            return;
+        }
+        const adj = adjustExpenseForCoParent(e);
+        if (!adj.date || adj.date < startStr || adj.date > endStr) return;
+        varRows.push({ kind: 'var', id: adj.id, date: adj.date,
+            description: adj.description || '(sem descrição)', category: adj.category,
+            amount: adj.amount || 0,
+            childId: adj.type && adj.type !== 'personal' ? adj.type : null, status: 'pago' });
+    });
 
     // Fixed expenses whose dayOfMonth falls inside the cycle window — both
     // paid and pending (and ignored, marked as such). We synthesize a date
@@ -5463,7 +5473,21 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         incReceivedVariable += i.amount;
     });
     expenses.forEach(e => {
-        if (!e.date || !inCycle(e.date) || !isRealized(e.date)) return;
+        if (!e.date) return;
+        if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
+            // Only count individual entries that fall within the cycle
+            const cycleEntries = e.entries.filter(en => en.date && inCycle(en.date) && isRealized(en.date));
+            if (cycleEntries.length === 0) return;
+            const inCycleTotal = cycleEntries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+            // Apply co-parent ratio proportionally to the in-cycle portion
+            const fullAdj = adjustExpenseForCoParent(e);
+            const ratio = e.amount > 0 ? fullAdj.amount / e.amount : 1;
+            const amount = inCycleTotal * Math.max(0, ratio);
+            expPaidVariable += amount;
+            expByCategory[e.category] = (expByCategory[e.category] || 0) + amount;
+            return;
+        }
+        if (!inCycle(e.date) || !isRealized(e.date)) return;
         const adj = adjustExpenseForCoParent(e);
         expPaidVariable += adj.amount;
         expByCategory[e.category] = (expByCategory[e.category] || 0) + adj.amount;
