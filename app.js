@@ -1758,6 +1758,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPendingExpenses();
     checkAutoSync();
     refreshInboxBadge();
+    checkSyncUrl();
 });
 
 function populateCategorySelects() {
@@ -13360,6 +13361,171 @@ function renderDriveSyncUI() {
     wrapped._driveWrapped = true;
     window.saveData = wrapped;
 })();
+
+// ===== SYNC VIA QR CODE / LINK =====
+
+function closeQRSyncModal() {
+    document.getElementById('modal-qr-sync').classList.remove('active');
+}
+
+async function showQRSyncModal() {
+    closeExportMenu();
+    document.getElementById('modal-qr-sync').classList.add('active');
+
+    const statusEl = document.getElementById('qr-sync-status');
+    const qrImgEl = document.getElementById('qr-sync-img');
+    const linkEl = document.getElementById('qr-sync-link');
+    const qrSection = document.getElementById('qr-sync-qr-section');
+
+    statusEl.textContent = 'A preparar dados…';
+    qrImgEl.src = '';
+    linkEl.value = '';
+    qrSection.style.display = 'none';
+
+    try {
+        const payload = await buildSyncPayload();
+        const base = window.location.origin + window.location.pathname;
+        const url = base + '?sync=' + payload;
+
+        linkEl.value = url;
+        const kb = Math.round(payload.length * 0.75 / 1024 * 10) / 10;
+        statusEl.textContent = `${kb} KB comprimidos`;
+
+        if (typeof QRCode !== 'undefined' && url.length <= 2900) {
+            try {
+                const dataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'L', width: 220, margin: 2 });
+                qrImgEl.src = dataUrl;
+                qrSection.style.display = '';
+            } catch (_) {
+                statusEl.textContent += ' — QR indisponível, copie o link';
+            }
+        } else if (url.length > 2900) {
+            statusEl.textContent += ' — demasiado grande para QR, copie o link';
+        }
+    } catch (e) {
+        statusEl.textContent = 'Erro ao preparar dados';
+        console.error(e);
+    }
+}
+
+async function buildSyncPayload() {
+    const data = {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        expenses, incomes, fixedExpenses, fixedStatus, fixedIncomes, fixedIncomeStatus,
+        children, customCategories, customIncCategories, expenseTemplates, categoryBudgets,
+        settings: {
+            userName: getUserName(),
+            appTitle: getAppTitle(),
+            householdMode: getHouseholdMode(),
+            spouseName: localStorage.getItem(SPOUSE_NAME_KEY) || '',
+            spousePct: getSpousePct()
+        }
+    };
+    const json = JSON.stringify(data);
+
+    if (typeof CompressionStream !== 'undefined') {
+        const stream = new CompressionStream('gzip');
+        const writer = stream.writable.getWriter();
+        writer.write(new TextEncoder().encode(json));
+        writer.close();
+        const buffer = await new Response(stream.readable).arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function copyQRSyncLink() {
+    const link = document.getElementById('qr-sync-link').value;
+    if (!link) return;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(link).then(() => showToast('Link copiado!')).catch(() => _fallbackCopy(link));
+    } else {
+        _fallbackCopy(link);
+    }
+}
+
+function _fallbackCopy(text) {
+    const el = document.getElementById('qr-sync-link');
+    el.select();
+    try { document.execCommand('copy'); showToast('Link copiado!'); } catch (_) {}
+}
+
+async function checkSyncUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const sync = params.get('sync');
+    if (!sync) return;
+
+    history.replaceState(null, '', window.location.pathname);
+
+    try {
+        const base64 = sync.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '=='.slice(0, (4 - base64.length % 4) % 4);
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        let json;
+        if (typeof DecompressionStream !== 'undefined') {
+            const stream = new DecompressionStream('gzip');
+            const writer = stream.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            json = await new Response(stream.readable).text();
+        } else {
+            json = decodeURIComponent(escape(binary));
+        }
+
+        const data = JSON.parse(json);
+        const n = (data.expenses || []).length + (data.incomes || []).length;
+
+        document.getElementById('confirm-message').textContent =
+            `Importar dados sincronizados do Mac? ${n} transação(ões) encontrada(s). Os dados locais serão substituídos.`;
+        document.getElementById('confirm-btn').textContent = 'Importar';
+        document.getElementById('confirm-btn').onclick = () => {
+            _applyJsonData(data);
+            closeConfirm();
+            showToast('Dados importados do Mac!');
+        };
+        document.getElementById('modal-confirm').classList.add('active');
+    } catch (e) {
+        console.error('Sync URL parse error', e);
+        showToast('Erro ao ler dados de sincronização');
+    }
+}
+
+function _applyJsonData(data) {
+    expenses = data.expenses || [];
+    incomes = data.incomes || [];
+    if (data.fixedExpenses) fixedExpenses = data.fixedExpenses;
+    if (data.fixedStatus) fixedStatus = data.fixedStatus;
+    if (data.fixedIncomes) fixedIncomes = data.fixedIncomes;
+    if (data.fixedIncomeStatus) fixedIncomeStatus = data.fixedIncomeStatus;
+    if (data.children) children = data.children;
+    if (data.customCategories) customCategories = data.customCategories;
+    if (data.customIncCategories) customIncCategories = data.customIncCategories;
+    if (data.expenseTemplates) expenseTemplates = data.expenseTemplates;
+    if (data.categoryBudgets) categoryBudgets = data.categoryBudgets;
+    if (data.settings) {
+        const s = data.settings;
+        if (s.userName) localStorage.setItem(USER_NAME_KEY, s.userName);
+        if (s.appTitle) localStorage.setItem(APP_TITLE_KEY, s.appTitle);
+        if (s.householdMode) localStorage.setItem(HOUSEHOLD_MODE_KEY, s.householdMode);
+        if (s.spouseName) localStorage.setItem(SPOUSE_NAME_KEY, s.spouseName);
+        if (s.spousePct != null) localStorage.setItem(SPOUSE_PCT_KEY, String(s.spousePct));
+    }
+    saveData();
+    applyAppTitle();
+    applyHouseholdMode();
+    populateExpenseTypeOptions();
+    populateFixedTypeOptions();
+    populateFilterTypes();
+    populateCategorySelects();
+    updateAll();
+}
 
 // Boot Drive sync after DOM is ready (idempotent — runs after DOMContentLoaded
 // handlers that load aiCfg/google client id).

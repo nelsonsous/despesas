@@ -3143,6 +3143,16 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 :root[data-theme="dark"] .insight-dismiss { color: #8A7B5C; }
 :root[data-theme="dark"] .insight-dismiss:hover { background: rgba(255,255,255,0.08); color: #F0D78A; }
 
+/* ===== QR Sync Modal ===== */
+.qr-sync-body { padding: 0 4px 4px; }
+.qr-sync-instructions { font-size: 0.85rem; color: var(--text-light); margin-bottom: 10px; }
+.qr-sync-status { font-size: 0.78rem; color: var(--text-light); text-align: center; margin: 4px 0 10px; min-height: 1.2em; }
+.qr-sync-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.qr-sync-link-input { flex: 1; font-size: 0.75rem; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qr-sync-hint { font-size: 0.75rem; color: var(--text-light); text-align: center; line-height: 1.5; margin: 0; }
+.btn-qr-sync { background: linear-gradient(135deg, #6C5CE7, #a855f7); color: #fff; }
+.btn-qr-sync:hover { opacity: 0.9; }
+
 /* ===== Drive sync cloud icon (Feature 6) ===== */
 #drive-cloud-icon.cloud-ok { color: #4CAF50; }
 #drive-cloud-icon.cloud-pending { color: #FFA000; }
