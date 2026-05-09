@@ -1323,9 +1323,13 @@ function renderSalaryCycle() {
 
     // Variable total on the primary row; fixed paid on a secondary row when nonzero.
     animateNumber(document.getElementById('salary-spent-var'), b.expPaidVariable);
+    animateNumber(document.getElementById('salary-spent-fixed'), b.expPaidFixed);
     animateNumber(document.getElementById('salary-spent'), spentSinceSalary);
+    const hasFixed = b.expPaidFixed > 0;
     const spentTotalRow = document.getElementById('salary-spent-total-row');
-    if (spentTotalRow) spentTotalRow.style.display = b.expPaidFixed > 0 ? 'flex' : 'none';
+    const spentGrandRow = document.getElementById('salary-spent-grand-row');
+    if (spentTotalRow) spentTotalRow.style.display = hasFixed ? 'flex' : 'none';
+    if (spentGrandRow) spentGrandRow.style.display = hasFixed ? 'flex' : 'none';
     const rateEl = document.getElementById('salary-spent-rate');
     // Daily budget = what's left in the cycle / days remaining. This is
     // the reference point for the "X% acima/abaixo do orçamento" tag —
