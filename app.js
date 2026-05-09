@@ -1977,9 +1977,15 @@ function getActiveFixedForMonth(date) {
     return fixedExpenses.filter(f => {
         const start = f.startDate; // YYYY-MM
         const end = f.endDate;     // YYYY-MM or null
-        const afterStart = start <= monthKey;
-        const beforeEnd = !end || end >= monthKey;
-        return afterStart && beforeEnd;
+        if (start > monthKey) return false;
+        if (end && end < monthKey) return false;
+        const freq = f.frequency || 1;
+        if (freq > 1) {
+            const [sy, sm] = start.split('-').map(Number);
+            const monthsDiff = (y - sy) * 12 + (m - sm);
+            if (monthsDiff % freq !== 0) return false;
+        }
+        return true;
     });
 }
 
@@ -3996,7 +4002,7 @@ function renderExpenses() {
                     </div>
                     <div>
                         <div class="fixed-month-desc">${f.description} ${varBadge}</div>
-                        <div class="fixed-month-meta"><span class="meta-day">Dia ${f.dayOfMonth}</span> &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
+                        <div class="fixed-month-meta"><span class="meta-day">Dia ${f.dayOfMonth}</span> &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${f.frequency > 1 ? ` &middot; <span style="color:var(--primary);font-size:0.62rem;font-weight:600">${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}</span>` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
                     <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
                         ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}`
@@ -11560,7 +11566,7 @@ function renderFixedList() {
                 <div class="fixed-icon" style="width:34px;height:34px"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info" style="flex:1;min-width:0">
                     <div class="fixed-desc" style="font-size:0.88rem">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
-                    <div class="fixed-meta" style="font-size:0.7rem">Dia ${f.dayOfMonth} &middot; ${typeLabel}${endLabel ? ` &middot; desde ${f.startDate}${endLabel}` : ` &middot; desde ${f.startDate}`}</div>
+                    <div class="fixed-meta" style="font-size:0.7rem">Dia ${f.dayOfMonth}${f.frequency > 1 ? ` &middot; ${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}` : ''} &middot; ${typeLabel}${endLabel ? ` &middot; desde ${f.startDate}${endLabel}` : ` &middot; desde ${f.startDate}`}</div>
                 </div>
                 <div class="fixed-amount" style="font-size:0.95rem;font-weight:700;white-space:nowrap">${formatCurrency(f.amount)}</div>
                 <div style="flex-basis:100%;display:flex;gap:5px;justify-content:flex-end">
@@ -11607,6 +11613,7 @@ function editFixed(id) {
     document.getElementById('fixed-end').value = f.endDate || '';
     document.getElementById('fixed-notes').value = f.notes || '';
     document.getElementById('fixed-is-variable').checked = f.isVariable || false;
+    document.getElementById('fixed-frequency').value = f.frequency || 1;
     populateCategorySelects();
     populateFixedTypeOptions();
     document.getElementById('fixed-category').value = f.category;
@@ -11673,11 +11680,13 @@ function saveFixed(event) {
     const fSplitPctOverride = (fSplit && fOvOn && !isNaN(fOvRaw) && fOvRaw > 0 && fOvRaw <= 100)
         ? fOvRaw
         : null;
+    const freqVal = parseInt(document.getElementById('fixed-frequency')?.value) || 1;
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
         amount: parseFloat(document.getElementById('fixed-amount').value),
         dayOfMonth: parseInt(document.getElementById('fixed-day').value),
+        frequency: freqVal > 1 ? freqVal : undefined,
         category: document.getElementById('fixed-category').value,
         type: ftype,
         split: fSplit,
