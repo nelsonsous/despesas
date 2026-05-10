@@ -3534,13 +3534,17 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
 
         const rowsHtml = sortedSubs.map(sg => {
             if (sg.rows.length === 1) return renderRow(sg.rows[0], false);
-            const subCount = sg.rows.filter(r => r.status !== 'ignorado').length;
-            const subHeader = `<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(0,0,0,0.04);border-bottom:1px solid var(--border)">
-                <div style="flex:1;font-size:0.74rem;font-weight:700;color:var(--text)">${sg.label}</div>
-                <div style="font-size:0.68rem;color:var(--text-light);margin-right:4px">${subCount}×</div>
-                <div style="font-size:0.78rem;font-weight:700;color:${totalColor};margin-right:36px">${formatCurrency(Math.abs(sg.total))}</div>
+            // Multiple entries with same description → single aggregated row
+            const isFuture = sg.rows[0].date && sg.rows[0].date > todayStr;
+            const futureClass = isFuture ? ' future-row' : '';
+            const amtColor = 'var(--danger)';
+            return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border)">
+                <span style="font-size:0.8rem;width:18px;flex-shrink:0">✅</span>
+                <div style="width:42px;font-size:0.65rem;color:var(--text-light);flex-shrink:0;line-height:1.2">${sg.rows.length}×</div>
+                <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sg.label}</div>
+                <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${formatCurrency(Math.abs(sg.total))}</div>
+                <div style="width:36px;flex-shrink:0"></div>
             </div>`;
-            return subHeader + sg.rows.map(r => renderRow(r, true)).join('');
         }).join('');
 
         return `<div style="margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
