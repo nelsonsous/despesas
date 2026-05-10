@@ -3237,6 +3237,12 @@ function toggleCycleSection() {
     localStorage.setItem('despesas_cycle_section_open', isOpen ? '0' : '1');
 }
 
+function toggleCycleGroupMode() {
+    const grouped = localStorage.getItem('despesas_cycle_grouped') === '1';
+    localStorage.setItem('despesas_cycle_grouped', grouped ? '0' : '1');
+    renderCycleExpenses();
+}
+
 function renderCycleExpenses() {
     const section = document.getElementById('cycle-expenses-section');
     if (!section) return;
@@ -3365,10 +3371,17 @@ function renderCycleExpenses() {
     if (subEl) subEl.textContent = sub;
 
     const isOpen = localStorage.getItem('despesas_cycle_section_open') === '1';
+    const isGrouped = localStorage.getItem('despesas_cycle_grouped') === '1';
     const body = document.getElementById('cycle-expenses-body');
     const chev = document.getElementById('cycle-section-chevron');
+    const groupBtn = document.getElementById('cycle-group-btn');
     if (body) body.style.display = isOpen ? 'block' : 'none';
     if (chev) chev.style.transform = isOpen ? 'rotate(180deg)' : '';
+    if (groupBtn) {
+        groupBtn.style.display = all.length > 0 ? '' : 'none';
+        groupBtn.style.background = isGrouped ? 'var(--primary)' : 'none';
+        groupBtn.style.color = isGrouped ? '#fff' : 'var(--text-light)';
+    }
 
     if (!body) return;
     if (all.length === 0) {
@@ -3376,8 +3389,14 @@ function renderCycleExpenses() {
         return;
     }
 
-    // Today marker: only inject if cycle contains today AND list crosses today.
     const todayStrCycle = toLocalDateStr(today);
+
+    if (isGrouped) {
+        body.innerHTML = renderCycleExpensesByCategory(all, cats, todayStrCycle);
+        return;
+    }
+
+    // Today marker: only inject if cycle contains today AND list crosses today.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
     const cycleHasPast = all.some(r => r.date && r.date < todayStrCycle);
     const cycleHasFuture = all.some(r => r.date && r.date >= todayStrCycle);
@@ -3445,6 +3464,71 @@ function renderCycleExpenses() {
                 <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
             </div>
         `;
+    }).join('');
+}
+
+function renderCycleExpensesByCategory(all, cats, todayStr) {
+    // Group rows by category, keeping savings as their own group
+    const groups = {};
+    all.forEach(r => {
+        const key = r.kind === 'savings' ? '_savings' : (r.category || 'outros');
+        if (!groups[key]) groups[key] = { rows: [], total: 0 };
+        groups[key].rows.push(r);
+        if (r.status !== 'ignorado') {
+            const amt = r.kind === 'savings' ? (r.flowType === 'add' ? r.amount : -r.amount) : r.amount;
+            groups[key].total += amt;
+        }
+    });
+    // Sort groups by total descending
+    const sortedKeys = Object.keys(groups).sort((a, b) => Math.abs(groups[b].total) - Math.abs(groups[a].total));
+
+    return sortedKeys.map(key => {
+        const g = groups[key];
+        const c = key === '_savings'
+            ? { label: 'Poupança', icon: 'fa-piggy-bank', color: '#E84C84' }
+            : (cats[key] || cats.outros || { label: key, icon: 'fa-circle', color: '#9E9E9E' });
+        const count = g.rows.filter(r => r.status !== 'ignorado').length;
+        const totalColor = key === '_savings' ? '#B8336B' : 'var(--danger)';
+        const headerBg = `${c.color}18`;
+
+        const rowsHtml = g.rows
+            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+            .map(r => {
+                const isFuture = r.date && r.date > todayStr;
+                const futureClass = isFuture && r.status !== 'pago' ? ' future-row' : '';
+                if (r.kind === 'savings') {
+                    const sign = r.flowType === 'add' ? '−' : '+';
+                    const amtColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
+                    return `<div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border)">
+                        <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                        <div style="flex:1;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description}</div>
+                        <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
+                        <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-chevron-right"></i></button>
+                    </div>`;
+                }
+                let badge = r.status === 'pago' ? '✅' : r.status === 'pendente' ? '⏳' : '⏸';
+                const amtColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
+                const amtTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
+                const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
+                const fixedIcon = r.kind === 'fixed' ? '<i class="fas fa-repeat" style="color:var(--primary);font-size:0.6rem;margin-right:3px"></i>' : '';
+                return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border);opacity:${r.status === 'ignorado' ? '0.55' : '1'}">
+                    <span style="font-size:0.8rem;width:18px;flex-shrink:0">${badge}</span>
+                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                    <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fixedIcon}${r.description}</div>
+                    <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${amtTxt}</div>
+                    <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
+                </div>`;
+            }).join('');
+
+        return `<div style="margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${headerBg}">
+                <div style="width:26px;height:26px;border-radius:7px;background:${c.color}33;color:${c.color};display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ${c.icon}" style="font-size:0.75rem"></i></div>
+                <div style="flex:1;font-size:0.82rem;font-weight:700">${c.label}</div>
+                <div style="font-size:0.7rem;color:var(--text-light);margin-right:6px">${count} ${count === 1 ? 'item' : 'itens'}</div>
+                <div style="font-weight:700;color:${totalColor};font-size:0.85rem">${formatCurrency(Math.abs(g.total))}</div>
+            </div>
+            ${rowsHtml}
+        </div>`;
     }).join('');
 }
 
