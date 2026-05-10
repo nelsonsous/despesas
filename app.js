@@ -3482,6 +3482,34 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
     // Sort groups by total descending
     const sortedKeys = Object.keys(groups).sort((a, b) => Math.abs(groups[b].total) - Math.abs(groups[a].total));
 
+    const renderRow = (r, indent) => {
+        const isFuture = r.date && r.date > todayStr;
+        const futureClass = isFuture && r.status !== 'pago' ? ' future-row' : '';
+        const pl = indent ? '28px' : '10px';
+        if (r.kind === 'savings') {
+            const sign = r.flowType === 'add' ? '−' : '+';
+            const amtColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
+            return `<div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px ${pl};border-bottom:1px solid var(--border)">
+                <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                <div style="flex:1;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description}</div>
+                <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
+                <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-chevron-right"></i></button>
+            </div>`;
+        }
+        const badge = r.status === 'pago' ? '✅' : r.status === 'pendente' ? '⏳' : '⏸';
+        const amtColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
+        const amtTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
+        const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
+        const fixedIcon = r.kind === 'fixed' ? '<i class="fas fa-repeat" style="color:var(--primary);font-size:0.6rem;margin-right:3px"></i>' : '';
+        return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px ${pl};border-bottom:1px solid var(--border);opacity:${r.status === 'ignorado' ? '0.55' : '1'}">
+            <span style="font-size:0.8rem;width:18px;flex-shrink:0">${badge}</span>
+            <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+            <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fixedIcon}${r.description}</div>
+            <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${amtTxt}</div>
+            <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
+        </div>`;
+    };
+
     return sortedKeys.map(key => {
         const g = groups[key];
         const c = key === '_savings'
@@ -3491,34 +3519,29 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
         const totalColor = key === '_savings' ? '#B8336B' : 'var(--danger)';
         const headerBg = `${c.color}18`;
 
-        const rowsHtml = g.rows
-            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-            .map(r => {
-                const isFuture = r.date && r.date > todayStr;
-                const futureClass = isFuture && r.status !== 'pago' ? ' future-row' : '';
-                if (r.kind === 'savings') {
-                    const sign = r.flowType === 'add' ? '−' : '+';
-                    const amtColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
-                    return `<div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border)">
-                        <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-                        <div style="flex:1;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description}</div>
-                        <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
-                        <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-chevron-right"></i></button>
-                    </div>`;
-                }
-                let badge = r.status === 'pago' ? '✅' : r.status === 'pendente' ? '⏳' : '⏸';
-                const amtColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
-                const amtTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
-                const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
-                const fixedIcon = r.kind === 'fixed' ? '<i class="fas fa-repeat" style="color:var(--primary);font-size:0.6rem;margin-right:3px"></i>' : '';
-                return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border);opacity:${r.status === 'ignorado' ? '0.55' : '1'}">
-                    <span style="font-size:0.8rem;width:18px;flex-shrink:0">${badge}</span>
-                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-                    <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fixedIcon}${r.description}</div>
-                    <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${amtTxt}</div>
-                    <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
-                </div>`;
-            }).join('');
+        // Level 2: group by description within category
+        const subs = {};
+        g.rows.sort((a, b) => (b.date || '').localeCompare(a.date || '')).forEach(r => {
+            const k = (r.description || '').trim().toLowerCase();
+            if (!subs[k]) subs[k] = { label: r.description || '', rows: [], total: 0 };
+            subs[k].rows.push(r);
+            if (r.status !== 'ignorado') {
+                const amt = r.kind === 'savings' ? (r.flowType === 'add' ? r.amount : -r.amount) : r.amount;
+                subs[k].total += amt;
+            }
+        });
+        const sortedSubs = Object.values(subs).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+
+        const rowsHtml = sortedSubs.map(sg => {
+            if (sg.rows.length === 1) return renderRow(sg.rows[0], false);
+            const subCount = sg.rows.filter(r => r.status !== 'ignorado').length;
+            const subHeader = `<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(0,0,0,0.04);border-bottom:1px solid var(--border)">
+                <div style="flex:1;font-size:0.74rem;font-weight:700;color:var(--text)">${sg.label}</div>
+                <div style="font-size:0.68rem;color:var(--text-light);margin-right:4px">${subCount}×</div>
+                <div style="font-size:0.78rem;font-weight:700;color:${totalColor};margin-right:36px">${formatCurrency(Math.abs(sg.total))}</div>
+            </div>`;
+            return subHeader + sg.rows.map(r => renderRow(r, true)).join('');
+        }).join('');
 
         return `<div style="margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${headerBg}">
