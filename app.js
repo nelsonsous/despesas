@@ -3519,33 +3519,9 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
         const totalColor = key === '_savings' ? '#B8336B' : 'var(--danger)';
         const headerBg = `${c.color}18`;
 
-        // Level 2: group by description within category
-        const subs = {};
-        g.rows.sort((a, b) => (b.date || '').localeCompare(a.date || '')).forEach(r => {
-            const k = (r.description || '').trim().toLowerCase();
-            if (!subs[k]) subs[k] = { label: r.description || '', rows: [], total: 0 };
-            subs[k].rows.push(r);
-            if (r.status !== 'ignorado') {
-                const amt = r.kind === 'savings' ? (r.flowType === 'add' ? r.amount : -r.amount) : r.amount;
-                subs[k].total += amt;
-            }
-        });
-        const sortedSubs = Object.values(subs).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-
-        const rowsHtml = sortedSubs.map(sg => {
-            if (sg.rows.length === 1) return renderRow(sg.rows[0], false);
-            // Multiple entries with same description → single aggregated row
-            const isFuture = sg.rows[0].date && sg.rows[0].date > todayStr;
-            const futureClass = isFuture ? ' future-row' : '';
-            const amtColor = 'var(--danger)';
-            return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px 10px;border-bottom:1px solid var(--border)">
-                <span style="font-size:0.8rem;width:18px;flex-shrink:0">✅</span>
-                <div style="width:42px;font-size:0.65rem;color:var(--text-light);flex-shrink:0;line-height:1.2">${sg.rows.length}×</div>
-                <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sg.label}</div>
-                <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${formatCurrency(Math.abs(sg.total))}</div>
-                <div style="width:36px;flex-shrink:0"></div>
-            </div>`;
-        }).join('');
+        const rowsHtml = g.rows
+            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+            .map(r => renderRow(r, false)).join('');
 
         return `<div style="margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${headerBg}">
