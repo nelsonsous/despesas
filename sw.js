@@ -1,1 +1,53 @@
-Y29uc3QgQ0FDSEVfTkFNRSA9ICdkZXNwZXNhcy12MTYzJzsKY29uc3QgQVNTRVRTID0gWwogICAgJy9kZXNwZXNhcy8nLAogICAgJy9kZXNwZXNhcy9pbmRleC5odG1sJywKICAgICcvZGVzcGVzYXMvc3R5bGVzLmNzcz92PTE2MycsCiAgICAnL2Rlc3Blc2FzL2FwcC5qcz92PTE2MycsCiAgICAnL2Rlc3Blc2FzL21hbmlmZXN0Lmpzb24nCl07CgovLyBGb3JjZSBmcmVzaCBmZXRjaCBvZiB0aGUgYXBwIHNoZWxsIHNvIEhUVFAgY2FjaGUgKGJyb3dzZXIgbGF5ZXIpIGNhbm5vdAovLyBoYW5kIHVzIGEgc3RhbGUgYXBwLmpzIC8gaW5kZXguaHRtbC4gR2l0SHViIFBhZ2VzIG1heSBzZXQgQ2FjaGUtQ29udHJvbAovLyBoZWFkZXJzIHRoYXQgc3Vydml2ZSBhIFNXIHVwZGF0ZSBvdGhlcndpc2UuCmZ1bmN0aW9uIGZyZXNoUmVxdWVzdChyZXEpIHsKICAgIGlmIChyZXEubWV0aG9kICE9PSAnR0VUJykgcmV0dXJuIHJlcTsKICAgIGNvbnN0IHVybCA9IG5ldyBVUkwocmVxLnVybCk7CiAgICAvLyBPbmx5IGJ5cGFzcyBIVFRQIGNhY2hlIGZvciBvdXIgb3duIGFwcCBzaGVsbCDigJQgdGhpcmQtcGFydHkgQ0ROcwogICAgLy8gKEZvbnQgQXdlc29tZSwgR29vZ2xlIEZvbnRzLCBwZGYuanMpIGJyZWFrIHdpdGggbm8tc3RvcmUgKyBuby1jb3JzLgogICAgaWYgKHVybC5vcmlnaW4gIT09IHNlbGYubG9jYXRpb24ub3JpZ2luKSByZXR1cm4gcmVxOwogICAgY29uc3QgaXNBcHBTaGVsbCA9IC9cLihodG1sfGpzfGNzcykkLy50ZXN0KHVybC5wYXRobmFtZSkgfHwgdXJsLnBhdGhuYW1lLmVuZHNXaXRoKCcvJyk7CiAgICBpZiAoIWlzQXBwU2hlbGwpIHJldHVybiByZXE7CiAgICByZXR1cm4gbmV3IFJlcXVlc3QocmVxLnVybCwgeyBtZXRob2Q6ICdHRVQnLCBjYWNoZTogJ25vLXN0b3JlJywgY3JlZGVudGlhbHM6IHJlcS5jcmVkZW50aWFscyB9KTsKfQoKc2VsZi5hZGRFdmVudExpc3RlbmVyKCdpbnN0YWxsJywgKGV2ZW50KSA9PiB7CiAgICBldmVudC53YWl0VW50aWwoCiAgICAgICAgY2FjaGVzLm9wZW4oQ0FDSEVfTkFNRSkudGhlbihjYWNoZSA9PgogICAgICAgICAgICBQcm9taXNlLmFsbChBU1NFVFMubWFwKGEgPT4gZmV0Y2goYSwgeyBjYWNoZTogJ25vLXN0b3JlJyB9KS50aGVuKHIgPT4gY2FjaGUucHV0KGEsIHIpKSkpCiAgICAgICAgKQogICAgKTsKICAgIHNlbGYuc2tpcFdhaXRpbmcoKTsKfSk7CgpzZWxmLmFkZEV2ZW50TGlzdGVuZXIoJ2FjdGl2YXRlJywgKGV2ZW50KSA9PiB7CiAgICBldmVudC53YWl0VW50aWwoCiAgICAgICAgY2FjaGVzLmtleXMoKS50aGVuKGtleXMgPT4KICAgICAgICAgICAgUHJvbWlzZS5hbGwoa2V5cy5maWx0ZXIoayA9PiBrICE9PSBDQUNIRV9OQU1FKS5tYXAoayA9PiBjYWNoZXMuZGVsZXRlKGspKSkKICAgICAgICApLnRoZW4oKCkgPT4gc2VsZi5jbGllbnRzLmNsYWltKCkpCiAgICAgICAgICAudGhlbigoKSA9PiBzZWxmLmNsaWVudHMubWF0Y2hBbGwoeyB0eXBlOiAnd2luZG93JyB9KSkKICAgICAgICAgIC50aGVuKGNsaWVudHMgPT4gY2xpZW50cy5mb3JFYWNoKGMgPT4gYy5uYXZpZ2F0ZShjLnVybCkpKQogICAgKTsKfSk7CgpzZWxmLmFkZEV2ZW50TGlzdGVuZXIoJ2ZldGNoJywgKGV2ZW50KSA9PiB7CiAgICBldmVudC5yZXNwb25kV2l0aCgKICAgICAgICBmZXRjaChmcmVzaFJlcXVlc3QoZXZlbnQucmVxdWVzdCkpCiAgICAgICAgICAgIC50aGVuKHJlc3BvbnNlID0+IHsKICAgICAgICAgICAgICAgIGNvbnN0IGNsb25lID0gcmVzcG9uc2UuY2xvbmUoKTsKICAgICAgICAgICAgICAgIGNhY2hlcy5vcGVuKENBQ0hFX05BTUUpLnRoZW4oY2FjaGUgPT4gY2FjaGUucHV0KGV2ZW50LnJlcXVlc3QsIGNsb25lKSk7CiAgICAgICAgICAgICAgICByZXR1cm4gcmVzcG9uc2U7CiAgICAgICAgICAgIH0pCiAgICAgICAgICAgIC5jYXRjaCgoKSA9PiBjYWNoZXMubWF0Y2goZXZlbnQucmVxdWVzdCkpCiAgICApOwp9KTsK
+const CACHE_NAME = 'despesas-v163';
+const ASSETS = [
+    '/despesas/',
+    '/despesas/index.html',
+    '/despesas/styles.css?v=163',
+    '/despesas/app.js?v=163',
+    '/despesas/manifest.json'
+];
+
+// Force fresh fetch of the app shell so HTTP cache (browser layer) cannot
+// hand us a stale app.js / index.html. GitHub Pages may set Cache-Control
+// headers that survive a SW update otherwise.
+function freshRequest(req) {
+    if (req.method !== 'GET') return req;
+    const url = new URL(req.url);
+    // Only bypass HTTP cache for our own app shell — third-party CDNs
+    // (Font Awesome, Google Fonts, pdf.js) break with no-store + no-cors.
+    if (url.origin !== self.location.origin) return req;
+    const isAppShell = /\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
+    if (!isAppShell) return req;
+    return new Request(req.url, { method: 'GET', cache: 'no-store', credentials: req.credentials });
+}
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(
+        caches.open(CACHE_NAME).then(cache =>
+            Promise.all(ASSETS.map(a => fetch(a, { cache: 'no-store' }).then(r => cache.put(a, r))))
+        )
+    );
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys().then(keys =>
+            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+        ).then(() => self.clients.claim())
+          .then(() => self.clients.matchAll({ type: 'window' }))
+          .then(clients => clients.forEach(c => c.navigate(c.url)))
+    );
+});
+
+self.addEventListener('fetch', (event) => {
+    event.respondWith(
+        fetch(freshRequest(event.request))
+            .then(response => {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                return response;
+            })
+            .catch(() => caches.match(event.request))
+    );
+});
