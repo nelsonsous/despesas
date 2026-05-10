@@ -152,7 +152,12 @@
                         <span><i class="fas fa-calendar-week" style="color:var(--primary)"></i> Despesas deste ciclo</span>
                         <span class="cycle-expenses-sub" id="cycle-expenses-sub">—</span>
                     </div>
-                    <i id="cycle-section-chevron" class="fas fa-chevron-down" style="color:var(--text-light);font-size:0.85rem;transition:transform 0.2s"></i>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <button id="cycle-group-btn" onclick="event.stopPropagation();toggleCycleGroupMode()" title="Agrupar por categoria" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light);display:none">
+                            <i class="fas fa-layer-group"></i>
+                        </button>
+                        <i id="cycle-section-chevron" class="fas fa-chevron-down" style="color:var(--text-light);font-size:0.85rem;transition:transform 0.2s"></i>
+                    </div>
                 </div>
                 <div id="cycle-expenses-body" style="display:none;margin-top:12px"></div>
             </div>
