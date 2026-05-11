@@ -3539,9 +3539,9 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
                 <div style="flex:1;font-size:0.82rem;font-weight:700">${c.label}</div>
                 <div style="font-size:0.7rem;color:var(--text-light);margin-right:6px">${count} ${count === 1 ? 'item' : 'itens'}</div>
                 <div style="font-weight:700;color:${totalColor};font-size:0.85rem;margin-right:4px">${formatCurrency(Math.abs(g.total))}</div>
-                <i id="${rowsId}-chevron" class="fas fa-chevron-up" style="font-size:0.7rem;color:var(--text-light);transition:transform 0.2s"></i>
+                <i id="${rowsId}-chevron" class="fas fa-chevron-up" style="font-size:0.7rem;color:var(--text-light);transition:transform 0.2s;transform:rotate(180deg)"></i>
             </div>
-            <div id="${rowsId}">${rowsHtml}</div>
+            <div id="${rowsId}" style="display:none">${rowsHtml}</div>
         </div>`;
     }).join('');
 }
