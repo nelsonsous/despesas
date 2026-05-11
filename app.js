@@ -3237,6 +3237,15 @@ function toggleCycleSection() {
     localStorage.setItem('despesas_cycle_section_open', isOpen ? '0' : '1');
 }
 
+function toggleCatGroup(id) {
+    const rows = document.getElementById(id);
+    const chevron = document.getElementById(id + '-chevron');
+    if (!rows) return;
+    const collapsed = rows.style.display === 'none';
+    rows.style.display = collapsed ? '' : 'none';
+    if (chevron) chevron.style.transform = collapsed ? '' : 'rotate(180deg)';
+}
+
 function toggleCycleGroupMode() {
     const grouped = localStorage.getItem('despesas_cycle_grouped') === '1';
     localStorage.setItem('despesas_cycle_grouped', grouped ? '0' : '1');
@@ -3510,7 +3519,7 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
         </div>`;
     };
 
-    return sortedKeys.map(key => {
+    return sortedKeys.map((key, idx) => {
         const g = groups[key];
         const c = key === '_savings'
             ? { label: 'Poupança', icon: 'fa-piggy-bank', color: '#E84C84' }
@@ -3518,19 +3527,21 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
         const count = g.rows.filter(r => r.status !== 'ignorado').length;
         const totalColor = key === '_savings' ? '#B8336B' : 'var(--danger)';
         const headerBg = `${c.color}18`;
+        const rowsId = `cat-rows-${idx}`;
 
         const rowsHtml = g.rows
             .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
             .map(r => renderRow(r, false)).join('');
 
         return `<div style="margin-bottom:10px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
-            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${headerBg}">
+            <div onclick="toggleCatGroup('${rowsId}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${headerBg};cursor:pointer">
                 <div style="width:26px;height:26px;border-radius:7px;background:${c.color}33;color:${c.color};display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ${c.icon}" style="font-size:0.75rem"></i></div>
                 <div style="flex:1;font-size:0.82rem;font-weight:700">${c.label}</div>
                 <div style="font-size:0.7rem;color:var(--text-light);margin-right:6px">${count} ${count === 1 ? 'item' : 'itens'}</div>
-                <div style="font-weight:700;color:${totalColor};font-size:0.85rem">${formatCurrency(Math.abs(g.total))}</div>
+                <div style="font-weight:700;color:${totalColor};font-size:0.85rem;margin-right:4px">${formatCurrency(Math.abs(g.total))}</div>
+                <i id="${rowsId}-chevron" class="fas fa-chevron-up" style="font-size:0.7rem;color:var(--text-light);transition:transform 0.2s"></i>
             </div>
-            ${rowsHtml}
+            <div id="${rowsId}">${rowsHtml}</div>
         </div>`;
     }).join('');
 }
