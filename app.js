@@ -2007,9 +2007,12 @@ function getEffectiveFixedStatus(f, date) {
     if (explicit && (explicit.status !== 'pendente' || explicit.manualPendente)) return explicit;
     const today = new Date();
     const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-    if (isCurrentMonth && today.getDate() >= f.dayOfMonth) {
-        recordInboxAutoApproval('expense', f, date);
-        return { status: 'pago', auto: true };
+    if (isCurrentMonth) {
+        const payDate = getFixedExpensePaymentDate(f, today.getFullYear(), today.getMonth());
+        if (today >= payDate) {
+            recordInboxAutoApproval('expense', f, date);
+            return { status: 'pago', auto: true };
+        }
     }
     return explicit || { status: 'pendente', auto: false };
 }
@@ -2179,6 +2182,21 @@ function getFixedIncomePaymentDate(fi, year, month) {
     }
     const maxDay = new Date(year, month + 1, 0).getDate();
     const clampedDay = Math.min(fi.dayOfMonth || 1, maxDay);
+    const target = new Date(year, month, clampedDay);
+    if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
+    return target;
+}
+
+// Returns the actual payment date for a fixed expense in the given calendar
+// month, honouring its paymentMode (same 3 modes as fixed income).
+function getFixedExpensePaymentDate(f, year, month) {
+    const mode = f.paymentMode || 'fixed-day';
+    if (mode === 'last-working-day') {
+        const lastDay = new Date(year, month + 1, 0);
+        return shiftBackwardToWorkingDay(lastDay);
+    }
+    const maxDay = new Date(year, month + 1, 0).getDate();
+    const clampedDay = Math.min(f.dayOfMonth || 1, maxDay);
     const target = new Date(year, month, clampedDay);
     if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
     return target;
@@ -4104,7 +4122,7 @@ function renderExpenses() {
                     </div>
                     <div>
                         <div class="fixed-month-desc">${f.description} ${varBadge}</div>
-                        <div class="fixed-month-meta"><span class="meta-day">Dia ${f.dayOfMonth}</span> &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${f.frequency > 1 ? ` &middot; <span style="color:var(--primary);font-size:0.62rem;font-weight:600">${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}</span>` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
+                        <div class="fixed-month-meta"><span class="meta-day">${f.paymentMode === 'last-working-day' ? 'Último dia útil' : f.paymentMode === 'working-day-after' ? `1.º útil após ${f.dayOfMonth}` : `Dia ${f.dayOfMonth}`}</span> &middot; ${cat.label}${child ? ` &middot; ${child.name}` : ''}${f.frequency > 1 ? ` &middot; <span style="color:var(--primary);font-size:0.62rem;font-weight:600">${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}</span>` : ''}${isAuto ? ' &middot; auto' : ''}${coParentPaid ? ` &middot; <span style="color:var(--success)">-${splitPct}%</span>` : ''}</div>
                     </div>
                     <div class="fixed-month-amount" style="${coParentPaid || hasSplitDeduction ? 'color:var(--success)' : f.isVariable && amount !== f.amount ? 'color:var(--primary)' : ''}">
                         ${coParentPaid ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:3px">${formatCurrency(amount)}</span>${formatCurrency(netAmount)}`
@@ -4144,8 +4162,17 @@ function renderExpenses() {
         const fixedGroupedHtml = [];
         const fixedInlineHtml = [];
         for (const [k, items] of fixedByCat) {
-            if (items.length >= 2) fixedGroupedHtml.push(renderCategoryGroupRow(k, items, 'fixed', f => renderFixedItem(f, false)));
-            else fixedInlineHtml.push(renderFixedItem(items[0], false));
+            if (items.length >= 2) {
+                const catTotal = items.reduce((s, f) => {
+                    const amt = getEffectiveFixedAmount(f, currentDate);
+                    const st = getFixedStatusForMonth(f.id, currentDate);
+                    const child = children.find(c => c.id === f.type);
+                    const coParentPaid = st?.paidByFather || false;
+                    const splitPct = getEffectiveSplitPct(f, child);
+                    return s + ((f.split && coParentPaid && child) ? amt * (1 - splitPct / 100) : amt);
+                }, 0);
+                fixedGroupedHtml.push(renderCategoryGroupRow(k, items, 'fixed', f => renderFixedItem(f, false), catTotal));
+            } else fixedInlineHtml.push(renderFixedItem(items[0], false));
         }
         fixedList.innerHTML = [
             ...fixedGroupedHtml,
@@ -4226,9 +4253,8 @@ function renderFixedItemChrono(f) {
     const isPaid = effSt.status === 'pago';
     const amount = getEffectiveFixedAmount(f, currentDate);
     const child = children.find(c => c.id === f.type);
-    const maxDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
-    const day = Math.min(f.dayOfMonth, maxDay);
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const payDate = getFixedExpensePaymentDate(f, currentDate.getFullYear(), currentDate.getMonth());
+    const dateStr = `${payDate.getFullYear()}-${String(payDate.getMonth()+1).padStart(2,'0')}-${String(payDate.getDate()).padStart(2,'0')}`;
     // Match the category view's quick-actions for fixed rows so users have the
     // same shortcuts (toggle paid, duplicate, skip, delete) regardless of mode.
     return `
@@ -4399,10 +4425,12 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
 // state matches the section. The caller passes the per-row renderer
 // since renderFixedItem is a closure inside renderExpenses (it captures
 // currentDate-dependent state and the cats lookup).
-function renderCategoryGroupRow(catKey, items, kind, renderItem) {
+function renderCategoryGroupRow(catKey, items, kind, renderItem, totalOverride) {
     const cats = getEffectiveCategories();
     const cat = cats[catKey] || cats.outros;
-    const total = items.filter(e => kind === 'fixed' ? true : expenseAffectsBalance(e)).reduce((s, e) => s + (e.amount || 0), 0);
+    const total = totalOverride !== undefined
+        ? totalOverride
+        : items.filter(e => kind === 'fixed' ? true : expenseAffectsBalance(e)).reduce((s, e) => s + (e.amount || 0), 0);
     const groupKey = `cat-${kind}-${catKey}`;
     const isOpen = (window._categoryGroupOpen || {})[groupKey];
     const innerRows = items.map(renderItem).join('');
@@ -11668,7 +11696,7 @@ function renderFixedList() {
                 <div class="fixed-icon" style="width:34px;height:34px"><i class="fas ${cat.icon}"></i></div>
                 <div class="fixed-info" style="flex:1;min-width:0">
                     <div class="fixed-desc" style="font-size:0.88rem">${f.description}${varBadge}${splitBadge}${splitsBadge}</div>
-                    <div class="fixed-meta" style="font-size:0.7rem">Dia ${f.dayOfMonth}${f.frequency > 1 ? ` &middot; ${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}` : ''} &middot; ${typeLabel}${endLabel ? ` &middot; desde ${f.startDate}${endLabel}` : ` &middot; desde ${f.startDate}`}</div>
+                    <div class="fixed-meta" style="font-size:0.7rem">${f.paymentMode === 'last-working-day' ? 'Último dia útil' : f.paymentMode === 'working-day-after' ? `1.º útil após ${f.dayOfMonth}` : `Dia ${f.dayOfMonth}`}${f.frequency > 1 ? ` &middot; ${{2:'bimensal',3:'trim.',6:'sem.',12:'anual'}[f.frequency]||`/${f.frequency}m`}` : ''} &middot; ${typeLabel}${endLabel ? ` &middot; desde ${f.startDate}${endLabel}` : ` &middot; desde ${f.startDate}`}</div>
                 </div>
                 <div class="fixed-amount" style="font-size:0.95rem;font-weight:700;white-space:nowrap">${formatCurrency(f.amount)}</div>
                 <div style="flex-basis:100%;display:flex;gap:5px;justify-content:flex-end">
@@ -11700,6 +11728,9 @@ function showAddFixed() {
     updateFixedMixChildUI(null);
     updateFixedMixPartnerUI(null);
     populateSplitWithNamesList();
+    const defModeEl = document.querySelector('input[name="fixed-pay-mode"][value="fixed-day"]');
+    if (defModeEl) defModeEl.checked = true;
+    updateFixedPayModeDayVisibility();
     document.getElementById('fixed-modal').classList.add('active');
 }
 
@@ -11711,6 +11742,9 @@ function editFixed(id) {
     document.getElementById('fixed-desc').value = f.description;
     document.getElementById('fixed-amount').value = f.amount;
     document.getElementById('fixed-day').value = f.dayOfMonth;
+    const fPayModeEl = document.querySelector(`input[name="fixed-pay-mode"][value="${f.paymentMode || 'fixed-day'}"]`);
+    if (fPayModeEl) fPayModeEl.checked = true;
+    updateFixedPayModeDayVisibility();
     document.getElementById('fixed-start').value = f.startDate;
     document.getElementById('fixed-end').value = f.endDate || '';
     document.getElementById('fixed-notes').value = f.notes || '';
@@ -11787,7 +11821,8 @@ function saveFixed(event) {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
         amount: parseFloat(document.getElementById('fixed-amount').value),
-        dayOfMonth: parseInt(document.getElementById('fixed-day').value),
+        dayOfMonth: parseInt(document.getElementById('fixed-day').value) || 1,
+        paymentMode: document.querySelector('input[name="fixed-pay-mode"]:checked')?.value || 'fixed-day',
         frequency: freqVal > 1 ? freqVal : undefined,
         category: document.getElementById('fixed-category').value,
         type: ftype,
@@ -12049,6 +12084,20 @@ function toggleFixedIncomeCoParent() {
     const cb = document.getElementById('fixed-income-coparent-on');
     const fields = document.getElementById('fixed-income-coparent-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
+}
+
+function updateFixedPayModeDayVisibility() {
+    const mode = document.querySelector('input[name="fixed-pay-mode"]:checked')?.value || 'fixed-day';
+    const wrap = document.getElementById('fixed-day-wrap');
+    if (wrap) wrap.style.display = mode === 'last-working-day' ? 'none' : '';
+    const hint = document.getElementById('fixed-day-hint');
+    if (hint) {
+        hint.textContent = mode === 'working-day-after'
+            ? 'Dia de referência — é marcado como pago no 1.º dia útil (seg-sex) igual ou após este dia.'
+            : 'Fica cativado até essa data; marca-se como pago automaticamente';
+    }
+    const dayEl = document.getElementById('fixed-day');
+    if (dayEl) dayEl.required = mode !== 'last-working-day';
 }
 
 function updateFixedIncomeDayVisibility() {

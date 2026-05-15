@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=164">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1814,9 +1814,26 @@
                         <small class="field-hint">O valor aqui e uma estimativa. Pode corrigir o valor real em cada mes.</small>
                     </div>
                     <div class="form-group">
+                        <label>Modo de pagamento</label>
+                        <div class="radio-group" style="flex-direction:column;gap:6px">
+                            <label class="radio-label">
+                                <input type="radio" name="fixed-pay-mode" value="fixed-day" checked onchange="updateFixedPayModeDayVisibility()">
+                                <span class="radio-custom"></span> Dia fixo do mês
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="fixed-pay-mode" value="working-day-after" onchange="updateFixedPayModeDayVisibility()">
+                                <span class="radio-custom"></span> 1.º dia útil a partir do dia X
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="fixed-pay-mode" value="last-working-day" onchange="updateFixedPayModeDayVisibility()">
+                                <span class="radio-custom"></span> Último dia útil do mês
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" id="fixed-day-wrap">
                         <label>Dia do mes em que sai</label>
                         <input type="number" id="fixed-day" min="1" max="31" required placeholder="Ex: 5" value="1">
-                        <small class="field-hint">Fica cativado ate essa data; marca-se como pago automaticamente</small>
+                        <small id="fixed-day-hint" class="field-hint">Fica cativado ate essa data; marca-se como pago automaticamente</small>
                     </div>
                     <div class="form-group">
                         <label>Frequência</label>
@@ -2078,7 +2095,7 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=164"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
