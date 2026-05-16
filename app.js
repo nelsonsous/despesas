@@ -137,7 +137,7 @@ let pendingExpenses = [];
 const PENDING_KEY = 'despesas_pending_ai';
 const AI_CFG_KEY = 'despesas_ai_cfg';
 
-let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', mistralKey: '', mistralModel: 'mistral-small-latest', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
+let aiCfg = { geminiKey: '', grokKey: '', grokModel: 'grok-4-fast', groqKey: '', groqModel: 'llama-3.3-70b-versatile', mistralKey: '', mistralModel: 'mistral-small-latest', claudeKey: '', claudeModel: 'claude-haiku-4-5', aiProvider: 'gemini', googleClientId: '', autoSync: false, lastSyncDate: null, ownContacts: '' };
 let _googleTokenClient = null;
 let _googleAccessToken = null;
 
@@ -156,6 +156,8 @@ function saveAiSettings() {
     const groqModel = document.getElementById('ai-groq-model')?.value.trim();
     const mistralKey = document.getElementById('ai-mistral-key')?.value.trim();
     const mistralModel = document.getElementById('ai-mistral-model')?.value.trim();
+    const claudeKey = document.getElementById('ai-claude-key')?.value.trim();
+    const claudeModel = document.getElementById('ai-claude-model')?.value.trim();
     const provider = document.querySelector('input[name="ai-provider"]:checked')?.value;
     const cid = document.getElementById('ai-google-client-id')?.value.trim();
     const ownContactsEl = document.getElementById('ai-own-contacts');
@@ -166,6 +168,8 @@ function saveAiSettings() {
     if (groqModel) aiCfg.groqModel = groqModel;
     if (mistralKey) aiCfg.mistralKey = mistralKey;
     if (mistralModel) aiCfg.mistralModel = mistralModel;
+    if (claudeKey) aiCfg.claudeKey = claudeKey;
+    if (claudeModel) aiCfg.claudeModel = claudeModel;
     if (provider) aiCfg.aiProvider = provider;
     if (ownContactsEl) aiCfg.ownContacts = ownContactsEl.value.trim();
     if (cid) aiCfg.googleClientId = cid;
@@ -188,6 +192,8 @@ function renderAiSettingsUI() {
     const groqModelEl = document.getElementById('ai-groq-model');
     const mistralKeyEl = document.getElementById('ai-mistral-key');
     const mistralModelEl = document.getElementById('ai-mistral-model');
+    const claudeKeyEl = document.getElementById('ai-claude-key');
+    const claudeModelEl = document.getElementById('ai-claude-model');
     const cidEl = document.getElementById('ai-google-client-id');
     const autoEl = document.getElementById('ai-auto-sync');
     const fromEl = document.getElementById('ai-sync-from');
@@ -199,6 +205,8 @@ function renderAiSettingsUI() {
     if (groqModelEl) groqModelEl.value = aiCfg.groqModel || 'llama-3.3-70b-versatile';
     if (mistralKeyEl && aiCfg.mistralKey) mistralKeyEl.value = aiCfg.mistralKey;
     if (mistralModelEl) mistralModelEl.value = aiCfg.mistralModel || 'mistral-small-latest';
+    if (claudeKeyEl && aiCfg.claudeKey) claudeKeyEl.value = aiCfg.claudeKey;
+    if (claudeModelEl) claudeModelEl.value = aiCfg.claudeModel || 'claude-haiku-4-5';
     const providerEl = document.querySelector(`input[name="ai-provider"][value="${aiCfg.aiProvider || 'gemini'}"]`);
     if (providerEl) providerEl.checked = true;
     // Toggle provider-specific blocks. If the wrapper IDs aren't in the DOM
@@ -215,6 +223,7 @@ function renderAiSettingsUI() {
     showBlock('ai-grok-block', 'ai-grok-key', provider === 'grok');
     showBlock('ai-groq-block', 'ai-groq-key', provider === 'groq');
     showBlock('ai-mistral-block', 'ai-mistral-key', provider === 'mistral');
+    showBlock('ai-claude-block', 'ai-claude-key', provider === 'claude');
     if (cidEl && aiCfg.googleClientId) cidEl.value = aiCfg.googleClientId;
     const ownEl = document.getElementById('ai-own-contacts');
     if (ownEl && aiCfg.ownContacts !== undefined) ownEl.value = aiCfg.ownContacts;
@@ -472,6 +481,42 @@ function callGroqOnce(prompt) {
 }
 function callMistralOnce(prompt) {
     return callOpenAICompatibleOnce('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, aiCfg.mistralModel || 'mistral-small-latest', prompt);
+}
+
+// Calls Anthropic Claude with prompt caching on the shared system prompt.
+// The stable AI_SYSTEM_PROMPT block is sent in the `system` array with
+// cache_control so repeated calls reuse the cached prefix (~10% token cost).
+async function callClaudeOnce(prompt) {
+    if (!aiCfg.claudeKey) throw new Error('Chave Claude não configurada');
+    const model = aiCfg.claudeModel || 'claude-haiku-4-5';
+    // Separate the stable system prompt from the dynamic user content so the
+    // system block can be cached independently of the volatile request payload.
+    const userContent = prompt.startsWith(AI_SYSTEM_PROMPT)
+        ? prompt.slice(AI_SYSTEM_PROMPT.length).trimStart()
+        : prompt;
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': aiCfg.claudeKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+            model,
+            max_tokens: 2000,
+            system: [{ type: 'text', text: AI_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+            messages: [{ role: 'user', content: userContent }]
+        })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data?.error?.message || data?.error?.type || res.statusText || 'Erro Claude';
+        if (res.status === 401) throw new Error('Chave Claude inválida (401)');
+        if (res.status === 429) throw new Error('Claude: limite de pedidos atingido. Tenta em breve.');
+        throw new Error(`Claude: ${msg}`);
+    }
+    return data?.content?.[0]?.text || '';
 }
 
 const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
@@ -6443,7 +6488,7 @@ function renderSavingsTips(container, tips, loading) {
 function hasAnyAiKey() {
     // Any configured provider unlocks the AI features — the dispatcher
     // handles picking the right one at call time.
-    return !!(aiCfg.geminiKey || aiCfg.groqKey || aiCfg.grokKey || aiCfg.mistralKey);
+    return !!(aiCfg.geminiKey || aiCfg.groqKey || aiCfg.grokKey || aiCfg.mistralKey || aiCfg.claudeKey);
 }
 
 // Single entry point for "text in, text out" AI calls. Picks the user's
@@ -6473,6 +6518,9 @@ async function callAIText(prompt) {
                 const data = await callMistralOnce(prompt);
                 return data?.choices?.[0]?.message?.content || '';
             }
+            if (provider === 'claude') {
+                return await callClaudeOnce(prompt);
+            }
         } catch (e) {
             errors.push(`${provider}: ${e?.message || e}`);
             // Keep trying — next provider in the fallback chain.
@@ -6485,11 +6533,11 @@ async function callAIText(prompt) {
 // else that has a key. Used by callAIText and runReceiptOcr.
 function aiProviderFallbackOrder() {
     const preferred = aiCfg.aiProvider || 'gemini';
-    const hasKey = { gemini: !!aiCfg.geminiKey, groq: !!aiCfg.groqKey, grok: !!aiCfg.grokKey, mistral: !!aiCfg.mistralKey };
+    const hasKey = { gemini: !!aiCfg.geminiKey, groq: !!aiCfg.groqKey, grok: !!aiCfg.grokKey, mistral: !!aiCfg.mistralKey, claude: !!aiCfg.claudeKey };
     const order = [];
     if (hasKey[preferred]) order.push(preferred);
     // Free tiers first in the fallback so we burn paid quota last.
-    ['groq', 'mistral', 'gemini', 'grok'].forEach(p => { if (hasKey[p] && !order.includes(p)) order.push(p); });
+    ['groq', 'mistral', 'gemini', 'grok', 'claude'].forEach(p => { if (hasKey[p] && !order.includes(p)) order.push(p); });
     return order;
 }
 
@@ -7225,6 +7273,39 @@ function callMistralVision(b64, mime, prompt) {
     return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt);
 }
 
+async function callClaudeVision(base64Data, mimeType, prompt) {
+    if (!aiCfg.claudeKey) throw new Error('Chave Claude não configurada');
+    const model = aiCfg.claudeModel || 'claude-haiku-4-5';
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': aiCfg.claudeKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+            model,
+            max_tokens: 600,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: prompt },
+                    { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Data } }
+                ]
+            }]
+        })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data?.error?.message || data?.error?.type || res.statusText || 'Erro Claude';
+        if (res.status === 401) throw new Error('Chave Claude inválida (401)');
+        if (res.status === 429) throw new Error('Claude: limite atingido.');
+        throw new Error(`Claude: ${msg}`);
+    }
+    return data?.content?.[0]?.text || '';
+}
+
 // Dispatch OCR to whatever provider is configured — starts with the user's
 // selected one; on quota/failure falls back to another provider that has
 // a key. Matters because Gemini free tier runs out, Groq/Mistral are
@@ -7239,6 +7320,7 @@ async function runReceiptOcr(base64Data, mimeType, prompt) {
             if (provider === 'groq')    return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
             if (provider === 'grok')    return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
             if (provider === 'mistral') return { text: await callMistralVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'claude')  return { text: await callClaudeVision(base64Data, mimeType, prompt), provider };
         } catch (e) {
             tried.push(`${provider}: ${e?.message || e}`);
         }

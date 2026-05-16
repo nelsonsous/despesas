@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=164">
+    <link rel="stylesheet" href="styles.css?v=165">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1440,6 +1440,10 @@
                                 <input type="radio" name="ai-provider" value="grok" onchange="saveAiSettings()">
                                 <span>Grok (xAI)</span>
                             </label>
+                            <label class="radio-label">
+                                <input type="radio" name="ai-provider" value="claude" onchange="saveAiSettings()">
+                                <span>Claude (Anthropic)</span>
+                            </label>
                         </div>
                         <small class="field-hint">Podes configurar chaves de vários providers em simultâneo. A app usa sempre o principal primeiro; se esgotar quota ou falhar, cai automaticamente para qualquer outro com chave configurada.</small>
                     </div>
@@ -1475,6 +1479,15 @@
                         <label style="margin-top:10px">Modelo</label>
                         <input type="text" id="ai-grok-model" placeholder="grok-4-fast" value="grok-4-fast">
                         <small class="field-hint">Default: <code>grok-4-fast</code> (mais barato). Alternativas: <code>grok-3-mini</code>, <code>grok-2-1212</code>.</small>
+                    </div>
+
+                    <div id="ai-claude-block" class="form-group" style="display:none">
+                        <label>Chave API Claude <a href="https://console.anthropic.com/settings/keys" target="_blank" style="font-size:0.75rem;color:var(--primary)">(obter em console.anthropic.com)</a></label>
+                        <input type="password" id="ai-claude-key" placeholder="sk-ant-..." autocomplete="off">
+                        <small class="field-hint">Anthropic Claude. O prompt de sistema é cacheado automaticamente — chamadas repetidas custam ~10× menos em tokens de entrada.</small>
+                        <label style="margin-top:10px">Modelo</label>
+                        <input type="text" id="ai-claude-model" placeholder="claude-haiku-4-5" value="claude-haiku-4-5">
+                        <small class="field-hint">Default: <code>claude-haiku-4-5</code> (rápido e económico). Mais capaz: <code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>.</small>
                     </div>
 
                     <div class="form-group">
@@ -2095,7 +2108,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=164"></script>
+    <script src="app.js?v=165"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
