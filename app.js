@@ -7257,7 +7257,8 @@ async function callMistralOcrExtract(base64Data, mimeType) {
 async function callMistralOcr(base64Data, mimeType, prompt) {
     const text = await callMistralOcrExtract(base64Data, mimeType);
     if (!text) throw new Error('Mistral OCR não devolveu texto');
-    return callMistralOnce(`${prompt}\n\nTEXTO EXTRAÍDO:\n${text.slice(0, 8000)}`);
+    const data = await callMistralOnce(`${prompt}\n\nTEXTO EXTRAÍDO:\n${text.slice(0, 8000)}`);
+    return data?.choices?.[0]?.message?.content || '';
 }
 
 // Dispatch OCR to whatever provider is configured — starts with the user's
@@ -7319,7 +7320,8 @@ Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura
 
 TEXTO:
 ${ocrText.slice(0, 8000)}`;
-                        const raw = await callMistralOnce(promptPdf);
+                        const _d = await callMistralOnce(promptPdf);
+                        const raw = _d?.choices?.[0]?.message?.content || '';
                         const obj = extractJsonObject(raw);
                         if (obj && !obj.erro) {
                             prefillExpenseFromReceipt(obj);
