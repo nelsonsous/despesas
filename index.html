@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=167">
+    <link rel="stylesheet" href="styles.css?v=168">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -704,10 +704,44 @@
             </div>
         </section>
 
+        <!-- FAB - Quick Capture (camera) -->
+        <input type="file" id="quick-capture-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="onQuickCaptureFile(this)">
+        <button class="fab fab-camera" onclick="triggerQuickCapture()" title="Scan rápido de recibo">
+            <i class="fas fa-camera"></i>
+        </button>
         <!-- FAB - Add Expense -->
         <button class="fab" onclick="showAddExpense()">
             <i class="fas fa-plus"></i>
         </button>
+
+        <!-- Quick Confirm Sheet -->
+        <div id="quick-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeQuickConfirm()">
+            <div style="background:var(--surface);border-radius:20px 20px 0 0;padding:20px 20px 32px;width:100%;max-width:480px;box-shadow:0 -4px 24px rgba(0,0,0,0.18)">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+                    <i class="fas fa-receipt" style="color:var(--primary);font-size:1.1rem"></i>
+                    <span style="font-weight:700;font-size:1rem">Recibo detetado</span>
+                    <button onclick="closeQuickConfirm()" class="btn-icon" style="margin-left:auto"><i class="fas fa-times"></i></button>
+                </div>
+                <div id="qc-spinner" style="text-align:center;padding:20px 0"><i class="fas fa-spinner fa-spin" style="font-size:2rem;color:var(--primary)"></i><div style="margin-top:8px;color:var(--text-light);font-size:0.85rem">A ler recibo…</div></div>
+                <div id="qc-result" style="display:none">
+                    <div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--bg);border-radius:12px;margin-bottom:16px">
+                        <div id="qc-icon" style="width:42px;height:42px;border-radius:10px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                            <i id="qc-cat-icon" class="fas fa-receipt" style="color:var(--primary)"></i>
+                        </div>
+                        <div style="flex:1;min-width:0">
+                            <div id="qc-desc" style="font-weight:700;font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                            <div id="qc-meta" style="font-size:0.78rem;color:var(--text-light);margin-top:2px"></div>
+                        </div>
+                        <div id="qc-amount" style="font-size:1.2rem;font-weight:800;color:var(--danger);flex-shrink:0"></div>
+                    </div>
+                    <div style="display:flex;gap:10px">
+                        <button onclick="editFromQuickConfirm()" class="btn btn-block" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);flex:1"><i class="fas fa-pen"></i> Editar</button>
+                        <button onclick="saveFromQuickConfirm()" class="btn btn-primary btn-block" style="flex:2"><i class="fas fa-check"></i> Guardar</button>
+                    </div>
+                </div>
+                <div id="qc-error" style="display:none;text-align:center;padding:12px;color:var(--danger);font-size:0.88rem"></div>
+            </div>
+        </div>
 
         <!-- Add Expense Modal -->
         <div id="modal-add" class="modal">
@@ -1053,6 +1087,22 @@
                                 </div>
                             </div>
                             <small class="field-hint" style="margin-top:6px">Se o NIF na factura for o teu, entra no Tracker IRS nos Relatórios. Só os tipos "Fatura" e "Fatura-Recibo" dão dedução.</small>
+                            <div id="fiscal-fuel-block" style="display:none;align-items:center;gap:8px;margin-top:8px;padding:7px 10px;background:#FFF8E1;border-radius:8px;border:1px solid #FFE082">
+                                <i class="fas fa-gas-pump" style="color:#F57F17;font-size:0.9rem"></i>
+                                <span class="fiscal-fuel-text" style="font-size:0.8rem;color:#5D4037"></span>
+                            </div>
+                            <div id="fiscal-farmacia-block" style="display:none;align-items:flex-start;gap:8px;margin-top:8px;padding:7px 10px;background:#F3E5F5;border-radius:8px;border:1px solid #CE93D8">
+                                <i class="fas fa-pills" style="color:#7B1FA2;font-size:0.9rem;margin-top:2px"></i>
+                                <span class="fiscal-farmacia-text" style="font-size:0.78rem;color:#4A148C;line-height:1.4"></span>
+                            </div>
+                            <div id="fiscal-iva-detalhado-block" style="display:none;align-items:center;gap:8px;margin-top:8px;padding:7px 10px;background:#E8F5E9;border-radius:8px;border:1px solid #A5D6A7">
+                                <i class="fas fa-percent" style="color:#2E7D32;font-size:0.9rem"></i>
+                                <span class="fiscal-iva-text" style="font-size:0.78rem;color:#1B5E20"></span>
+                            </div>
+                            <div id="fiscal-restaurante-block" style="display:none;align-items:center;gap:8px;margin-top:8px;padding:7px 10px;background:#E3F2FD;border-radius:8px;border:1px solid #90CAF9">
+                                <i class="fas fa-users" style="color:#1565C0;font-size:0.9rem"></i>
+                                <span class="fiscal-restaurante-text" style="font-size:0.8rem;color:#0D47A1"></span>
+                            </div>
                             <div id="fiscal-line-items" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)"></div>
                         </div>
                     </div>
@@ -2095,7 +2145,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=167"></script>
+    <script src="app.js?v=168"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

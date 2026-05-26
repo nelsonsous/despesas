@@ -1,9 +1,9 @@
-const CACHE_NAME = 'despesas-v167';
+const CACHE_NAME = 'despesas-v168';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
-    '/despesas/styles.css?v=167',
-    '/despesas/app.js?v=167',
+    '/despesas/styles.css?v=168',
+    '/despesas/app.js?v=168',
     '/despesas/manifest.json'
 ];
 
@@ -41,6 +41,30 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+    // Handle Web Share Target POST: store the shared file in IndexedDB
+    // then redirect to the app so it can pick it up on load.
+    if (event.request.method === 'POST' && new URL(event.request.url).pathname === '/despesas/') {
+        event.respondWith((async () => {
+            const formData = await event.request.formData();
+            const file = formData.get('receipt');
+            if (file && file instanceof File) {
+                const buf = await file.arrayBuffer();
+                await new Promise((resolve, reject) => {
+                    const req = indexedDB.open('despesas-share', 1);
+                    req.onupgradeneeded = e => e.target.result.createObjectStore('pending');
+                    req.onsuccess = e => {
+                        const tx = e.target.result.transaction('pending', 'readwrite');
+                        tx.objectStore('pending').put({ name: file.name, type: file.type, buf }, 'latest');
+                        tx.oncomplete = resolve;
+                        tx.onerror = reject;
+                    };
+                    req.onerror = reject;
+                });
+            }
+            return Response.redirect('/despesas/?share=1', 303);
+        })());
+        return;
+    }
     event.respondWith(
         fetch(freshRequest(event.request))
             .then(response => {

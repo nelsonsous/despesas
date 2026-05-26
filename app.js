@@ -1758,7 +1758,34 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPendingExpenses();
     checkAutoSync();
     refreshInboxBadge();
+    // Web Share Target: check if launched via a shared file (sw stored it in IndexedDB)
+    if (new URLSearchParams(location.search).get('share') === '1') {
+        setTimeout(checkPendingSharedFile, 600);
+    }
 });
+
+function checkPendingSharedFile() {
+    const req = indexedDB.open('despesas-share', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('pending');
+    req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('pending', 'readwrite');
+        const store = tx.objectStore('pending');
+        const get = store.get('latest');
+        get.onsuccess = () => {
+            if (!get.result) return;
+            store.delete('latest');
+            const { name, type, buf } = get.result;
+            const file = new File([buf], name, { type });
+            // Simulate selecting this file via the quick-capture flow
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            const fakeInput = { files: dt.files };
+            onQuickCaptureFile(fakeInput);
+        };
+    };
+    req.onerror = () => {};
+}
 
 function populateCategorySelects() {
     const cats = getEffectiveCategories();
@@ -7316,7 +7343,7 @@ async function onReceiptImageSelected(input) {
                     const ocrText = await callMistralOcrExtract(b64pdf, 'application/pdf');
                     if (ocrText && ocrText.length >= 30) {
                         const promptPdf = `${AI_SYSTEM_PROMPT}
-Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility). Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
+Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility, combustivel, farmacia, ivaDetalhado, restaurante). combustivel:{litros,precoPorLitro,tipoCombustivel} só para postos; farmacia:{numeroPrescricao,medicamentos:[{nome,quantidade,pvp,comReceita}]} só para farmácias; ivaDetalhado:[{taxa,base,valor}] só quando há múltiplas taxas IVA; restaurante:{numeroPessoas,mesaNumero} para restaurantes. Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
 
 TEXTO:
 ${ocrText.slice(0, 8000)}`;
@@ -7355,7 +7382,7 @@ ${ocrText.slice(0, 8000)}`;
             const text = out.join('\n').trim();
             if (!text || text.length < 30) { showToast('PDF parece vazio ou ilegível'); return; }
             const promptPdf = `${AI_SYSTEM_PROMPT}
-Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility). Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
+Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility, combustivel, farmacia, ivaDetalhado, restaurante). combustivel:{litros,precoPorLitro,tipoCombustivel} só para postos; farmacia:{numeroPrescricao,medicamentos:[{nome,quantidade,pvp,comReceita}]} só para farmácias; ivaDetalhado:[{taxa,base,valor}] só quando há múltiplas taxas IVA; restaurante:{numeroPessoas,mesaNumero} para restaurantes. Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
 
 TEXTO:
 ${text.slice(0, 8000)}`;
@@ -7407,8 +7434,16 @@ ${text.slice(0, 8000)}`;
     "consumoVazio": N | null,
     "consumoCheias": N | null,
     "consumoPonta": N | null
-  } | null
+  } | null,
+  "combustivel": { "litros": N | null, "precoPorLitro": N | null, "tipoCombustivel": "gasolina95" | "gasolina98" | "gasoleo" | "gpl" | "eletrico" | null } | null,
+  "farmacia": { "numeroPrescricao": "..." | null, "medicamentos": [{ "nome": "...", "quantidade": N, "pvp": N | null, "comReceita": bool }] | null } | null,
+  "ivaDetalhado": [{ "taxa": 6 | 13 | 23, "base": N, "valor": N }] | null,
+  "restaurante": { "numeroPessoas": N | null, "mesaNumero": "..." | null } | null
 Para "itens": extrai cada linha da factura que represente um produto ou prato. Normaliza o nome (ex: "LEITE MIMOSA M.G. 1L" → "Leite Mimosa 1L"; "Prato do dia carne" → "Prato do dia"). Se a factura só tem o total agregado (ex: recibo de restauração sem linhas), devolve null ou []. Máximo 30 itens.
+Para "combustivel": preenche apenas se for uma fatura/recibo de combustível (Galp, BP, Repsol, Cepsa, Prio…). Inclui litros abastecidos, preço/litro e tipo.
+Para "farmacia": preenche se for recibo de farmácia. Lista cada medicamento com nome normalizado, quantidade, PVP e se tem receita médica.
+Para "ivaDetalhado": só preenche se existirem MÚLTIPLAS taxas de IVA no mesmo documento (ex: supermercado com 6% e 23%). Omite se só há uma taxa.
+Para "restaurante": extrai número de pessoas/mesa se aparecer no recibo (útil para split de conta).
 Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
 
 Categorias (usa o id exato): ${JSON.stringify(catList)}
@@ -7436,6 +7471,138 @@ function prefillExpenseFromReceipt(obj) {
     // don't have two copies of the "map JSON → form fields" logic.
     showAddExpense();
     setTimeout(() => applyOcrFieldsToOpenModal(obj), 120);
+}
+
+// ===== QUICK CAPTURE =====
+let _quickCaptureObj = null;
+
+function triggerQuickCapture() {
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA nas definições para usar o scan rápido'); return; }
+    document.getElementById('quick-capture-input')?.click();
+}
+
+async function onQuickCaptureFile(input) {
+    const file = input?.files?.[0];
+    if (!file) return;
+    input.value = '';
+    const overlay = document.getElementById('quick-confirm-overlay');
+    const spinner = document.getElementById('qc-spinner');
+    const result  = document.getElementById('qc-result');
+    const errEl   = document.getElementById('qc-error');
+    overlay.style.display = 'flex';
+    spinner.style.display = 'block';
+    result.style.display  = 'none';
+    errEl.style.display   = 'none';
+    _quickCaptureObj = null;
+    try {
+        const cats = getEffectiveCategories();
+        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+        const today = new Date().toISOString().slice(0, 10);
+        const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+        let obj;
+        if (isPdf) {
+            const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+            const ocrText = aiCfg.mistralKey ? await callMistralOcrExtract(b64, 'application/pdf').catch(() => null) : null;
+            const promptPdf = `${AI_SYSTEM_PROMPT}\nTens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility, combustivel, farmacia, ivaDetalhado, restaurante). Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}\n\nTEXTO:\n${(ocrText || '').slice(0, 8000)}`;
+            const raw = await callAIText(promptPdf);
+            obj = extractJsonObject(raw);
+        } else {
+            const { data, type } = await resizeImageForOcr(file);
+            const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):\n{"descricao":"…","valor":N,"data":"YYYY-MM-DD","hora":"HH:MM"|null,"estabelecimento":"…","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null,"nifVendedor":"…"|null,"nifCliente":"…"|null,"ivaBase":N|null,"ivaValor":N|null,"ivaTaxa":6|13|23|null,"metodoPagamento":"cartao"|"mbway"|"dinheiro"|"transferencia"|"cheque"|"outro"|null,"cartaoUltimos4":"…"|null,"tipoDocumento":"fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,"atcud":"…"|null,"numeroDocumento":"…"|null,"moradaVendedor":"…"|null,"cidadeVendedor":"…"|null,"desconto":N|null,"programaFidelidade":"…"|null,"pontosFidelidade":N|null,"tipoServico":"mesa"|"take-away"|"esplanada"|"balcao"|"delivery"|null,"gorjeta":N|null,"itens":[{"nome":"…","qtd":N,"unidade":"…"|null,"precoUnitario":N|null,"total":N,"iva":6|13|23|null}]|null,"utility":{"tipo":"eletricidade"|"agua"|"gas"|"telecom"|null,"periodoInicio":"YYYY-MM-DD"|null,"periodoFim":"YYYY-MM-DD"|null,"consumoKwh":N|null,"consumoM3":N|null,"potenciaKva":N|null,"tarifa":"simples"|"bi-horaria"|"tri-horaria"|null,"consumoVazio":N|null,"consumoCheias":N|null,"consumoPonta":N|null}|null,"combustivel":{"litros":N|null,"precoPorLitro":N|null,"tipoCombustivel":"gasolina95"|"gasolina98"|"gasoleo"|"gpl"|"eletrico"|null}|null,"farmacia":{"numeroPrescricao":"…"|null,"medicamentos":[{"nome":"…","quantidade":N,"pvp":N|null,"comReceita":false}]|null}|null,"ivaDetalhado":[{"taxa":6|13|23,"base":N,"valor":N}]|null,"restaurante":{"numeroPessoas":N|null,"mesaNumero":"…"|null}|null}\nSe não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.\nCategorias (usa o id exato): ${JSON.stringify(catList)}\nHoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
+            const { text } = await runReceiptOcr(data, type, prompt);
+            obj = extractJsonObject(text);
+        }
+        if (!obj || obj.erro) throw new Error(obj?.erro || 'Não consegui ler o recibo');
+        _quickCaptureObj = obj;
+        spinner.style.display = 'none';
+        result.style.display  = 'block';
+        // Populate the card
+        const cats = getEffectiveCategories();
+        const cat = cats[obj.categoria];
+        document.getElementById('qc-desc').textContent = obj.descricao || obj.estabelecimento || 'Despesa';
+        document.getElementById('qc-amount').textContent = typeof obj.valor === 'number' ? formatCurrency(obj.valor) : '—';
+        const metaParts = [];
+        if (obj.data) metaParts.push(formatDate(obj.data));
+        if (cat) metaParts.push(cat.label);
+        document.getElementById('qc-meta').textContent = metaParts.join(' · ');
+        const iconEl = document.getElementById('qc-cat-icon');
+        const iconBox = document.getElementById('qc-icon');
+        if (cat) {
+            iconEl.className = `fas ${cat.icon}`;
+            iconEl.style.color = cat.color || 'var(--primary)';
+            iconBox.style.background = (cat.color || '#6C5CE7') + '22';
+        }
+    } catch (e) {
+        spinner.style.display = 'none';
+        errEl.style.display = 'block';
+        errEl.textContent = `Erro: ${e?.message || e}`;
+    }
+}
+
+function closeQuickConfirm() {
+    const overlay = document.getElementById('quick-confirm-overlay');
+    if (overlay) overlay.style.display = 'none';
+    _quickCaptureObj = null;
+}
+
+function saveFromQuickConfirm() {
+    if (!_quickCaptureObj) return;
+    const obj = _quickCaptureObj;
+    closeQuickConfirm();
+    // Build and save the expense directly without opening the form
+    const cats = getEffectiveCategories();
+    const id = generateId();
+    const now = new Date().toISOString();
+    const expense = {
+        id,
+        description: String(obj.descricao || obj.estabelecimento || 'Despesa').slice(0, 60),
+        amount: typeof obj.valor === 'number' ? obj.valor : 0,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(obj.data || '') ? obj.data : now.slice(0, 10),
+        category: cats[obj.categoria] ? obj.categoria : 'outros',
+        type: 'personal',
+        split: false,
+        paidByFather: false,
+        essential: !!obj.essencial,
+        notes: obj.notas || null,
+        attachment: null,
+        sellerNif:    cleanNif(obj.nifVendedor),
+        buyerNif:     cleanNif(obj.nifCliente),
+        vatBase:      toNumberOrNull(obj.ivaBase),
+        vatAmount:    toNumberOrNull(obj.ivaValor),
+        vatRate:      [6,13,23].includes(obj.ivaTaxa) ? obj.ivaTaxa : null,
+        paymentMethod: ['cartao','mbway','dinheiro','transferencia','cheque','outro'].includes(obj.metodoPagamento) ? obj.metodoPagamento : null,
+        cardLast4:    /^\d{4}$/.test(String(obj.cartaoUltimos4||'')) ? String(obj.cartaoUltimos4) : null,
+        purchaseTime: /^\d{2}:\d{2}$/.test(String(obj.hora||'')) ? String(obj.hora) : null,
+        documentType: ['fatura','fatura-recibo','recibo','nota-credito'].includes(obj.tipoDocumento) ? obj.tipoDocumento : null,
+        atcud:        typeof obj.atcud === 'string' ? obj.atcud.trim().slice(0,40) : null,
+        docNumber:    typeof obj.numeroDocumento === 'string' ? obj.numeroDocumento.trim().slice(0,40) : null,
+        sellerAddress: typeof obj.moradaVendedor === 'string' ? obj.moradaVendedor.trim().slice(0,120) : null,
+        sellerCity:   typeof obj.cidadeVendedor === 'string' ? obj.cidadeVendedor.trim().slice(0,60) : null,
+        discount:     toNumberOrNull(obj.desconto),
+        loyaltyProgram: typeof obj.programaFidelidade === 'string' ? obj.programaFidelidade.trim().slice(0,40) : null,
+        loyaltyPoints: toNumberOrNull(obj.pontosFidelidade),
+        serviceType:  ['mesa','take-away','esplanada','balcao','delivery'].includes(obj.tipoServico) ? obj.tipoServico : null,
+        tip:          toNumberOrNull(obj.gorjeta),
+        lineItems:    sanitizeLineItems(obj.itens),
+        utility:      sanitizeUtility(obj.utility),
+        combustivel:  sanitizeCombustivel(obj.combustivel),
+        farmacia:     sanitizeFarmacia(obj.farmacia),
+        ivaDetalhado: sanitizeIvaDetalhado(obj.ivaDetalhado),
+        restaurante:  sanitizeRestaurante(obj.restaurante),
+        createdAt: now,
+        updatedAt: now
+    };
+    expenses.push(expense);
+    saveData();
+    updateAll();
+    showToast(`✓ ${expense.description} — ${formatCurrency(expense.amount)} guardado`);
+}
+
+function editFromQuickConfirm() {
+    if (!_quickCaptureObj) return;
+    const obj = _quickCaptureObj;
+    closeQuickConfirm();
+    prefillExpenseFromReceipt(obj);
 }
 
 // ===== FISCAL FIELDS (receipt details) =====
@@ -7469,6 +7636,50 @@ function sanitizeUtility(u) {
 // easy to aggregate later. Keeps normalised name, quantity, unit, unit
 // price, total and VAT rate; drops anything that doesn't at least have a
 // name and a positive total.
+function sanitizeCombustivel(c) {
+    if (!c || typeof c !== 'object') return null;
+    const tipos = ['gasolina95', 'gasolina98', 'gasoleo', 'gpl', 'eletrico'];
+    const litros = toNumberOrNull(c.litros);
+    const ppl    = toNumberOrNull(c.precoPorLitro);
+    const tipo   = tipos.includes(c.tipoCombustivel) ? c.tipoCombustivel : null;
+    if (litros == null && ppl == null && !tipo) return null;
+    return { litros, precoPorLitro: ppl, tipoCombustivel: tipo };
+}
+
+function sanitizeFarmacia(f) {
+    if (!f || typeof f !== 'object') return null;
+    const meds = Array.isArray(f.medicamentos) ? f.medicamentos.slice(0, 20).map(m => {
+        if (!m || typeof m !== 'object') return null;
+        const nome = String(m.nome || '').trim().slice(0, 80);
+        if (!nome) return null;
+        return { nome, quantidade: toNumberOrNull(m.quantidade) ?? 1, pvp: toNumberOrNull(m.pvp), comReceita: !!m.comReceita };
+    }).filter(Boolean) : null;
+    const numeroPrescricao = typeof f.numeroPrescricao === 'string' ? f.numeroPrescricao.trim().slice(0, 40) : null;
+    if (!numeroPrescricao && !meds?.length) return null;
+    return { numeroPrescricao, medicamentos: meds?.length ? meds : null };
+}
+
+function sanitizeIvaDetalhado(arr) {
+    if (!Array.isArray(arr)) return null;
+    const out = arr.map(r => {
+        if (!r || typeof r !== 'object') return null;
+        const taxa = [6, 13, 23].includes(r.taxa) ? r.taxa : null;
+        const base = toNumberOrNull(r.base);
+        const valor = toNumberOrNull(r.valor);
+        if (taxa == null || base == null) return null;
+        return { taxa, base, valor };
+    }).filter(Boolean);
+    return out.length > 1 ? out : null; // only useful when there are multiple rates
+}
+
+function sanitizeRestaurante(r) {
+    if (!r || typeof r !== 'object') return null;
+    const numeroPessoas = toNumberOrNull(r.numeroPessoas);
+    const mesaNumero    = typeof r.mesaNumero === 'string' ? r.mesaNumero.trim().slice(0, 20) : null;
+    if (numeroPessoas == null && !mesaNumero) return null;
+    return { numeroPessoas, mesaNumero };
+}
+
 function sanitizeLineItems(arr) {
     if (!Array.isArray(arr)) return null;
     const out = arr.slice(0, 40).map(it => {
@@ -7546,10 +7757,60 @@ function updateFiscalFieldsUI() {
     // Show the block collapsed by default unless something came from OCR.
     const body = document.getElementById('fiscal-details-body');
     const toggleIcon = document.getElementById('fiscal-details-toggle');
+    // Combustível info block
+    const fuelBlock = document.getElementById('fiscal-fuel-block');
+    if (fuelBlock) {
+        if (p.combustivel) {
+            const c = p.combustivel;
+            const tipoLabel = { gasolina95: 'Gasolina 95', gasolina98: 'Gasolina 98', gasoleo: 'Gasóleo', gpl: 'GPL', eletrico: 'Elétrico' };
+            const parts = [];
+            if (c.litros != null) parts.push(`${c.litros}L`);
+            if (c.precoPorLitro != null) parts.push(`${c.precoPorLitro.toFixed(3)}€/L`);
+            if (c.tipoCombustivel) parts.push(tipoLabel[c.tipoCombustivel] || c.tipoCombustivel);
+            fuelBlock.style.display = 'flex';
+            fuelBlock.querySelector('.fiscal-fuel-text').textContent = parts.join(' · ') || '—';
+        } else { fuelBlock.style.display = 'none'; }
+    }
+    // Farmácia info block
+    const pharmBlock = document.getElementById('fiscal-farmacia-block');
+    if (pharmBlock) {
+        if (p.farmacia) {
+            const f = p.farmacia;
+            const lines = [];
+            if (f.numeroPrescricao) lines.push(`Receita: ${f.numeroPrescricao}`);
+            if (f.medicamentos?.length) lines.push(f.medicamentos.map(m => `${m.nome}${m.comReceita ? ' (c/receita)' : ''} ×${m.quantidade}`).join(', '));
+            pharmBlock.style.display = 'flex';
+            pharmBlock.querySelector('.fiscal-farmacia-text').textContent = lines.join(' | ') || '—';
+        } else { pharmBlock.style.display = 'none'; }
+    }
+    // IVA detalhado block
+    const ivaBlock = document.getElementById('fiscal-iva-detalhado-block');
+    if (ivaBlock) {
+        if (p.ivaDetalhado?.length) {
+            ivaBlock.style.display = 'flex';
+            ivaBlock.querySelector('.fiscal-iva-text').textContent =
+                p.ivaDetalhado.map(r => `${r.taxa}%: base ${r.base?.toFixed(2)}€ · IVA ${r.valor?.toFixed(2)}€`).join(' | ');
+        } else { ivaBlock.style.display = 'none'; }
+    }
+    // Restaurante info block
+    const restBlock = document.getElementById('fiscal-restaurante-block');
+    if (restBlock) {
+        if (p.restaurante) {
+            const r = p.restaurante;
+            const parts = [];
+            if (r.numeroPessoas) parts.push(`${r.numeroPessoas} pessoas`);
+            if (r.mesaNumero) parts.push(`Mesa ${r.mesaNumero}`);
+            if (parts.length) {
+                restBlock.style.display = 'flex';
+                restBlock.querySelector('.fiscal-restaurante-text').textContent = parts.join(' · ');
+            } else { restBlock.style.display = 'none'; }
+        } else { restBlock.style.display = 'none'; }
+    }
     const hasAny = p.sellerNif || p.buyerNif || p.vatAmount || p.paymentMethod || p.purchaseTime || p.documentType
                 || p.atcud || p.sellerCity || p.discount || p.loyaltyProgram || p.serviceType || p.tip
                 || p.warrantyUntil || p.purchaseChannel || p.contextTag || p.location
-                || (p.lineItems && p.lineItems.length);
+                || (p.lineItems && p.lineItems.length)
+                || p.combustivel || p.farmacia || p.ivaDetalhado?.length || p.restaurante;
     if (body && toggleIcon) {
         body.style.display = hasAny ? 'block' : 'none';
         toggleIcon.className = hasAny ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
@@ -8436,6 +8697,10 @@ function applyOcrFieldsToOpenModal(obj) {
         tip:             toNumberOrNull(obj.gorjeta),
         lineItems:       sanitizeLineItems(obj.itens),
         utility:         sanitizeUtility(obj.utility),
+        combustivel:     sanitizeCombustivel(obj.combustivel),
+        farmacia:        sanitizeFarmacia(obj.farmacia),
+        ivaDetalhado:    sanitizeIvaDetalhado(obj.ivaDetalhado),
+        restaurante:     sanitizeRestaurante(obj.restaurante),
         location:        pendingReceiptFields?.location || null,
         source: 'ocr'
     };
@@ -9218,8 +9483,12 @@ function editExpense(id) {
         purchaseChannel: e.purchaseChannel || null,
         contextTag: e.contextTag || null,
         location: e.location || null,
-        lineItems: Array.isArray(e.lineItems) ? e.lineItems : null,
-        utility: e.utility || null,
+        lineItems:    Array.isArray(e.lineItems) ? e.lineItems : null,
+        utility:      e.utility || null,
+        combustivel:  e.combustivel || null,
+        farmacia:     e.farmacia || null,
+        ivaDetalhado: e.ivaDetalhado || null,
+        restaurante:  e.restaurante || null,
         source: 'edit'
     };
     updateFiscalFieldsUI();
@@ -9399,6 +9668,10 @@ function saveExpense(event) {
         location:        pendingReceiptFields?.location || null,
         lineItems:       pendingReceiptFields?.lineItems || null,
         utility:         pendingReceiptFields?.utility || null,
+        combustivel:     pendingReceiptFields?.combustivel || null,
+        farmacia:        pendingReceiptFields?.farmacia || null,
+        ivaDetalhado:    pendingReceiptFields?.ivaDetalhado || null,
+        restaurante:     pendingReceiptFields?.restaurante || null,
         updatedAt: new Date().toISOString()
     };
 
