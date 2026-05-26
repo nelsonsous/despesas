@@ -7490,7 +7490,6 @@ async function onQuickCaptureFile(input) {
         spinner.style.display = 'none';
         result.style.display  = 'block';
         // Populate the card
-        const cats = getEffectiveCategories();
         const cat = cats[obj.categoria];
         document.getElementById('qc-desc').textContent = obj.descricao || obj.estabelecimento || 'Despesa';
         document.getElementById('qc-amount').textContent = typeof obj.valor === 'number' ? formatCurrency(obj.valor) : '—';
