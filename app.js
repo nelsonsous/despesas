@@ -7225,6 +7225,41 @@ function callMistralVision(b64, mime, prompt) {
     return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt);
 }
 
+// Mistral's dedicated OCR model — purpose-built for document/receipt text
+// extraction. Returns the raw markdown text from all pages joined together.
+// Works for both images and PDFs (no pdf.js needed for the PDF path).
+async function callMistralOcrExtract(base64Data, mimeType) {
+    if (!aiCfg.mistralKey) throw new Error('Chave Mistral não configurada');
+    const isImage = mimeType.startsWith('image/');
+    const docType = isImage ? 'image_url' : 'document_url';
+    const docKey  = isImage ? 'image_url' : 'document_url';
+    const res = await fetch('https://api.mistral.ai/v1/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiCfg.mistralKey },
+        body: JSON.stringify({
+            model: 'mistral-ocr-latest',
+            document: { type: docType, [docKey]: `data:${mimeType};base64,${base64Data}` }
+        })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data?.message || data?.error?.message || res.statusText;
+        if (res.status === 401) throw new Error('Chave Mistral inválida (401)');
+        if (res.status === 429) throw new Error('Mistral OCR: limite atingido');
+        throw new Error(`Mistral OCR: ${msg}`);
+    }
+    return (data.pages || []).map(p => p.markdown || '').join('\n\n').trim();
+}
+
+// Two-step OCR: mistral-ocr-latest extracts text, then the configured text
+// model parses it into the expense JSON. More accurate than sending the
+// image directly to a vision chat model.
+async function callMistralOcr(base64Data, mimeType, prompt) {
+    const text = await callMistralOcrExtract(base64Data, mimeType);
+    if (!text) throw new Error('Mistral OCR não devolveu texto');
+    return callMistralOnce(`${prompt}\n\nTEXTO EXTRAÍDO:\n${text.slice(0, 8000)}`);
+}
+
 // Dispatch OCR to whatever provider is configured — starts with the user's
 // selected one; on quota/failure falls back to another provider that has
 // a key. Matters because Gemini free tier runs out, Groq/Mistral are
@@ -7238,7 +7273,7 @@ async function runReceiptOcr(base64Data, mimeType, prompt) {
             if (provider === 'gemini')  return { text: await callGeminiVision(base64Data, mimeType, prompt), provider };
             if (provider === 'groq')    return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
             if (provider === 'grok')    return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
-            if (provider === 'mistral') return { text: await callMistralVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'mistral') return { text: await callMistralOcr(base64Data, mimeType, prompt), provider };
         } catch (e) {
             tried.push(`${provider}: ${e?.message || e}`);
         }
@@ -7267,6 +7302,35 @@ async function onReceiptImageSelected(input) {
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
         const today = new Date().toISOString().slice(0, 10);
         if (isPdf) {
+            // If Mistral key is available, use the dedicated OCR API first —
+            // it handles both text-based and image/scanned PDFs without pdf.js.
+            if (aiCfg.mistralKey) {
+                try {
+                    const b64pdf = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+                    const ocrText = await callMistralOcrExtract(b64pdf, 'application/pdf');
+                    if (ocrText && ocrText.length >= 30) {
+                        const promptPdf = `${AI_SYSTEM_PROMPT}
+Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility). Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
+
+TEXTO:
+${ocrText.slice(0, 8000)}`;
+                        const raw = await callMistralOnce(promptPdf);
+                        const obj = extractJsonObject(raw);
+                        if (obj && !obj.erro) {
+                            prefillExpenseFromReceipt(obj);
+                            showToast('PDF lido (Mistral OCR) — verifica os campos');
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // fall through to pdf.js
+                }
+            }
             // Read raw bytes for pdf.js
             const buf = await file.arrayBuffer();
             await waitForPdfLib();
