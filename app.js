@@ -1758,34 +1758,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderPendingExpenses();
     checkAutoSync();
     refreshInboxBadge();
-    // Web Share Target: check if launched via a shared file (sw stored it in IndexedDB)
-    if (new URLSearchParams(location.search).get('share') === '1') {
-        setTimeout(checkPendingSharedFile, 600);
-    }
 });
-
-function checkPendingSharedFile() {
-    const req = indexedDB.open('despesas-share', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('pending');
-    req.onsuccess = e => {
-        const db = e.target.result;
-        const tx = db.transaction('pending', 'readwrite');
-        const store = tx.objectStore('pending');
-        const get = store.get('latest');
-        get.onsuccess = () => {
-            if (!get.result) return;
-            store.delete('latest');
-            const { name, type, buf } = get.result;
-            const file = new File([buf], name, { type });
-            // Simulate selecting this file via the quick-capture flow
-            const dt = new DataTransfer();
-            dt.items.add(file);
-            const fakeInput = { files: dt.files };
-            onQuickCaptureFile(fakeInput);
-        };
-    };
-    req.onerror = () => {};
-}
 
 function populateCategorySelects() {
     const cats = getEffectiveCategories();

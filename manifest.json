@@ -23,18 +23,5 @@
         }
     ],
     "categories": ["finance", "utilities"],
-    "lang": "pt-PT",
-    "share_target": {
-        "action": "/despesas/",
-        "method": "POST",
-        "enctype": "multipart/form-data",
-        "params": {
-            "files": [
-                {
-                    "name": "receipt",
-                    "accept": ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"]
-                }
-            ]
-        }
-    }
+    "lang": "pt-PT"
 }
