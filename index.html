@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=171">
+    <link rel="stylesheet" href="styles.css?v=172">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -708,6 +708,10 @@
             </div>
         </section>
 
+        <!-- FAB - Voice Capture -->
+        <button class="fab fab-voice" onclick="triggerVoiceCapture()" title="Adicionar despesa por voz">
+            <i class="fas fa-microphone"></i>
+        </button>
         <!-- FAB - Quick Capture (camera) -->
         <input type="file" id="quick-capture-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="onQuickCaptureFile(this)">
         <button class="fab fab-camera" onclick="triggerQuickCapture()" title="Scan rápido de recibo">
@@ -718,16 +722,34 @@
             <i class="fas fa-plus"></i>
         </button>
 
+        <!-- Voice Recording Sheet -->
+        <div id="voice-record-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:3000;align-items:flex-end;justify-content:center" onclick="if(event.target===this)stopVoiceCapture()">
+            <div style="background:var(--surface);border-radius:20px 20px 0 0;padding:28px 20px 40px;width:100%;max-width:480px;text-align:center;box-shadow:0 -4px 24px rgba(0,0,0,0.18)">
+                <div style="font-weight:700;font-size:1rem;margin-bottom:24px;color:var(--text)">Fala a despesa…</div>
+                <div class="voice-pulse-ring">
+                    <i class="fas fa-microphone" style="font-size:2.2rem;color:white"></i>
+                </div>
+                <div style="font-size:0.78rem;color:var(--text-light);margin:12px 0 4px">Por exemplo: "Gastei 35 euros no Pingo Doce"</div>
+                <div id="vr-timer" style="font-size:1.5rem;font-weight:700;color:var(--danger);margin:8px 0 24px;font-variant-numeric:tabular-nums">0:00</div>
+                <button onclick="stopVoiceCapture()" class="btn btn-block" style="background:var(--danger);color:white;max-width:180px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:8px;border:none">
+                    <i class="fas fa-stop"></i> Parar
+                </button>
+            </div>
+        </div>
+
         <!-- Quick Confirm Sheet -->
         <div id="quick-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:3000;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeQuickConfirm()">
             <div style="background:var(--surface);border-radius:20px 20px 0 0;padding:20px 20px 32px;width:100%;max-width:480px;box-shadow:0 -4px 24px rgba(0,0,0,0.18)">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-                    <i class="fas fa-receipt" style="color:var(--primary);font-size:1.1rem"></i>
-                    <span style="font-weight:700;font-size:1rem">Recibo detetado</span>
+                    <i id="qc-header-icon" class="fas fa-receipt" style="color:var(--primary);font-size:1.1rem"></i>
+                    <span id="qc-title" style="font-weight:700;font-size:1rem">Recibo detetado</span>
                     <button onclick="closeQuickConfirm()" class="btn-icon" style="margin-left:auto"><i class="fas fa-times"></i></button>
                 </div>
-                <div id="qc-spinner" style="text-align:center;padding:20px 0"><i class="fas fa-spinner fa-spin" style="font-size:2rem;color:var(--primary)"></i><div style="margin-top:8px;color:var(--text-light);font-size:0.85rem">A ler recibo…</div></div>
+                <div id="qc-spinner" style="text-align:center;padding:20px 0"><i class="fas fa-spinner fa-spin" style="font-size:2rem;color:var(--primary)"></i><div id="qc-spinner-text" style="margin-top:8px;color:var(--text-light);font-size:0.85rem">A ler recibo…</div></div>
                 <div id="qc-result" style="display:none">
+                    <div id="qc-voice-row" style="display:none;font-size:0.78rem;color:var(--text-light);font-style:italic;padding:8px 12px;background:var(--bg);border-radius:8px;margin-bottom:10px;text-align:center" id="qc-voice-row">
+                        <span id="qc-voice-transcript"></span>
+                    </div>
                     <div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--bg);border-radius:12px;margin-bottom:16px">
                         <div id="qc-icon" style="width:42px;height:42px;border-radius:10px;background:#EDE7F6;display:flex;align-items:center;justify-content:center;flex-shrink:0">
                             <i id="qc-cat-icon" class="fas fa-receipt" style="color:var(--primary)"></i>
@@ -737,6 +759,14 @@
                             <div id="qc-meta" style="font-size:0.78rem;color:var(--text-light);margin-top:2px"></div>
                         </div>
                         <div id="qc-amount" style="font-size:1.2rem;font-weight:800;color:var(--danger);flex-shrink:0"></div>
+                    </div>
+                    <!-- Grouped expense suggestion banner -->
+                    <div id="qc-group-banner" style="display:none;align-items:center;gap:10px;background:#FFF8E1;border:1px solid #FFE082;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+                        <i class="fas fa-layer-group" style="color:#F9A825;font-size:1rem;flex-shrink:0"></i>
+                        <div style="flex:1;font-size:0.82rem;color:#5D4037">
+                            Adicionar à despesa agregada <strong id="qc-group-name"></strong>?
+                        </div>
+                        <button onclick="saveFromQuickConfirmToGroup()" class="btn" style="font-size:0.78rem;padding:4px 10px;background:#F9A825;color:white;border:none;border-radius:6px;flex-shrink:0">+ Agregar</button>
                     </div>
                     <div style="display:flex;gap:10px">
                         <button onclick="editFromQuickConfirm()" class="btn btn-block" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);flex:1"><i class="fas fa-pen"></i> Editar</button>
@@ -2149,7 +2179,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=171"></script>
+    <script src="app.js?v=172"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

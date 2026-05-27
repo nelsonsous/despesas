@@ -7461,6 +7461,176 @@ function prefillExpenseFromReceipt(obj) {
 }
 
 // ===== QUICK CAPTURE =====
+// ===== VOICE CAPTURE =====
+let _mediaRecorder = null;
+let _audioChunks = [];
+let _voiceTimer = null;
+let _voiceSeconds = 0;
+
+async function callMistralAudioTranscribe(audioBlob) {
+    if (!aiCfg.mistralKey) throw new Error('Chave Mistral não configurada');
+    const ext = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
+    const formData = new FormData();
+    formData.append('model', 'voxtral-mini-2507');
+    formData.append('file', new File([audioBlob], `audio.${ext}`, { type: audioBlob.type || 'audio/webm' }));
+    formData.append('response_format', 'json');
+    const res = await fetch('https://api.mistral.ai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + aiCfg.mistralKey },
+        body: formData
+    });
+    if (!res.ok) {
+        const err = await res.text().catch(() => '');
+        throw new Error(`Mistral áudio ${res.status}: ${err.slice(0, 120)}`);
+    }
+    const json = await res.json();
+    return json.text || '';
+}
+
+async function callMistralVoiceToExpense(transcript) {
+    const cats = getEffectiveCategories();
+    const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
+    const today = new Date().toISOString().slice(0, 10);
+    const prompt = `${AI_SYSTEM_PROMPT}
+O utilizador disse em voz: "${transcript}"
+
+Extrai os dados da despesa e devolve APENAS JSON com este shape:
+{"descricao":"…","valor":N_ou_null,"data":"YYYY-MM-DD","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null}
+
+Regras:
+- "descricao": nome curto do estabelecimento ou tipo de despesa
+- "valor": valor numérico em EUR, null se não mencionado
+- "data": data mencionada em formato YYYY-MM-DD, ou hoje (${today}) se não dita
+- "categoria": id exato da lista abaixo que melhor encaixa
+- "essencial": true se for alimentação, saúde, transportes; false caso contrário
+- Sem markdown, sem texto fora do JSON
+
+Categorias disponíveis: ${JSON.stringify(catList)}
+Hoje: ${today}
+${userProfilePromptBlock()}`;
+    const data = await callMistralOnce(prompt);
+    const text = data?.choices?.[0]?.message?.content || '';
+    return extractJsonObject(text);
+}
+
+function triggerVoiceCapture() {
+    if (!aiCfg.mistralKey) { showToast('Configura a chave Mistral nas definições para usar a voz'); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { showToast('Microfone não suportado neste browser'); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(stream => {
+            _audioChunks = [];
+            _voiceSeconds = 0;
+            const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+            _mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+            _mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) _audioChunks.push(e.data); };
+            _mediaRecorder.onstop = () => {
+                stream.getTracks().forEach(t => t.stop());
+                const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || 'audio/webm' });
+                processVoiceExpense(blob);
+            };
+            _mediaRecorder.start(200);
+            const overlay = document.getElementById('voice-record-overlay');
+            if (overlay) overlay.style.display = 'flex';
+            document.getElementById('vr-timer').textContent = '0:00';
+            _voiceTimer = setInterval(() => {
+                _voiceSeconds++;
+                const m = Math.floor(_voiceSeconds / 60);
+                const s = _voiceSeconds % 60;
+                const el = document.getElementById('vr-timer');
+                if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+                if (_voiceSeconds >= 90) stopVoiceCapture(); // auto-stop at 90s
+            }, 1000);
+        })
+        .catch(err => showToast('Sem acesso ao microfone: ' + (err?.message || err)));
+}
+
+function stopVoiceCapture() {
+    clearInterval(_voiceTimer);
+    _voiceTimer = null;
+    if (_mediaRecorder && _mediaRecorder.state !== 'inactive') _mediaRecorder.stop();
+    const overlay = document.getElementById('voice-record-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+async function processVoiceExpense(audioBlob) {
+    const overlay = document.getElementById('quick-confirm-overlay');
+    const spinner = document.getElementById('qc-spinner');
+    const result  = document.getElementById('qc-result');
+    const errEl   = document.getElementById('qc-error');
+    const titleEl = document.getElementById('qc-title');
+    const iconEl  = document.getElementById('qc-header-icon');
+    const vrRow   = document.getElementById('qc-voice-row');
+    overlay.style.display = 'flex';
+    spinner.style.display = 'block';
+    result.style.display  = 'none';
+    errEl.style.display   = 'none';
+    if (vrRow) vrRow.style.display = 'none';
+    if (titleEl) titleEl.textContent = 'Despesa por voz';
+    if (iconEl) { iconEl.className = 'fas fa-microphone'; iconEl.style.color = '#E91E63'; }
+    _quickCaptureObj = null;
+    try {
+        const spinnerText = document.getElementById('qc-spinner-text');
+        if (spinnerText) spinnerText.textContent = 'A transcrever áudio…';
+        const transcript = await callMistralAudioTranscribe(audioBlob);
+        if (!transcript?.trim()) throw new Error('Não consegui transcrever o áudio');
+        if (spinnerText) spinnerText.textContent = 'A estruturar despesa…';
+        const obj = await callMistralVoiceToExpense(transcript);
+        if (!obj || obj.erro) throw new Error(obj?.erro || 'Não consegui estruturar a despesa');
+        // Find grouped expense with matching description (e.g. Mercadona)
+        const matchedGroup = findMatchingGroupedExpense(obj.descricao, obj.categoria);
+        obj._groupedParentId = matchedGroup?.id || null;
+        _quickCaptureObj = obj;
+        spinner.style.display = 'none';
+        result.style.display  = 'block';
+        // Show transcript
+        if (vrRow) { vrRow.style.display = 'block'; }
+        const transcriptEl = document.getElementById('qc-voice-transcript');
+        if (transcriptEl) transcriptEl.textContent = `"${transcript}"`;
+        // Populate card
+        const cats = getEffectiveCategories();
+        const cat = cats[obj.categoria];
+        document.getElementById('qc-desc').textContent = obj.descricao || 'Despesa';
+        document.getElementById('qc-amount').textContent = typeof obj.valor === 'number' ? formatCurrency(obj.valor) : '—';
+        const metaParts = [];
+        if (obj.data) metaParts.push(formatDate(obj.data));
+        if (cat) metaParts.push(cat.label);
+        document.getElementById('qc-meta').textContent = metaParts.join(' · ');
+        const catIconEl = document.getElementById('qc-cat-icon');
+        const iconBox   = document.getElementById('qc-icon');
+        if (cat && catIconEl) {
+            catIconEl.className = `fas ${cat.icon}`;
+            catIconEl.style.color = cat.color || 'var(--primary)';
+        }
+        if (cat && iconBox) iconBox.style.background = (cat.color || '#6C5CE7') + '22';
+        // Show grouped expense suggestion
+        const groupBanner = document.getElementById('qc-group-banner');
+        if (groupBanner) {
+            if (matchedGroup) {
+                document.getElementById('qc-group-name').textContent = matchedGroup.description;
+                groupBanner.style.display = 'flex';
+            } else {
+                groupBanner.style.display = 'none';
+            }
+        }
+    } catch (e) {
+        spinner.style.display = 'none';
+        errEl.style.display   = 'block';
+        errEl.textContent = `Erro: ${e?.message || e}`;
+    }
+}
+
+// Reset quick-confirm header to receipt mode (used by camera capture)
+function _resetQuickConfirmToReceipt() {
+    const titleEl = document.getElementById('qc-title');
+    const iconEl  = document.getElementById('qc-header-icon');
+    const vrRow   = document.getElementById('qc-voice-row');
+    if (titleEl) titleEl.textContent = 'Recibo detetado';
+    if (iconEl) { iconEl.className = 'fas fa-receipt'; iconEl.style.color = 'var(--primary)'; }
+    if (vrRow) vrRow.style.display = 'none';
+    const spinnerText = document.getElementById('qc-spinner-text');
+    if (spinnerText) spinnerText.textContent = 'A ler recibo…';
+}
+
 let _quickCaptureObj = null;
 
 function triggerQuickCapture() {
@@ -7472,6 +7642,7 @@ async function onQuickCaptureFile(input) {
     const file = input?.files?.[0];
     if (!file) return;
     input.value = '';
+    _resetQuickConfirmToReceipt();
     const overlay = document.getElementById('quick-confirm-overlay');
     const spinner = document.getElementById('qc-spinner');
     const result  = document.getElementById('qc-result');
@@ -7523,6 +7694,53 @@ async function onQuickCaptureFile(input) {
         errEl.style.display = 'block';
         errEl.textContent = `Erro: ${e?.message || e}`;
     }
+}
+
+// Find a grouped expense whose name closely matches `desc` (and optionally same category)
+function findMatchingGroupedExpense(desc, categoria) {
+    if (!desc) return null;
+    const norm = s => (s || '').toLowerCase().replace(/[^a-záàâãéèêíìîóòôõúùûç0-9]/gi, '');
+    const descNorm = norm(desc);
+    if (!descNorm) return null;
+    // Look in current month's expenses for grouped entries with similar name
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    return expenses.find(e => {
+        if (!e.isGrouped) return false;
+        const eName = norm(e.description);
+        // Match if one contains the other (handles "Mercadona" ↔ "mercadona", "Pingo Doce" ↔ "pingo doce")
+        if (!eName || (!eName.includes(descNorm) && !descNorm.includes(eName))) return false;
+        // Prefer expenses active this month (parent date in this month or has entries this month)
+        const parentMonth = (e.date || '').slice(0, 7);
+        const currentMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+        const hasRecentEntry = Array.isArray(e.entries) && e.entries.some(en => (en.date || '') >= monthStart);
+        return parentMonth === currentMonth || hasRecentEntry;
+    }) || null;
+}
+
+function saveFromQuickConfirmToGroup() {
+    if (!_quickCaptureObj?._groupedParentId) return;
+    const obj = _quickCaptureObj;
+    const parentId = obj._groupedParentId;
+    closeQuickConfirm();
+    const parent = expenses.find(e => e.id === parentId);
+    if (!parent) { showToast('Despesa agregada não encontrada'); return; }
+    const today = new Date().toISOString();
+    const newEntry = {
+        eid: generateId(),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(obj.data || '') ? obj.data : today.slice(0, 10),
+        amount: typeof obj.valor === 'number' ? obj.valor : 0,
+        notes: obj.notas || '',
+        type: 'personal',
+        withPartner: false
+    };
+    if (!Array.isArray(parent.entries)) parent.entries = [];
+    parent.entries.push(newEntry);
+    parent.amount = parent.entries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+    parent.updatedAt = today;
+    saveData();
+    updateAll();
+    showToast(`✓ +${formatCurrency(newEntry.amount)} adicionado a ${parent.description}`);
 }
 
 function closeQuickConfirm() {
