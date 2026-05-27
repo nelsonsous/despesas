@@ -3296,14 +3296,16 @@ function renderCycleExpenses() {
         if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
             const cycleEntries = e.entries.filter(en => en.date && en.date >= startStr && en.date <= endStr);
             if (cycleEntries.length === 0) return;
-            const inCycleTotal = cycleEntries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
             const fullAdj = adjustExpenseForCoParent(e);
             const ratio = e.amount > 0 ? fullAdj.amount / e.amount : 1;
-            const latestDate = cycleEntries.map(en => en.date).sort().pop();
-            varRows.push({ kind: 'var', id: e.id, date: latestDate,
-                description: e.description || '(sem descrição)', category: e.category,
-                amount: inCycleTotal * Math.max(0, ratio),
-                childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
+            cycleEntries.forEach(en => {
+                const entryAmt = (parseFloat(en.amount) || 0) * Math.max(0, ratio);
+                varRows.push({ kind: 'var', id: e.id, date: en.date,
+                    description: e.description || '(sem descrição)', category: e.category,
+                    amount: entryAmt,
+                    isGroupedEntry: true,
+                    childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
+            });
             return;
         }
         const adj = adjustExpenseForCoParent(e);
@@ -3474,6 +3476,7 @@ function renderCycleExpenses() {
         const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
         const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
         const opacity = r.status === 'ignorado' ? '0.55' : '1';
+        const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
         return `
             ${markerPrefix}
             <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
@@ -3483,6 +3486,7 @@ function renderCycleExpenses() {
                 <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                     <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                         ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
+                        ${groupedIcon}
                         <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                     </div>
                     <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
@@ -3528,10 +3532,11 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
         const amtTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
         const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
         const fixedIcon = r.kind === 'fixed' ? '<i class="fas fa-repeat" style="color:var(--primary);font-size:0.6rem;margin-right:3px"></i>' : '';
+        const groupedIcon2 = r.isGroupedEntry ? '<i class="fas fa-layer-group" style="color:var(--primary);font-size:0.6rem;margin-right:3px"></i>' : '';
         return `<div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:6px 4px 6px ${pl};border-bottom:1px solid var(--border);opacity:${r.status === 'ignorado' ? '0.55' : '1'}">
             <span style="font-size:0.8rem;width:18px;flex-shrink:0">${badge}</span>
             <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-            <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fixedIcon}${r.description}</div>
+            <div style="flex:1;min-width:0;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fixedIcon}${groupedIcon2}${r.description}</div>
             <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${amtTxt}</div>
             <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
         </div>`;
