@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=179">
+    <link rel="stylesheet" href="styles.css?v=180">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -713,7 +713,7 @@
             <i class="fas fa-microphone"></i>
         </button>
         <!-- FAB - Quick Capture (camera) -->
-        <input type="file" id="quick-capture-input" accept="image/*,application/pdf" style="display:none" onchange="onQuickCaptureFile(this)">
+        <input type="file" id="quick-capture-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="onQuickCaptureFile(this)">
         <button class="fab fab-camera" onclick="triggerQuickCapture()" title="Scan rápido de recibo">
             <i class="fas fa-camera"></i>
         </button>
@@ -2179,7 +2179,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=179"></script>
+    <script src="app.js?v=180"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
