@@ -7513,6 +7513,19 @@ ${userProfilePromptBlock()}`;
     return extractJsonObject(text);
 }
 
+// Noise/hallucination phrases that Whisper-based models return for silence
+const VOICE_NOISE_PATTERNS = [
+    /^thank\s*you\.?$/i, /^thanks\.?$/i, /^obrigad[oa]\.?$/i,
+    /^\.$/, /^…$/, /^\.{2,}$/, /^\s*$/, /^silence$/i,
+    /^you$/i, /^\.?\s{0,3}\.?$/, /^\[.*\]$/, /^♪.*♪$/
+];
+
+function _isNoisyTranscript(t) {
+    const clean = (t || '').trim();
+    if (clean.length < 6) return true;
+    return VOICE_NOISE_PATTERNS.some(re => re.test(clean));
+}
+
 function triggerVoiceCapture() {
     if (!aiCfg.mistralKey) { showToast('Configura a chave Mistral nas definições para usar a voz'); return; }
     if (!navigator.mediaDevices?.getUserMedia) { showToast('Microfone não suportado neste browser'); return; }
@@ -7525,12 +7538,17 @@ function triggerVoiceCapture() {
             _mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) _audioChunks.push(e.data); };
             _mediaRecorder.onstop = () => {
                 stream.getTracks().forEach(t => t.stop());
+                if (_voiceCancelled) return; // user cancelled — don't process
+                if (_voiceSeconds < 2) { showToast('Gravação demasiado curta — fala a despesa'); return; }
                 const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || 'audio/webm' });
                 processVoiceExpense(blob);
             };
+            _voiceCancelled = false;
             _mediaRecorder.start(200);
             const overlay = document.getElementById('voice-record-overlay');
             if (overlay) overlay.style.display = 'flex';
+            const stopBtn = document.getElementById('vr-stop-btn');
+            if (stopBtn) { stopBtn.disabled = true; stopBtn.style.opacity = '0.5'; }
             document.getElementById('vr-timer').textContent = '0:00';
             _voiceTimer = setInterval(() => {
                 _voiceSeconds++;
@@ -7538,13 +7556,30 @@ function triggerVoiceCapture() {
                 const s = _voiceSeconds % 60;
                 const el = document.getElementById('vr-timer');
                 if (el) el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
-                if (_voiceSeconds >= 90) stopVoiceCapture(); // auto-stop at 90s
+                // Enable stop button after 2 seconds
+                if (_voiceSeconds === 2) {
+                    const btn = document.getElementById('vr-stop-btn');
+                    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+                }
+                if (_voiceSeconds >= 90) stopVoiceCapture();
             }, 1000);
         })
         .catch(err => showToast('Sem acesso ao microfone: ' + (err?.message || err)));
 }
 
+let _voiceCancelled = false;
+
+function cancelVoiceCapture() {
+    _voiceCancelled = true;
+    clearInterval(_voiceTimer);
+    _voiceTimer = null;
+    if (_mediaRecorder && _mediaRecorder.state !== 'inactive') _mediaRecorder.stop();
+    const overlay = document.getElementById('voice-record-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
 function stopVoiceCapture() {
+    _voiceCancelled = false;
     clearInterval(_voiceTimer);
     _voiceTimer = null;
     if (_mediaRecorder && _mediaRecorder.state !== 'inactive') _mediaRecorder.stop();
@@ -7572,7 +7607,8 @@ async function processVoiceExpense(audioBlob) {
         const spinnerText = document.getElementById('qc-spinner-text');
         if (spinnerText) spinnerText.textContent = 'A transcrever áudio…';
         const transcript = await callMistralAudioTranscribe(audioBlob);
-        if (!transcript?.trim()) throw new Error('Não consegui transcrever o áudio');
+        if (!transcript?.trim() || _isNoisyTranscript(transcript))
+            throw new Error('Não detetei fala — tenta de novo e diz a despesa claramente');
         if (spinnerText) spinnerText.textContent = 'A estruturar despesa…';
         const obj = await callMistralVoiceToExpense(transcript);
         if (!obj || obj.erro) throw new Error(obj?.erro || 'Não consegui estruturar a despesa');
