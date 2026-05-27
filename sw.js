@@ -1,20 +1,15 @@
-const CACHE_NAME = 'despesas-v177';
+const CACHE_NAME = 'despesas-v178';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
-    '/despesas/styles.css?v=177',
-    '/despesas/app.js?v=177',
+    '/despesas/styles.css?v=178',
+    '/despesas/app.js?v=178',
     '/despesas/manifest.json'
 ];
 
-// Force fresh fetch of the app shell so HTTP cache (browser layer) cannot
-// hand us a stale app.js / index.html. GitHub Pages may set Cache-Control
-// headers that survive a SW update otherwise.
 function freshRequest(req) {
     if (req.method !== 'GET') return req;
     const url = new URL(req.url);
-    // Only bypass HTTP cache for our own app shell — third-party CDNs
-    // (Font Awesome, Google Fonts, pdf.js) break with no-store + no-cors.
     if (url.origin !== self.location.origin) return req;
     const isAppShell = /\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
     if (!isAppShell) return req;

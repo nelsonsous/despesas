@@ -475,6 +475,7 @@ function callMistralOnce(prompt) {
 }
 
 const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
+REGRA PRIORITÁRIA: o nome do ESTABELECIMENTO determina a categoria — ignora os produtos comprados. Mercadona/Pingo Doce/Lidl = supermercado mesmo que os itens sejam comida ou bebida.
 - supermercado: Auchan, Mercadona, Lidl, Continente, Pingo Doce, Intermarché, Aldi, Minipreço, Jumbo
 - restaurantes: pizzarias, hamburguerias, tascas, cervejarias, marisqueiras, churrasqueiras, cafetarias, snack-bars, pastelarias (se refeição), McDonalds, Burger King, KFC, Starbucks, Pizza Hut, Uber Eats, Glovo, BOLT Food — qualquer estabelecimento onde se faz uma refeição ou se come/bebe no local
 - alimentacao: talhos, padarias, mercearias, lojas de produtos alimentares sem serviço de mesa
@@ -7528,8 +7529,7 @@ Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock
 // Opens the "Nova despesa" modal and drops the extracted fields into it.
 // The user still reviews and confirms — we never auto-save.
 function prefillExpenseFromReceipt(obj) {
-    // Opens the modal then routes to the unified OCR-apply helper so we
-    // don't have two copies of the "map JSON → form fields" logic.
+    obj.categoria = overrideCategoryFromMerchant(obj.descricao, obj.estabelecimento, obj.categoria);
     showAddExpense();
     setTimeout(() => applyOcrFieldsToOpenModal(obj), 120);
 }
@@ -7782,6 +7782,7 @@ async function onQuickCaptureFile(input) {
             obj = extractJsonObject(text);
         }
         if (!obj || obj.erro) throw new Error(obj?.erro || 'Não consegui ler o recibo');
+        obj.categoria = overrideCategoryFromMerchant(obj.descricao, obj.estabelecimento, obj.categoria);
         _quickCaptureObj = obj;
         spinner.style.display = 'none';
         result.style.display  = 'block';
@@ -7800,11 +7801,43 @@ async function onQuickCaptureFile(input) {
             iconEl.style.color = cat.color || 'var(--primary)';
             iconBox.style.background = (cat.color || '#6C5CE7') + '22';
         }
+        // Check for matching grouped expense (same as voice flow)
+        const matchedGroup = findMatchingGroupedExpense(obj.descricao || obj.estabelecimento, obj.categoria);
+        obj._groupedParentId = matchedGroup?.id || null;
+        const groupBanner = document.getElementById('qc-group-banner');
+        if (groupBanner) {
+            if (matchedGroup) {
+                document.getElementById('qc-group-name').textContent = matchedGroup.description;
+                groupBanner.style.display = 'flex';
+            } else {
+                groupBanner.style.display = 'none';
+            }
+        }
     } catch (e) {
         spinner.style.display = 'none';
         errEl.style.display = 'block';
         errEl.textContent = `Erro: ${e?.message || e}`;
     }
+}
+
+// Hard-coded merchant→category map to correct obvious AI misclassifications.
+// The AI gets the establishment name right but can misclassify based on items.
+const MERCHANT_CATEGORY_OVERRIDES = [
+    { pattern: /mercadona|pingo\s*doce|continente|lidl|auchan|intermarche|intermarché|jumbo|minipreço|aldi|el\s*corte|costco/i, category: 'supermercado' },
+    { pattern: /\bgalp\b|\bbp\b|\brepsol\b|\bcepsa\b|\bprio\b/i, category: 'combustivel' },
+    { pattern: /vodafone|nos\b|meo\b|altice|nowo/i, category: 'telecomunicacoes' },
+    { pattern: /netflix|spotify|apple|amazon\s*prime|disney\+?|youtube\s*premium|chatgpt|claude/i, category: 'subscricoes' },
+    { pattern: /farmac|farmácia|\bwells\b|\bholon\b/i, category: 'farmacia' },
+    { pattern: /\bedp\b|epal|aguas\s*d[eo]|galp\s*g[aá]s/i, category: 'contas' },
+    { pattern: /mcdonalds|mcdonald|burger\s*king|kfc|pizza\s*hut|starbucks/i, category: 'restaurantes' },
+    { pattern: /\bubер\s*eats|uber\s*eats|glovo|bolt\s*food/i, category: 'restaurantes' },
+];
+function overrideCategoryFromMerchant(descricao, estabelecimento, aiCategory) {
+    const name = ((descricao || '') + ' ' + (estabelecimento || '')).toLowerCase();
+    for (const { pattern, category } of MERCHANT_CATEGORY_OVERRIDES) {
+        if (pattern.test(name)) return category;
+    }
+    return aiCategory;
 }
 
 // Find a grouped expense whose name closely matches `desc` (and optionally same category)
