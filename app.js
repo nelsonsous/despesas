@@ -4903,6 +4903,9 @@ function renderIncomeTab() {
     const monthInc = getEffectiveMonthIncomes(currentDate);
     const monthExp = getEffectiveMonthExpenses(currentDate);
     const totalIncome = monthInc.reduce((s, e) => s + e.amount, 0);
+    // Separate carry-over from new income so the summary shows them distinctly
+    const carryOverAmt = getCarryOverStored(currentDate);
+    const newIncome = totalIncome - carryOverAmt;
     // Include ALL active fixed expenses (paid + pending, excluding ignored) for a realistic total
     const activeFixed = getActiveFixedForMonth(currentDate);
     const fixedExpTotal = activeFixed
@@ -4917,9 +4920,20 @@ function renderIncomeTab() {
     const varExpTotal = monthExp.filter(e => !e.isFixedExpense).reduce((s, e) => s + e.amount, 0);
     const totalExpenses = varExpTotal + fixedExpTotal;
     const balance = totalIncome - totalExpenses;
-    const savingsRate = totalIncome > 0 ? ((balance / totalIncome) * 100).toFixed(1) : 0;
+    // Savings rate based on new income only (carry-over is not new earnings)
+    const savingsRate = newIncome > 0 ? (((newIncome - totalExpenses) / newIncome) * 100).toFixed(1) : 0;
 
-    document.getElementById('income-total').textContent = formatCurrency(totalIncome);
+    document.getElementById('income-total').textContent = formatCurrency(newIncome);
+    // Show carry-over as a separate line when non-zero
+    const carryoverRow = document.getElementById('income-carryover-row');
+    if (carryoverRow) {
+        if (carryOverAmt > 0) {
+            carryoverRow.style.display = '';
+            document.getElementById('income-carryover').textContent = formatCurrency(carryOverAmt);
+        } else {
+            carryoverRow.style.display = 'none';
+        }
+    }
     document.getElementById('income-expenses-total').textContent = formatCurrency(totalExpenses);
     const balEl = document.getElementById('income-balance');
     balEl.textContent = formatCurrency(balance);
