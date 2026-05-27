@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=180">
+    <link rel="stylesheet" href="styles.css?v=181">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -714,6 +714,20 @@
         </button>
         <!-- FAB - Quick Capture (camera) -->
         <input type="file" id="quick-capture-input" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="onQuickCaptureFile(this)">
+        <input type="file" id="quick-capture-gallery-input" accept="image/*,application/pdf" style="display:none" onchange="onQuickCaptureFile(this)">
+        <!-- Camera source picker sheet -->
+        <div id="camera-picker-sheet" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.45)" onclick="if(event.target===this)closeCameraPicker()">
+            <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-radius:20px 20px 0 0;padding:16px 16px 32px">
+                <div style="text-align:center;font-size:0.75rem;color:var(--text-light);margin-bottom:12px">Scan de recibo</div>
+                <button onclick="closeCameraPicker();document.getElementById('quick-capture-input').click()" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 12px;background:none;border:none;border-radius:12px;font-size:1rem;cursor:pointer;color:var(--text)">
+                    <i class="fas fa-camera" style="font-size:1.2rem;width:28px;color:var(--primary)"></i> Tirar fotografia
+                </button>
+                <button onclick="closeCameraPicker();document.getElementById('quick-capture-gallery-input').click()" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 12px;background:none;border:none;border-radius:12px;font-size:1rem;cursor:pointer;color:var(--text)">
+                    <i class="fas fa-images" style="font-size:1.2rem;width:28px;color:var(--primary)"></i> Escolher da galeria
+                </button>
+                <button onclick="closeCameraPicker()" style="width:100%;padding:12px;background:#f5f5f5;border:none;border-radius:12px;font-size:0.95rem;cursor:pointer;color:var(--text-light);margin-top:4px">Cancelar</button>
+            </div>
+        </div>
         <button class="fab fab-camera" onclick="triggerQuickCapture()" title="Scan rápido de recibo">
             <i class="fas fa-camera"></i>
         </button>
@@ -2179,7 +2193,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=180"></script>
+    <script src="app.js?v=181"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
