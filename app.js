@@ -9062,7 +9062,7 @@ function applyOcrFieldsToOpenModal(obj) {
     if (amtEl && !amtEl.value && typeof obj.valor === 'number') amtEl.value = obj.valor;
     if (dateEl && obj.data && /^\d{4}-\d{2}-\d{2}$/.test(obj.data)) dateEl.value = obj.data;
     const cats = getEffectiveCategories();
-    if (catEl && !catEl.value && obj.categoria && cats[obj.categoria]) catEl.value = obj.categoria;
+    if (catEl && obj.categoria && cats[obj.categoria]) catEl.value = obj.categoria;
     if (notesEl && !notesEl.value) {
         const pieces = [];
         if (obj.estabelecimento && (!obj.descricao || !obj.descricao.toLowerCase().includes(String(obj.estabelecimento).toLowerCase()))) pieces.push(obj.estabelecimento);
