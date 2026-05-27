@@ -7746,13 +7746,7 @@ let _quickCaptureObj = null;
 
 function triggerQuickCapture() {
     if (!hasAnyAiKey()) { showToast('Configura uma chave de IA nas definições para usar o scan rápido'); return; }
-    const sheet = document.getElementById('camera-picker-sheet');
-    if (sheet) sheet.style.display = 'block';
-    else document.getElementById('quick-capture-input')?.click();
-}
-function closeCameraPicker() {
-    const sheet = document.getElementById('camera-picker-sheet');
-    if (sheet) sheet.style.display = 'none';
+    document.getElementById('quick-capture-input')?.click();
 }
 
 async function onQuickCaptureFile(input) {
