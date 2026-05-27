@@ -476,13 +476,13 @@ function callMistralOnce(prompt) {
 
 const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
 - supermercado: Auchan, Mercadona, Lidl, Continente, Pingo Doce, Intermarché, Aldi, Minipreço, Jumbo
-- restaurantes: McDonalds, Burger King, KFC, Starbucks, Pizza Hut, Uber Eats, Glovo, BOLT Food, restaurantes locais
-- alimentacao: talhos, padarias, mercearias
+- restaurantes: pizzarias, hamburguerias, tascas, cervejarias, marisqueiras, churrasqueiras, cafetarias, snack-bars, pastelarias (se refeição), McDonalds, Burger King, KFC, Starbucks, Pizza Hut, Uber Eats, Glovo, BOLT Food — qualquer estabelecimento onde se faz uma refeição ou se come/bebe no local
+- alimentacao: talhos, padarias, mercearias, lojas de produtos alimentares sem serviço de mesa
 - transportes: Carris, Metro, CP, Comboios, Uber, Bolt, Cabify, Via Verde, Ascendi, parques de estacionamento
 - combustivel: Galp, BP, Repsol, Cepsa, Prio, Intermarché combustível
 - saude: hospitais, clínicas, análises, dentista, fisioterapia, Luz Saúde, Lusíadas
 - farmacia: Farmácia, Wells, Holon
-- educacao: colégios, universidades, cursos, livros, material escolar
+- educacao: colégios, universidades, propinas, cursos, livros escolares, material escolar — APENAS quando o recibo é claramente de serviços de ensino
 - roupa: Zara, H&M, Mango, Primark, Nike, Adidas, Pull&Bear, Bershka, Decathlon (para roupa)
 - casa: prestação casa, hipoteca, renda, manutenção habitação, IKEA, bricomarché
 - contas: EDP, Galp Gás, Águas, IMI, seguros (Fidelidade, Tranquilidade, Ageas, Allianz, Zurich), manutenção conta bancária, impostos
@@ -491,7 +491,8 @@ const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a 
 - beleza: cabeleireiros, estética, cosmética, Sephora
 - subscricoes: Netflix, Spotify, Apple (iCloud/Music), Amazon Prime, HBO, Disney+, YouTube Premium, ChatGPT, jornais digitais
 - presentes: (quando claramente identificável como presente)
-- outros: tudo o resto (incluindo transferências MBway/IPS para pessoas sem contexto claro)`;
+- outros: tudo o resto (incluindo transferências MBway/IPS para pessoas sem contexto claro)
+ATENÇÃO: a categoria deve refletir o que foi consumido/adquirido, NÃO os códigos de atividade económica (CAE) ou setor que possam aparecer no recibo fiscal.`;
 
 const EMAIL_EXTRACT_PROMPT = (texts) => `Extrai despesas/pagamentos destes emails em Português de Portugal. Inclui:
 - Débitos em conta (bancos, MB Way, SEPA)
@@ -7505,6 +7506,7 @@ Para "ivaDetalhado": só preenche se existirem MÚLTIPLAS taxas de IVA no mesmo 
 Para "restaurante": extrai número de pessoas/mesa se aparecer no recibo (útil para split de conta).
 Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
 
+${CATEGORY_HINTS_BLOCK}
 Categorias (usa o id exato): ${JSON.stringify(catList)}
 Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
         const { text, provider } = await runReceiptOcr(data, type, prompt);
@@ -7577,6 +7579,7 @@ Regras:
 - "essencial": true se for alimentação, saúde, transportes; false caso contrário
 - Sem markdown, sem texto fora do JSON
 
+${CATEGORY_HINTS_BLOCK}
 Categorias disponíveis: ${JSON.stringify(catList)}
 Hoje: ${today}
 ${userProfilePromptBlock()}`;
@@ -7774,7 +7777,7 @@ async function onQuickCaptureFile(input) {
             obj = extractJsonObject(raw);
         } else {
             const { data, type } = await resizeImageForOcr(file);
-            const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):\n{"descricao":"…","valor":N,"data":"YYYY-MM-DD","hora":"HH:MM"|null,"estabelecimento":"…","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null,"nifVendedor":"…"|null,"nifCliente":"…"|null,"ivaBase":N|null,"ivaValor":N|null,"ivaTaxa":6|13|23|null,"metodoPagamento":"cartao"|"mbway"|"dinheiro"|"transferencia"|"cheque"|"outro"|null,"cartaoUltimos4":"…"|null,"tipoDocumento":"fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,"atcud":"…"|null,"numeroDocumento":"…"|null,"moradaVendedor":"…"|null,"cidadeVendedor":"…"|null,"desconto":N|null,"programaFidelidade":"…"|null,"pontosFidelidade":N|null,"tipoServico":"mesa"|"take-away"|"esplanada"|"balcao"|"delivery"|null,"gorjeta":N|null,"itens":[{"nome":"…","qtd":N,"unidade":"…"|null,"precoUnitario":N|null,"total":N,"iva":6|13|23|null}]|null,"utility":{"tipo":"eletricidade"|"agua"|"gas"|"telecom"|null,"periodoInicio":"YYYY-MM-DD"|null,"periodoFim":"YYYY-MM-DD"|null,"consumoKwh":N|null,"consumoM3":N|null,"potenciaKva":N|null,"tarifa":"simples"|"bi-horaria"|"tri-horaria"|null,"consumoVazio":N|null,"consumoCheias":N|null,"consumoPonta":N|null}|null,"combustivel":{"litros":N|null,"precoPorLitro":N|null,"tipoCombustivel":"gasolina95"|"gasolina98"|"gasoleo"|"gpl"|"eletrico"|null}|null,"farmacia":{"numeroPrescricao":"…"|null,"medicamentos":[{"nome":"…","quantidade":N,"pvp":N|null,"comReceita":false}]|null}|null,"ivaDetalhado":[{"taxa":6|13|23,"base":N,"valor":N}]|null,"restaurante":{"numeroPessoas":N|null,"mesaNumero":"…"|null}|null}\nSe não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.\nCategorias (usa o id exato): ${JSON.stringify(catList)}\nHoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
+            const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):\n{"descricao":"…","valor":N,"data":"YYYY-MM-DD","hora":"HH:MM"|null,"estabelecimento":"…","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null,"nifVendedor":"…"|null,"nifCliente":"…"|null,"ivaBase":N|null,"ivaValor":N|null,"ivaTaxa":6|13|23|null,"metodoPagamento":"cartao"|"mbway"|"dinheiro"|"transferencia"|"cheque"|"outro"|null,"cartaoUltimos4":"…"|null,"tipoDocumento":"fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,"atcud":"…"|null,"numeroDocumento":"…"|null,"moradaVendedor":"…"|null,"cidadeVendedor":"…"|null,"desconto":N|null,"programaFidelidade":"…"|null,"pontosFidelidade":N|null,"tipoServico":"mesa"|"take-away"|"esplanada"|"balcao"|"delivery"|null,"gorjeta":N|null,"itens":[{"nome":"…","qtd":N,"unidade":"…"|null,"precoUnitario":N|null,"total":N,"iva":6|13|23|null}]|null,"utility":{"tipo":"eletricidade"|"agua"|"gas"|"telecom"|null,"periodoInicio":"YYYY-MM-DD"|null,"periodoFim":"YYYY-MM-DD"|null,"consumoKwh":N|null,"consumoM3":N|null,"potenciaKva":N|null,"tarifa":"simples"|"bi-horaria"|"tri-horaria"|null,"consumoVazio":N|null,"consumoCheias":N|null,"consumoPonta":N|null}|null,"combustivel":{"litros":N|null,"precoPorLitro":N|null,"tipoCombustivel":"gasolina95"|"gasolina98"|"gasoleo"|"gpl"|"eletrico"|null}|null,"farmacia":{"numeroPrescricao":"…"|null,"medicamentos":[{"nome":"…","quantidade":N,"pvp":N|null,"comReceita":false}]|null}|null,"ivaDetalhado":[{"taxa":6|13|23,"base":N,"valor":N}]|null,"restaurante":{"numeroPessoas":N|null,"mesaNumero":"…"|null}|null}\nSe não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.\n${CATEGORY_HINTS_BLOCK}\nCategorias (usa o id exato): ${JSON.stringify(catList)}\nHoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
             const { text } = await runReceiptOcr(data, type, prompt);
             obj = extractJsonObject(text);
         }
