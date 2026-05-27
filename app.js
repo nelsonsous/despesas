@@ -3951,8 +3951,74 @@ function setExpenseFilter(f) {
     renderExpenses();
 }
 
+// ===== MONTHLY ROLLOVER GROUPED EXPENSES =====
+// Grouped expenses flagged with rolloverMonthly:true are automatically
+// cloned (amount=0, entries=[]) at the start of each new calendar month.
+function ensureRolloverGroupedExpenses(date) {
+    const today = new Date();
+    // Only auto-create for the current calendar month (not future/past)
+    if (date.getFullYear() !== today.getFullYear() || date.getMonth() !== today.getMonth()) return 0;
+    const monthStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+    const rolloverTemplates = expenses.filter(e => e.rolloverMonthly && e.isGrouped);
+    if (!rolloverTemplates.length) return 0;
+    // Deduplicate: keep one canonical template per description (latest updatedAt)
+    const canonical = {};
+    rolloverTemplates.forEach(e => {
+        const key = e.description.toLowerCase().trim();
+        if (!canonical[key] || (e.updatedAt || '') > (canonical[key].updatedAt || '')) canonical[key] = e;
+    });
+    let created = 0;
+    Object.values(canonical).forEach(tmpl => {
+        // Check if a rollover copy for this month already exists
+        const alreadyExists = expenses.some(e =>
+            e.rolloverMonthly && e.isGrouped &&
+            e.description.toLowerCase().trim() === tmpl.description.toLowerCase().trim() &&
+            (e.date || '').startsWith(monthStr)
+        );
+        if (alreadyExists) return;
+        const now = new Date().toISOString();
+        expenses.push({
+            id: generateId(),
+            description: tmpl.description,
+            amount: 0,
+            date: monthStr + '-01',
+            category: tmpl.category,
+            type: tmpl.type || 'personal',
+            split: tmpl.split || false,
+            paidByFather: false,
+            splitPctOverride: tmpl.splitPctOverride || null,
+            essential: tmpl.essential || false,
+            notes: null,
+            attachment: null,
+            isGrouped: true,
+            rolloverMonthly: true,
+            entries: [],
+            splitAcrossChildren: tmpl.splitAcrossChildren || false,
+            splitChildrenIds: tmpl.splitChildrenIds || [],
+            createdAt: now,
+            updatedAt: now
+        });
+        created++;
+    });
+    if (created > 0) { saveData(); }
+    return created;
+}
+
+function toggleRolloverMonthly(id) {
+    const e = expenses.find(x => x.id === id);
+    if (!e || !e.isGrouped) return;
+    e.rolloverMonthly = !e.rolloverMonthly;
+    e.updatedAt = new Date().toISOString();
+    saveData();
+    updateAll();
+    showToast(e.rolloverMonthly
+        ? `↺ ${e.description} passa a ser criada automaticamente todo o mês`
+        : `${e.description} removida das recorrências mensais`);
+}
+
 function renderExpenses() {
     renderQuickAdd();
+    ensureRolloverGroupedExpenses(currentDate);
     const monthExp = getMonthExpenses(currentDate).map(adjustExpenseForCoParent);
     const filterCat = document.getElementById('filter-category')?.value;
     const filterType = document.getElementById('filter-type')?.value;
@@ -4814,7 +4880,7 @@ function renderExpenseItem(e) {
         return `<span style="color:var(--text-light);font-size:0.72rem">${parts}</span>`;
     })();
     const groupedInfo = e.isGrouped && Array.isArray(e.entries)
-        ? `<span style="color:var(--primary);font-weight:600"><i class="fas fa-layer-group" style="font-size:0.65rem"></i> ${e.entries.length} ${e.entries.length === 1 ? 'entrada' : 'entradas'}</span>`
+        ? `<span style="color:var(--primary);font-weight:600"><i class="fas fa-layer-group" style="font-size:0.65rem"></i> ${e.entries.length} ${e.entries.length === 1 ? 'entrada' : 'entradas'}</span>${e.rolloverMonthly ? ' <span style="font-size:0.6rem;background:#E8F5E9;color:#2E7D32;padding:1px 5px;border-radius:4px;font-weight:600"><i class="fas fa-rotate"></i> mensal</span>' : ''}`
         : '';
 
     const groupedEntriesHtml = (e.isGrouped && Array.isArray(e.entries))
@@ -4885,6 +4951,7 @@ function renderExpenseItem(e) {
                     <div class="expense-actions" style="flex-shrink:0">
                         ${e.isGrouped && !isFixedVirtual ? `<button onclick="event.stopPropagation();addGroupedEntry('${e.id}')" title="Adicionar entrada" class="btn-grouped-add"><i class="fas fa-plus"></i></button>` : ''}
                         ${e.isGrouped && !isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();toggleGroupedExpand('${e.id}')" title="Ver entradas" style="color:var(--primary)"><i class="fas fa-chevron-down"></i></button>` : ''}
+                        ${e.isGrouped && !isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();toggleRolloverMonthly('${e.id}')" title="${e.rolloverMonthly ? 'Remover recorrência mensal' : 'Repetir automaticamente todo o mês'}" style="color:${e.rolloverMonthly ? '#2E7D32' : 'var(--text-light)'}"><i class="fas fa-rotate"></i></button>` : ''}
                         ${e.attachment ? `<button class="btn-icon" onclick="event.stopPropagation();viewAttachment('${e.id}')" title="Ver anexo"><i class="fas fa-image"></i></button><button class="btn-icon" onclick="event.stopPropagation();downloadAttachment('${e.id}')" title="Descarregar anexo"><i class="fas fa-download"></i></button>` : ''}
                         ${!isFixedVirtual ? `<button class="btn-icon" onclick="event.stopPropagation();saveAsTemplate('${e.id}')" title="Guardar como frequente"><i class="fas fa-star"></i></button>` : ''}
                         ${!isFixedVirtual && !e.isGrouped ? `<button class="btn-icon" onclick="event.stopPropagation();duplicateExpense('${e.id}')" title="Duplicar"><i class="fas fa-copy"></i></button>` : ''}
@@ -9926,6 +9993,8 @@ function saveExpense(event) {
             } else {
                 expense.entries = [{ date: dateVal, amount, notes: notesVal }];
             }
+            // Preserve rolloverMonthly flag — controlled via the ↺ toggle, not the edit form
+            if (existing) expense.rolloverMonthly = existing.rolloverMonthly || false;
         } else {
             expense.entries = [{ date: dateVal, amount, notes: notesVal }];
         }
