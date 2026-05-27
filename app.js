@@ -7456,7 +7456,7 @@ ${text.slice(0, 8000)}`;
         const { data, type } = await resizeImageForOcr(file);
         const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):
 {
-  "descricao": "nome curto do estabelecimento",
+  "descricao": "nome próprio do estabelecimento em 1-3 palavras (ex: 'Olímpico', 'Pizza Roma', 'Galp Expo') — NUNCA o título do documento como 'Fatura Simplificada do Restaurante X'",
   "valor": N,
   "data": "YYYY-MM-DD",
   "hora": "HH:MM" | null,
@@ -7572,7 +7572,7 @@ Extrai os dados da despesa e devolve APENAS JSON com este shape:
 {"descricao":"…","valor":N_ou_null,"data":"YYYY-MM-DD","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null}
 
 Regras:
-- "descricao": nome curto do estabelecimento ou tipo de despesa
+- "descricao": nome próprio do estabelecimento em 1-3 palavras (ex: "Olímpico", "Pizza Roma") — nunca o título do documento
 - "valor": valor numérico em EUR, null se não mencionado
 - "data": data mencionada em formato YYYY-MM-DD, ou hoje (${today}) se não dita
 - "categoria": id exato da lista abaixo que melhor encaixa
@@ -7777,7 +7777,7 @@ async function onQuickCaptureFile(input) {
             obj = extractJsonObject(raw);
         } else {
             const { data, type } = await resizeImageForOcr(file);
-            const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):\n{"descricao":"…","valor":N,"data":"YYYY-MM-DD","hora":"HH:MM"|null,"estabelecimento":"…","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null,"nifVendedor":"…"|null,"nifCliente":"…"|null,"ivaBase":N|null,"ivaValor":N|null,"ivaTaxa":6|13|23|null,"metodoPagamento":"cartao"|"mbway"|"dinheiro"|"transferencia"|"cheque"|"outro"|null,"cartaoUltimos4":"…"|null,"tipoDocumento":"fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,"atcud":"…"|null,"numeroDocumento":"…"|null,"moradaVendedor":"…"|null,"cidadeVendedor":"…"|null,"desconto":N|null,"programaFidelidade":"…"|null,"pontosFidelidade":N|null,"tipoServico":"mesa"|"take-away"|"esplanada"|"balcao"|"delivery"|null,"gorjeta":N|null,"itens":[{"nome":"…","qtd":N,"unidade":"…"|null,"precoUnitario":N|null,"total":N,"iva":6|13|23|null}]|null,"utility":{"tipo":"eletricidade"|"agua"|"gas"|"telecom"|null,"periodoInicio":"YYYY-MM-DD"|null,"periodoFim":"YYYY-MM-DD"|null,"consumoKwh":N|null,"consumoM3":N|null,"potenciaKva":N|null,"tarifa":"simples"|"bi-horaria"|"tri-horaria"|null,"consumoVazio":N|null,"consumoCheias":N|null,"consumoPonta":N|null}|null,"combustivel":{"litros":N|null,"precoPorLitro":N|null,"tipoCombustivel":"gasolina95"|"gasolina98"|"gasoleo"|"gpl"|"eletrico"|null}|null,"farmacia":{"numeroPrescricao":"…"|null,"medicamentos":[{"nome":"…","quantidade":N,"pvp":N|null,"comReceita":false}]|null}|null,"ivaDetalhado":[{"taxa":6|13|23,"base":N,"valor":N}]|null,"restaurante":{"numeroPessoas":N|null,"mesaNumero":"…"|null}|null}\nSe não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.\n${CATEGORY_HINTS_BLOCK}\nCategorias (usa o id exato): ${JSON.stringify(catList)}\nHoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
+            const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):\n{"descricao":"…","valor":N,"data":"YYYY-MM-DD","hora":"HH:MM"|null,"estabelecimento":"…","categoria":"<id>","essencial":true|false,"confianca":0..1,"notas":"…"|null,"nifVendedor":"…"|null,"nifCliente":"…"|null,"ivaBase":N|null,"ivaValor":N|null,"ivaTaxa":6|13|23|null,"metodoPagamento":"cartao"|"mbway"|"dinheiro"|"transferencia"|"cheque"|"outro"|null,"cartaoUltimos4":"…"|null,"tipoDocumento":"fatura"|"fatura-recibo"|"recibo"|"nota-credito"|null,"atcud":"…"|null,"numeroDocumento":"…"|null,"moradaVendedor":"…"|null,"cidadeVendedor":"…"|null,"desconto":N|null,"programaFidelidade":"…"|null,"pontosFidelidade":N|null,"tipoServico":"mesa"|"take-away"|"esplanada"|"balcao"|"delivery"|null,"gorjeta":N|null,"itens":[{"nome":"…","qtd":N,"unidade":"…"|null,"precoUnitario":N|null,"total":N,"iva":6|13|23|null}]|null,"utility":{"tipo":"eletricidade"|"agua"|"gas"|"telecom"|null,"periodoInicio":"YYYY-MM-DD"|null,"periodoFim":"YYYY-MM-DD"|null,"consumoKwh":N|null,"consumoM3":N|null,"potenciaKva":N|null,"tarifa":"simples"|"bi-horaria"|"tri-horaria"|null,"consumoVazio":N|null,"consumoCheias":N|null,"consumoPonta":N|null}|null,"combustivel":{"litros":N|null,"precoPorLitro":N|null,"tipoCombustivel":"gasolina95"|"gasolina98"|"gasoleo"|"gpl"|"eletrico"|null}|null,"farmacia":{"numeroPrescricao":"…"|null,"medicamentos":[{"nome":"…","quantidade":N,"pvp":N|null,"comReceita":false}]|null}|null,"ivaDetalhado":[{"taxa":6|13|23,"base":N,"valor":N}]|null,"restaurante":{"numeroPessoas":N|null,"mesaNumero":"…"|null}|null}\nSe não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.\nNOTA "descricao": o nome próprio do estabelecimento em 1-3 palavras (ex: "Olímpico", "Pizza Roma") — NUNCA o título do documento (nunca "Fatura Simplificada do restaurante...").\n${CATEGORY_HINTS_BLOCK}\nCategorias (usa o id exato): ${JSON.stringify(catList)}\nHoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
             const { text } = await runReceiptOcr(data, type, prompt);
             obj = extractJsonObject(text);
         }
@@ -7787,7 +7787,7 @@ async function onQuickCaptureFile(input) {
         result.style.display  = 'block';
         // Populate the card
         const cat = cats[obj.categoria];
-        document.getElementById('qc-desc').textContent = obj.descricao || obj.estabelecimento || 'Despesa';
+        document.getElementById('qc-desc').textContent = (obj.descricao || obj.estabelecimento || 'Despesa').slice(0, 40);
         document.getElementById('qc-amount').textContent = typeof obj.valor === 'number' ? formatCurrency(obj.valor) : '—';
         const metaParts = [];
         if (obj.data) metaParts.push(formatDate(obj.data));
