@@ -4610,6 +4610,7 @@ function computeGroupedTotal(e) {
 }
 
 let pendingGroupedEntryId = null;
+let pendingEditEntryEid = null;
 function addGroupedEntry(id) {
     const idx = expenses.findIndex(e => e.id === id);
     if (idx < 0) return;
@@ -4652,6 +4653,42 @@ function addGroupedEntry(id) {
     setTimeout(() => document.getElementById('grouped-entry-amount').focus(), 100);
 }
 
+function editGroupedEntry(parentId, eid) {
+    const idx = expenses.findIndex(e => e.id === parentId);
+    if (idx < 0) return;
+    const e = expenses[idx];
+    const entry = e.entries?.find(en => en.eid === eid);
+    if (!entry) return;
+    pendingGroupedEntryId = parentId;
+    pendingEditEntryEid = eid;
+    document.getElementById('grouped-entry-title').textContent = `Editar entrada: ${e.description}`;
+    document.getElementById('grouped-entry-amount').value = entry.amount;
+    document.getElementById('grouped-entry-date').value = entry.date;
+    document.getElementById('grouped-entry-notes').value = entry.notes || '';
+    const withGroup = document.getElementById('grouped-entry-with-group');
+    const withSel = document.getElementById('grouped-entry-with');
+    if (withGroup && withSel && children.length >= 2) {
+        const allLabel = children.length === 2 ? 'Ambos' : 'Todos';
+        withSel.innerHTML = children.map(c => `<option value="${c.id}">${c.name}</option>`).join('') + `<option value="both">${allLabel}</option><option value="personal">Pessoal</option>`;
+        withSel.value = entry.type || e.type || 'personal';
+        withGroup.style.display = 'block';
+    } else if (withGroup) {
+        withGroup.style.display = 'none';
+    }
+    const pGrp = document.getElementById('grouped-entry-partner-group');
+    const pCb = document.getElementById('grouped-entry-with-partner');
+    const pName = document.getElementById('grouped-entry-partner-name');
+    const partnerName = getPartnerName();
+    if (pGrp) {
+        const show = !isMarriedMode() && !!partnerName;
+        pGrp.style.display = show ? 'block' : 'none';
+        if (show && pName) pName.textContent = partnerName;
+        if (pCb) pCb.checked = !!entry.withPartner;
+    }
+    document.getElementById('modal-grouped-entry').classList.add('active');
+    setTimeout(() => document.getElementById('grouped-entry-amount').focus(), 100);
+}
+
 function saveGroupedEntry(event) {
     event.preventDefault();
     const id = pendingGroupedEntryId;
@@ -4669,7 +4706,14 @@ function saveGroupedEntry(event) {
         : e.type;
     const withPartner = !!document.getElementById('grouped-entry-with-partner')?.checked;
     e.entries = e.entries || [];
-    e.entries.push({ eid: generateId(), date, amount, notes, type: entryType, withPartner });
+    if (pendingEditEntryEid) {
+        const entryIdx = e.entries.findIndex(en => en.eid === pendingEditEntryEid);
+        if (entryIdx >= 0) e.entries[entryIdx] = { ...e.entries[entryIdx], date, amount, notes, type: entryType, withPartner };
+        showToast('Entrada atualizada');
+    } else {
+        e.entries.push({ eid: generateId(), date, amount, notes, type: entryType, withPartner });
+        showToast(`Entrada adicionada: ${formatCurrency(amount)}`);
+    }
     e.amount = computeGroupedTotal(e);
     e.date = [...e.entries].sort((a, b) => b.date.localeCompare(a.date))[0].date;
     e.updatedAt = new Date().toISOString();
@@ -4677,12 +4721,12 @@ function saveGroupedEntry(event) {
     saveData();
     closeGroupedEntryModal();
     updateAll();
-    showToast(`Entrada adicionada: ${formatCurrency(amount)}`);
 }
 
 function closeGroupedEntryModal() {
     document.getElementById('modal-grouped-entry').classList.remove('active');
     pendingGroupedEntryId = null;
+    pendingEditEntryEid = null;
 }
 
 function removeGroupedEntry(expenseId, entryRef) {
@@ -4899,8 +4943,9 @@ function renderExpenseItem(e) {
                 const ref = entry.eid ? `'${entry.eid}'` : `${e.entries.indexOf(entry)}`;
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:0.78rem;border-bottom:1px solid var(--border)">
                     <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}${showTag ? ` · <span style="color:var(--primary);font-weight:600">${tLabel}</span>` : ''}</span>
-                    <span style="display:flex;align-items:center;gap:6px">
+                    <span style="display:flex;align-items:center;gap:4px">
                         <span style="font-weight:600">${formatCurrency(entry.amount)}</span>
+                        ${entry.eid ? `<button class="btn-icon" onclick="event.stopPropagation();editGroupedEntry('${e.id}','${entry.eid}')" title="Editar" style="padding:2px;color:var(--primary);font-size:0.7rem"><i class="fas fa-pen"></i></button>` : ''}
                         <button class="btn-icon" onclick="event.stopPropagation();removeGroupedEntry('${e.id}', ${ref})" title="Remover" style="padding:2px;color:var(--danger);font-size:0.7rem"><i class="fas fa-times"></i></button>
                     </span>
                 </div>`;
