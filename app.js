@@ -3523,7 +3523,7 @@ function renderCycleExpenses() {
     let zebraParity = 0;
     body.innerHTML = all.map(r => {
         if (r.date !== zebraLastDate) { zebraLastDate = r.date; zebraParity ^= 1; }
-        const zebraBg = zebraParity === 1 ? 'background:rgba(108,92,231,0.07);' : '';
+        const zebraBg = zebraParity === 1 ? 'background:rgba(0,0,0,0.035);' : '';
         let markerPrefix = '';
         if (showCycleTodayMarker && !cycleMarkerInserted && r.date && r.date < todayStrCycle) {
             markerPrefix = '<div class="today-marker"><span>HOJE</span></div>';
