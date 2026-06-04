@@ -12761,6 +12761,7 @@ function saveFixed(event) {
     saveData();
     closeFixedModal();
     renderFixedList();
+    updateAll();
     // If this was promoted from a pending AI-detected expense, drop it from the pending list.
     if (window._pendingPromotedToFixed) {
         pendingExpenses = pendingExpenses.filter(x => x.id !== window._pendingPromotedToFixed);
