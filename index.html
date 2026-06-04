@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=202">
+    <link rel="stylesheet" href="styles.css?v=203">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -156,7 +156,7 @@
                         <button id="cycle-group-btn" onclick="event.stopPropagation();toggleCycleGroupMode()" title="Agrupar por categoria" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light);display:none">
                             <i class="fas fa-layer-group"></i>
                         </button>
-                        <button onclick="event.stopPropagation();openBankImportModal()" title="Importar extrato bancário" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light)">
+                        <button onclick="event.stopPropagation();openBankImportModal()" title="Validar / importar extrato bancário" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light)">
                             <i class="fas fa-file-import"></i>
                         </button>
                         <i id="cycle-section-chevron" class="fas fa-chevron-down" style="color:var(--text-light);font-size:0.85rem;transition:transform 0.2s"></i>
@@ -2273,7 +2273,7 @@
         <div id="modal-bank-import" class="modal">
             <div class="modal-content" style="display:flex;flex-direction:column;max-height:90vh">
                 <div class="modal-header">
-                    <h2><i class="fas fa-file-import"></i> Importar Extrato</h2>
+                    <h2><i class="fas fa-file-import"></i> Validar / Importar Extrato</h2>
                     <button onclick="closeBankImportModal()" class="btn-icon"><i class="fas fa-times"></i></button>
                 </div>
 
@@ -2307,7 +2307,7 @@
             </div>
         </div>
 
-    <script src="app.js?v=202"></script>
+    <script src="app.js?v=203"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

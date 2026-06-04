@@ -3313,6 +3313,7 @@ function renderCycleExpenses() {
                     amount: entryAmt,
                     isGroupedEntry: true,
                     accountId: en.accountId || e.accountId || null,
+                    bankValidated: en.bankValidated || false,
                     childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
             });
             return;
@@ -3323,6 +3324,7 @@ function renderCycleExpenses() {
             description: adj.description || '(sem descrição)', category: adj.category,
             amount: adj.amount || 0,
             accountId: e.accountId || null,
+            bankValidated: e.bankValidated || false,
             childId: adj.type && adj.type !== 'personal' ? adj.type : null, status: 'pago' });
     });
 
@@ -3388,7 +3390,8 @@ function renderCycleExpenses() {
         if (!i.date || i.date < startStr || i.date > endStr) return;
         incomeRows.push({ kind: 'income', id: i.id, date: i.date,
             description: i.description || 'Receita', category: i.category || 'ordenado',
-            amount: i.amount || 0, status: 'recebido', fixed: false, accountId: i.accountId || null });
+            amount: i.amount || 0, status: 'recebido', fixed: false, accountId: i.accountId || null,
+            bankValidated: i.bankValidated || false });
     });
     monthsTouched.forEach(monthDate => {
         const y = monthDate.getFullYear();
@@ -3634,6 +3637,7 @@ function renderCycleExpenses() {
             const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}','${r.date}')` : `editExpense('${r.id}')`);
             const opacity = r.status === 'ignorado' ? '0.55' : '1';
             const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
+            const validatedBadge = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
             const rowAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
             const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
             return `
@@ -3644,6 +3648,7 @@ function renderCycleExpenses() {
                         <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                             ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
                             ${groupedIcon}
+                            ${validatedBadge}
                             <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                         </div>
                         <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--text-light)">${c.label || r.category}${accChip}</div>
@@ -10267,6 +10272,7 @@ function saveExpense(event) {
         farmacia:        pendingReceiptFields?.farmacia || null,
         ivaDetalhado:    pendingReceiptFields?.ivaDetalhado || null,
         restaurante:     pendingReceiptFields?.restaurante || null,
+        bankValidated:   id ? (expenses.find(x => x.id === id)?.bankValidated || false) : false,
         updatedAt: new Date().toISOString()
     };
 
@@ -10419,6 +10425,7 @@ function saveIncome(event) {
         notes: document.getElementById('income-notes').value.trim(),
         accountId: document.getElementById('income-account')?.value || null,
         attachment: pendingIncomeAttachment || null,
+        bankValidated: id ? (incomes.find(x => x.id === id)?.bankValidated || false) : false,
         updatedAt: new Date().toISOString()
     };
 
@@ -12557,7 +12564,9 @@ function guessCategoryFromDesc(desc) {
 
 function buildBankReconciliationSuggestions(transactions, accountId) {
     const suggestions = [];
-    const cats = getEffectiveCategories();
+    const matchedExpIds = new Set();
+    const matchedIncIds = new Set();
+
     transactions.forEach(tx => {
         const txDate = tx.date || '';
         const txAmt = parseFloat(tx.amount) || 0;
@@ -12565,21 +12574,26 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         const txMonth = txDate.slice(0, 7);
         if (!txDate || txAmt <= 0) return;
 
-        // 1 — check for existing variable expense/income match (same amount ±0.02, ±3 days)
-        const dateMs = txDate ? new Date(txDate + 'T12:00:00').getTime() : 0;
+        const dateMs = new Date(txDate + 'T12:00:00').getTime();
+
+        // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
         const existingExp = isDebit ? expenses.find(e =>
+            !matchedExpIds.has(e.id) &&
             Math.abs((e.amount || 0) - txAmt) < 0.02 &&
             Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
         const existingInc = !isDebit ? incomes.find(i =>
+            !matchedIncIds.has(i.id) &&
             Math.abs((i.amount || 0) - txAmt) < 0.02 &&
             Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
         if (existingExp || existingInc) {
             const m = existingExp || existingInc;
-            suggestions.push({ tx, action: 'already-exists', matchDesc: m.description, category: m.category, selected: false });
+            if (existingExp) matchedExpIds.add(existingExp.id);
+            if (existingInc) matchedIncIds.add(existingInc.id);
+            suggestions.push({ tx, action: 'validate', matchId: m.id, matchKind: existingExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: true });
             return;
         }
 
-        // 2 — check for matching fixed expense (same amount, same month, not yet paid)
+        // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
             const fixedMatch = fixedExpenses.find(fe => {
                 const effAmt = getEffectiveFixedAmount(fe, txMonth + '-01');
@@ -12592,7 +12606,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
-        // 3 — check for matching fixed income (credit, same amount, same month, not yet received)
+        // 3 — match fixed income (credit, same amount, same month, not yet received)
         if (!isDebit && txMonth) {
             const fixedIncMatch = fixedIncomes.find(fi => {
                 const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
@@ -12605,10 +12619,42 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
-        // 4 — default: create new
+        // 4 — not found: suggest creating
         const cat = isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento';
         suggestions.push({ tx, action: isDebit ? 'create-expense' : 'create-income', category: cat, selected: true });
     });
+
+    // 5 — find app expenses/incomes in the detected period NOT matched by any bank transaction
+    if (transactions.length > 0) {
+        const sortedDates = transactions.map(t => t.date).filter(Boolean).sort();
+        const extStart = new Date(sortedDates[0] + 'T12:00:00');
+        extStart.setDate(extStart.getDate() - 3);
+        const extEnd = new Date(sortedDates[sortedDates.length - 1] + 'T12:00:00');
+        extEnd.setDate(extEnd.getDate() + 3);
+        const extStartStr = toLocalDateStr(extStart);
+        const extEndStr = toLocalDateStr(extEnd);
+
+        expenses.forEach(e => {
+            if (e.isGrouped && Array.isArray(e.entries)) {
+                e.entries.forEach(en => {
+                    if (matchedExpIds.has(e.id)) return;
+                    if (!en.date || en.date < extStartStr || en.date > extEndStr) return;
+                    suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: en.amount, date: en.date, selected: false });
+                });
+                return;
+            }
+            if (matchedExpIds.has(e.id)) return;
+            if (!e.date || e.date < extStartStr || e.date > extEndStr) return;
+            suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: e.amount, date: e.date, selected: false });
+        });
+
+        incomes.forEach(i => {
+            if (matchedIncIds.has(i.id)) return;
+            if (!i.date || i.date < extStartStr || i.date > extEndStr) return;
+            suggestions.push({ tx: null, action: 'no-match', matchId: i.id, matchKind: 'income', matchDesc: i.description, category: i.category, amount: i.amount, date: i.date, selected: false });
+        });
+    }
+
     return suggestions;
 }
 
@@ -12702,43 +12748,64 @@ function renderBankReconciliation() {
     const applyLabel = document.getElementById('bank-import-apply-label');
     if (!container) return;
     const cats = getEffectiveCategories();
-    const actionColor = { 'create-expense': '#E65100', 'create-income': '#2E7D32', 'mark-fixed-paid': '#1565C0', 'mark-fixed-income-received': '#2E7D32', 'already-exists': '#9E9E9E' };
-    const actionBg = { 'create-expense': '#FFF3E0', 'create-income': '#E8F5E9', 'mark-fixed-paid': '#E3F2FD', 'mark-fixed-income-received': '#E8F5E9', 'already-exists': '#F5F5F5' };
-    const actionLabel = { 'create-expense': 'Nova despesa', 'create-income': 'Nova receita', 'mark-fixed-paid': 'Fixa → paga', 'mark-fixed-income-received': 'Fixa → recebida', 'already-exists': 'Já existe' };
+    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 
+    const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
+
+    const validGroup   = bankImportSuggestions.filter(s => ['validate','mark-fixed-paid','mark-fixed-income-received'].includes(s.action));
+    const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income'].includes(s.action));
+    const noMatchGroup = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
-    if (summary) summary.textContent = `${bankImportSuggestions.length} transação(ões) encontrada(s) · ${selectedCount} selecionada(s)`;
+
+    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; <span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>`;
     if (applyLabel) applyLabel.textContent = `Aplicar ${selectedCount} selecionada${selectedCount !== 1 ? 's' : ''}`;
 
-    container.innerHTML = bankImportSuggestions.map((s, i) => {
-        const tx = s.tx;
-        const color = actionColor[s.action] || '#9E9E9E';
-        const bg = actionBg[s.action] || '#F5F5F5';
-        const label = actionLabel[s.action] || s.action;
-        const isNew = s.action === 'create-expense' || s.action === 'create-income';
-        const catOpts = s.action === 'create-expense'
-            ? Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('')
-            : '';
-        const catSel = s.action === 'create-expense'
-            ? `<select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.72rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>`
-            : '';
-        const matchNote = s.matchDesc ? `<span style="font-size:0.68rem;color:${color};opacity:0.85"> · ${s.matchDesc.slice(0, 22)}</span>` : '';
-        const amtSign = s.tx.type === 'credit' ? '+' : '−';
-        const amtColor = s.tx.type === 'credit' ? 'var(--success)' : 'var(--text)';
-        const dateLabel = tx.date ? (() => { const d = new Date(tx.date + 'T12:00:00'); return `${String(d.getDate()).padStart(2,'0')} ${['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][d.getMonth()]}`; })() : tx.date;
-        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);${s.action==='already-exists'?'opacity:0.5':''}">
-            <input type="checkbox" ${s.selected ? 'checked' : ''} onchange="bankImportSuggestions[${i}].selected=this.checked;renderBankReconciliation()" style="flex-shrink:0;cursor:pointer;width:16px;height:16px" ${s.action==='already-exists'?'disabled':''}>
-            <div style="flex-shrink:0;font-size:0.72rem;color:var(--text-light);width:40px">${dateLabel}</div>
+    const renderRow = (s, i) => {
+        const hasTx = !!s.tx;
+        const desc = hasTx ? (s.tx.description || '—') : (s.matchDesc || '—');
+        const amount = hasTx ? s.tx.amount : s.amount;
+        const date = hasTx ? s.tx.date : s.date;
+        const isCredit = hasTx && s.tx.type === 'credit';
+        const amtSign = isCredit ? '+' : '−';
+        const amtColor = isCredit ? 'var(--success)' : (s.action === 'no-match' ? 'var(--danger)' : 'var(--text)');
+
+        let tagHtml = '';
+        if (s.action === 'validate') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>`;
+        else if (s.action === 'mark-fixed-paid') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E3F2FD;color:#1565C0">Fixa → paga · ${(s.matchDesc||'').slice(0,16)}</span>`;
+        else if (s.action === 'mark-fixed-income-received') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Fixa → recebida · ${(s.matchDesc||'').slice(0,14)}</span>`;
+        else if (s.action === 'create-expense') {
+            const catOpts = Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('');
+            tagHtml = `<select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:120px">${catOpts}</select>`;
+        } else if (s.action === 'create-income') {
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Nova receita</span>`;
+        } else if (s.action === 'no-match') {
+            const cat = cats[s.category] || {};
+            tagHtml = `<span style="font-size:0.65rem;padding:1px 6px;border-radius:8px;background:#F5F5F5;color:#757575">${cat.label || s.category || 'outros'}</span>`;
+        }
+
+        const isDisabled = s.action === 'no-match';
+        const opacity = s.action === 'no-match' ? '0.7' : '1';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);opacity:${opacity}">
+            <input type="checkbox" ${s.selected ? 'checked' : ''} onchange="bankImportSuggestions[${i}].selected=this.checked;renderBankReconciliation()" style="flex-shrink:0;cursor:pointer;width:15px;height:15px" ${isDisabled ? 'disabled' : ''}>
+            <div style="flex-shrink:0;font-size:0.7rem;color:var(--text-light);width:38px">${fmtDate(date)}</div>
             <div style="flex:1;min-width:0">
-                <div style="font-size:0.82rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tx.description || '—'}</div>
-                <div style="display:flex;align-items:center;gap:5px;margin-top:2px;flex-wrap:wrap">
-                    <span style="font-size:0.68rem;font-weight:700;padding:1px 6px;border-radius:8px;background:${bg};color:${color}">${label}${matchNote}</span>
-                    ${catSel}
-                </div>
+                <div style="font-size:0.8rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${desc}</div>
+                <div style="margin-top:2px">${tagHtml}</div>
             </div>
-            <div style="flex-shrink:0;font-weight:700;font-size:0.85rem;color:${amtColor};white-space:nowrap">${amtSign}${formatCurrency(tx.amount)}</div>
+            <div style="flex-shrink:0;font-weight:700;font-size:0.82rem;color:${amtColor};white-space:nowrap">${amtSign}${formatCurrency(amount)}</div>
         </div>`;
-    }).join('');
+    };
+
+    const sectionHtml = (title, bg, color, items) => {
+        if (!items.length) return '';
+        const rows = items.map(s => renderRow(s, bankImportSuggestions.indexOf(s))).join('');
+        return `<div style="padding:5px 10px;background:${bg};font-size:0.68rem;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.05em;position:sticky;top:0">${title} (${items.length})</div>${rows}`;
+    };
+
+    container.innerHTML =
+        sectionHtml('✅ Confirmados no extrato', '#E8F5E9', '#2E7D32', validGroup) +
+        sectionHtml('❓ No extrato, sem registo na app', '#FFF3E0', '#E65100', createGroup) +
+        sectionHtml('⚠ Na app, sem correspondência no extrato', '#F5F5F5', '#757575', noMatchGroup);
 }
 
 async function applyBankImportSelections() {
@@ -12751,11 +12818,18 @@ async function applyBankImportSelections() {
     selected.forEach((s, si) => {
         const tx = s.tx;
         const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
-        if (s.action === 'create-expense') {
-            expenses.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', createdAt: new Date().toISOString() });
+        if (s.action === 'validate') {
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) { expenses[expIdx] = { ...expenses[expIdx], bankValidated: true }; count++; }
+            else {
+                const incIdx = incomes.findIndex(i => i.id === s.matchId);
+                if (incIdx >= 0) { incomes[incIdx] = { ...incomes[incIdx], bankValidated: true }; count++; }
+            }
+        } else if (s.action === 'create-expense') {
+            expenses.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         } else if (s.action === 'create-income') {
-            incomes.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: 'rendimento', accountId, notes: '', createdAt: new Date().toISOString() });
+            incomes.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: 'rendimento', accountId, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         } else if (s.action === 'mark-fixed-paid') {
             const month = tx.date.slice(0, 7);
