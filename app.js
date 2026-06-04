@@ -3302,7 +3302,7 @@ function renderCycleExpenses() {
             const ratio = e.amount > 0 ? fullAdj.amount / e.amount : 1;
             cycleEntries.forEach(en => {
                 const entryAmt = (parseFloat(en.amount) || 0) * Math.max(0, ratio);
-                varRows.push({ kind: 'var', id: e.id, date: en.date,
+                varRows.push({ kind: 'var', id: e.id, eid: en.eid, date: en.date,
                     description: e.description || '(sem descrição)', category: e.category,
                     amount: entryAmt,
                     isGroupedEntry: true,
@@ -3591,7 +3591,7 @@ function renderCycleExpenses() {
             else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
             const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
             const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
-            const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
+            const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`);
             const opacity = r.status === 'ignorado' ? '0.55' : '1';
             const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
             return `
