@@ -2181,6 +2181,10 @@ function markFixedPaid(fixedId, date, paid) {
     updateAll();
 }
 
+function toggleFixedPaidFromCycle(fixedId, dueDateStr, currentlyPaid) {
+    markFixedPaid(fixedId, new Date(dueDateStr + 'T12:00:00'), !currentlyPaid);
+}
+
 function markFixedCoParentPaid(fixedId, date, paidByCoParent) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
@@ -3415,6 +3419,7 @@ function renderCycleExpenses() {
                 kind: 'fixed',
                 id: f.id,
                 date: dateStr,
+                dueDate: dueDateStr,
                 description: f.description,
                 category: f.category,
                 amount,
@@ -3761,9 +3766,20 @@ function renderCycleExpenses() {
             const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
             const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
             let badge;
-            if (r.status === 'pago') badge = '<span title="Pago" style="font-size:0.85rem">✅</span>';
-            else if (r.status === 'pendente') badge = '<span title="Pendente" style="font-size:0.85rem">⏳</span>';
-            else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
+            if (r.kind === 'fixed' && r.status !== 'ignorado') {
+                const isPaid = r.status === 'pago';
+                const btnTitle = isPaid ? 'Marcar como pendente' : 'Marcar como pago';
+                const btnBg = isPaid ? '#E8F5E9' : '#FFF8E1';
+                const btnColor = isPaid ? '#2E7D32' : '#E65100';
+                const btnBorder = isPaid ? '#A5D6A7' : '#FFE082';
+                badge = `<button onclick="toggleFixedPaidFromCycle('${r.id}','${r.dueDate}',${isPaid})" class="btn-icon" style="background:${btnBg};color:${btnColor};border:1px solid ${btnBorder};border-radius:8px;padding:2px;cursor:pointer;font-size:0.8rem;width:22px;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${btnTitle}">${isPaid ? '✅' : '⏳'}</button>`;
+            } else if (r.status === 'pago') {
+                badge = '<span title="Pago" style="font-size:0.85rem">✅</span>';
+            } else if (r.status === 'pendente') {
+                badge = '<span title="Pendente" style="font-size:0.85rem">⏳</span>';
+            } else {
+                badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
+            }
             const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
             const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
             const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}','${r.date}')` : `editExpense('${r.id}')`);
