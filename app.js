@@ -67,6 +67,8 @@ const ACCOUNTS_KEY = 'despesas_accounts';
 let accounts = []; // { id, name, color, icon, initialBalance, initialBalanceDate }
 const TRANSFERS_KEY = 'despesas_transfers';
 let transfers = []; // { id, date, amount, description, fromAccountId, toAccountId, notes, bankValidated }
+const CYCLE_OPENING_OVERRIDES_KEY = 'despesas_cycle_opening_overrides';
+let cycleOpeningOverrides = {}; // { 'YYYY-MM-DD': amount } — manual override per cycle start date
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1841,6 +1843,8 @@ function loadData() {
     accounts = accountsData ? JSON.parse(accountsData) : [];
     const transfersData = localStorage.getItem(TRANSFERS_KEY);
     transfers = transfersData ? JSON.parse(transfersData) : [];
+    const cycleOverridesData = localStorage.getItem(CYCLE_OPENING_OVERRIDES_KEY);
+    cycleOpeningOverrides = cycleOverridesData ? JSON.parse(cycleOverridesData) : {};
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
     // Migrate legacy savedSoFar (single number) to a transactions ledger so
@@ -1955,6 +1959,7 @@ function saveData() {
     localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
     localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
+    localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
     localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
     localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
@@ -2019,9 +2024,13 @@ function getEffectiveFixedStatus(f, date) {
     // does NOT block auto-approval when the day arrives.
     if (explicit && (explicit.status !== 'pendente' || explicit.manualPendente)) return explicit;
     const today = new Date();
-    const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-    if (isCurrentMonth) {
-        const payDate = getFixedExpensePaymentDate(f, today.getFullYear(), today.getMonth());
+    // Auto-approve for any past or current month once the payment date has arrived.
+    // Restricting to current month caused expenses from the previous calendar month
+    // (but still within the same salary cycle) to revert to pending after month rollover.
+    const dateMonthIdx = date.getFullYear() * 12 + date.getMonth();
+    const todayMonthIdx = today.getFullYear() * 12 + today.getMonth();
+    if (dateMonthIdx <= todayMonthIdx) {
+        const payDate = getFixedExpensePaymentDate(f, date.getFullYear(), date.getMonth());
         if (today >= payDate) {
             recordInboxAutoApproval('expense', f, date);
             return { status: 'pago', auto: true };
@@ -3350,8 +3359,8 @@ function renderCycleExpenses() {
         const m = monthDate.getMonth();
         const maxDay = new Date(y, m + 1, 0).getDate();
         getActiveFixedForMonth(monthDate).forEach(f => {
-            const day = Math.min(f.dayOfMonth, maxDay);
-            const dateStr = `${y}-${String(m + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const payDate = getFixedExpensePaymentDate(f, y, m);
+            const dateStr = toLocalDateStr(payDate);
             if (dateStr < startStr || dateStr > endStr) return;
             const eff = getEffectiveFixedStatus(f, monthDate);
             const status = eff.status; // 'pago' | 'pendente' | 'ignorado'
@@ -3439,6 +3448,7 @@ function renderCycleExpenses() {
         }));
 
     const all = [...varRows, ...fixedRows, ...savingsRows, ...incomeRows, ...transferRows];
+    all.forEach((r, i) => { r._i = i; });
 
     // Classify each movement: flow direction (in/out), whether it's realized
     // (counts toward the running balance), and its signed realized delta.
@@ -3469,9 +3479,14 @@ function renderCycleExpenses() {
     // ascending (income before expense on ties) and stamp each realized row
     // with the balance after it. Pending/future rows get no balance.
     const opening = getCycleOpeningBalance(cycle.start);
+    // Ascending (oldest first, income before expense, lower _i last within
+    // same-date same-flow) is the exact reverse of the display sort so that
+    // reading the display list bottom-to-top yields a consistent ledger:
+    // each row's balanceAfter = the row below's balanceAfter + this row's delta.
     const ascending = [...all].sort((a, b) =>
         (a.date || '').localeCompare(b.date || '') ||
-        ((a.flow === 'in' ? 0 : 1) - (b.flow === 'in' ? 0 : 1)));
+        ((a.flow === 'in' ? 0 : 1) - (b.flow === 'in' ? 0 : 1)) ||
+        b._i - a._i);
     let run = opening;
     ascending.forEach(r => {
         if (r.realized) { run += r.delta; r.balanceAfter = run; }
@@ -3479,10 +3494,11 @@ function renderCycleExpenses() {
     });
     const closingBalance = run;
 
-    // Display order: newest first (expense before income on date ties).
+    // Display order: newest first (expense before income on date ties, lower _i first).
     all.sort((a, b) =>
         (b.date || '').localeCompare(a.date || '') ||
-        ((b.flow === 'in' ? 0 : 1) - (a.flow === 'in' ? 0 : 1)));
+        ((b.flow === 'in' ? 0 : 1) - (a.flow === 'in' ? 0 : 1)) ||
+        a._i - b._i);
 
     // Header totals: spent = variables + paid fixed; committed adds pending
     // fixed. Savings 'add' = outflow, 'remove' = inflow. Incomes excluded.
@@ -3533,12 +3549,21 @@ function renderCycleExpenses() {
     // Opening "Saldo transitado" row — the cycle's starting balance, shown at
     // the bottom of the (newest-first) list as the foundation of the running
     // balance above it.
+    const cycleStartKey = toLocalDateStr(cycle.start);
+    const hasOpeningOverride = Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, cycleStartKey);
     const openingRowHtml = `
         <div class="cycle-expense-row" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-top:2px solid var(--border);background:var(--surface)">
             <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🏁</div>
             <div style="width:42px;flex-shrink:0"></div>
-            <div style="flex:1;min-width:0;font-size:0.74rem;font-weight:600;color:var(--text-light)">Saldo transitado <span style="font-weight:400;font-size:0.62rem">(fecho do ciclo anterior)</span></div>
-            <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
+            <div style="flex:1;min-width:0;font-size:0.74rem;font-weight:600;color:var(--text-light)">
+                Saldo transitado
+                <span style="font-weight:400;font-size:0.62rem">${hasOpeningOverride ? '(valor manual)' : '(fecho do ciclo anterior)'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+                <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
+                <button onclick="editCycleOpeningBalance('${cycleStartKey}', ${opening})" title="Editar saldo inicial" style="border:none;background:none;cursor:pointer;padding:2px 4px;font-size:0.7rem;color:var(--text-light);border-radius:4px;line-height:1">✏️</button>
+                ${hasOpeningOverride ? `<button onclick="clearCycleOpeningOverride('${cycleStartKey}')" title="Repor cálculo automático" style="border:none;background:none;cursor:pointer;padding:2px 4px;font-size:0.7rem;color:var(--text-light);border-radius:4px;line-height:1">↩</button>` : ''}
+            </div>
         </div>`;
 
     // Per-account balance summary strip with cycle delta reconciliation
@@ -6061,6 +6086,10 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 // real money carried in. Stops once a cycle has no movements (start of
 // history) or after a safety guard. Only realized figures count.
 function getCycleOpeningBalance(cycleStart) {
+    const overrideKey = toLocalDateStr(cycleStart);
+    if (Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, overrideKey)) {
+        return cycleOpeningOverrides[overrideKey];
+    }
     let opening = 0;
     let cursor = new Date(cycleStart);
     cursor.setDate(cursor.getDate() - 1); // step into the previous cycle
@@ -6077,6 +6106,24 @@ function getCycleOpeningBalance(cycleStart) {
         cursor.setDate(cursor.getDate() - 1);
     }
     return opening;
+}
+
+function editCycleOpeningBalance(cycleStartKey, currentValue) {
+    const input = prompt('Saldo transitado (€):', currentValue.toFixed(2));
+    if (input === null) return;
+    const val = parseFloat(input.replace(',', '.'));
+    if (isNaN(val)) { showToast('Valor inválido'); return; }
+    cycleOpeningOverrides[cycleStartKey] = val;
+    saveData();
+    renderCycleExpenses();
+    showToast('Saldo transitado actualizado');
+}
+
+function clearCycleOpeningOverride(cycleStartKey) {
+    delete cycleOpeningOverrides[cycleStartKey];
+    saveData();
+    renderCycleExpenses();
+    showToast('Saldo transitado reposto (cálculo automático)');
 }
 
 function renderSalaryCycleReport() {
