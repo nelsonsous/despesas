@@ -12515,6 +12515,261 @@ function populateAccountSelects() {
     });
 }
 
+// ===== BANK STATEMENT IMPORT =====
+let bankImportSuggestions = [];
+
+const BANK_STATEMENT_AI_PROMPT = (content) => `Analisa este extrato bancário português e extrai TODAS as transações.
+Devolve APENAS um array JSON (sem qualquer outro texto):
+[
+  { "date": "YYYY-MM-DD", "description": "nome do beneficiário/entidade", "amount": 12.34, "type": "debit" }
+]
+Regras:
+- type "debit": dinheiro SAI da conta (compras, pagamentos, levantamentos, transferências saída)
+- type "credit": dinheiro ENTRA na conta (salários, reembolsos, transferências entrada, depósitos)
+- amount: sempre positivo, sem símbolo de moeda
+- date: formato YYYY-MM-DD
+- description: nome do beneficiário/entidade, limpo e curto (sem referências, sem datas)
+Ignora linhas de saldo, cabeçalhos, totais e comissões de conta.
+
+EXTRATO:
+${content}`;
+
+function guessCategoryFromDesc(desc) {
+    const d = (desc || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (/lidl|aldi|pingo doce|continente|minipreco|mercadona|intermarch|jumbo|el corte|auchan|worten|leroy|ikea|amazon/.test(d)) return 'supermercado';
+    if (/mcdonald|kfc|pizza|nando|subway|cafe|restaur|pastelaria|padaria|snack|sushi/.test(d)) return 'restaurantes';
+    if (/edp|endesa|galp|iberdrola|egas|aguas|gas natural/.test(d)) return 'energia';
+    if (/nos|meo|vodafone|nowo|altice|tmn/.test(d)) return 'telecomunicacoes';
+    if (/bp|repsol|cepsa|shell|prio|combustivel|gasolina|portagem|via verde|stcp|metro|cp comboio|uber|bolt|renfe/.test(d)) return 'transporte';
+    if (/farmacia|clinica|hospital|medico|saude|dentist|optic/.test(d)) return 'saude';
+    if (/netflix|spotify|apple|google|steam|nintendo|dazn|disney|hbo|amazon prime/.test(d)) return 'lazer';
+    if (/renda|condomin|seguro|predial/.test(d)) return 'habitacao';
+    if (/escola|colegio|universidade|creche/.test(d)) return 'educacao';
+    return 'outros';
+}
+
+function buildBankReconciliationSuggestions(transactions, accountId) {
+    const suggestions = [];
+    const cats = getEffectiveCategories();
+    transactions.forEach(tx => {
+        const txDate = tx.date || '';
+        const txAmt = parseFloat(tx.amount) || 0;
+        const isDebit = tx.type !== 'credit';
+        const txMonth = txDate.slice(0, 7);
+        if (!txDate || txAmt <= 0) return;
+
+        // 1 — check for existing variable expense/income match (same amount ±0.02, ±3 days)
+        const dateMs = txDate ? new Date(txDate + 'T12:00:00').getTime() : 0;
+        const existingExp = isDebit ? expenses.find(e =>
+            Math.abs((e.amount || 0) - txAmt) < 0.02 &&
+            Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
+        const existingInc = !isDebit ? incomes.find(i =>
+            Math.abs((i.amount || 0) - txAmt) < 0.02 &&
+            Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
+        if (existingExp || existingInc) {
+            const m = existingExp || existingInc;
+            suggestions.push({ tx, action: 'already-exists', matchDesc: m.description, category: m.category, selected: false });
+            return;
+        }
+
+        // 2 — check for matching fixed expense (same amount, same month, not yet paid)
+        if (isDebit && txMonth) {
+            const fixedMatch = fixedExpenses.find(fe => {
+                const effAmt = getEffectiveFixedAmount(fe, txMonth + '-01');
+                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                return !fixedStatus.some(s => s.fixedId === fe.id && s.month === txMonth && s.status === 'pago');
+            });
+            if (fixedMatch) {
+                suggestions.push({ tx, action: 'mark-fixed-paid', matchId: fixedMatch.id, matchDesc: fixedMatch.description, category: fixedMatch.category, selected: true });
+                return;
+            }
+        }
+
+        // 3 — check for matching fixed income (credit, same amount, same month, not yet received)
+        if (!isDebit && txMonth) {
+            const fixedIncMatch = fixedIncomes.find(fi => {
+                const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
+                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                return !fixedIncomeStatus.some(s => s.fixedIncomeId === fi.id && s.month === txMonth && s.status === 'recebido');
+            });
+            if (fixedIncMatch) {
+                suggestions.push({ tx, action: 'mark-fixed-income-received', matchId: fixedIncMatch.id, matchDesc: fixedIncMatch.description, category: fixedIncMatch.category, selected: true });
+                return;
+            }
+        }
+
+        // 4 — default: create new
+        const cat = isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento';
+        suggestions.push({ tx, action: isDebit ? 'create-expense' : 'create-income', category: cat, selected: true });
+    });
+    return suggestions;
+}
+
+function openBankImportModal() {
+    bankImportSuggestions = [];
+    const modal = document.getElementById('modal-bank-import');
+    if (!modal) return;
+    const step1 = document.getElementById('bank-import-step1');
+    const step2 = document.getElementById('bank-import-step2');
+    if (step1) step1.style.display = 'block';
+    if (step2) step2.style.display = 'none';
+    const status = document.getElementById('bank-import-status');
+    if (status) status.textContent = '';
+    const fileInput = document.getElementById('bank-import-file');
+    if (fileInput) fileInput.value = '';
+    // Populate account selector
+    const sel = document.getElementById('bank-import-account-sel');
+    if (sel) {
+        sel.innerHTML = '<option value="">— Sem conta —</option>' + accounts.map(a =>
+            `<option value="${a.id}">${a.name}${a.last4 ? ` (*${a.last4})` : ''}</option>`).join('');
+        // Pre-select if only one non-savings account
+        const nonSavings = accounts.filter(a => !a.isSavings);
+        if (nonSavings.length === 1) sel.value = nonSavings[0].id;
+    }
+    modal.classList.add('active');
+}
+
+function closeBankImportModal() {
+    document.getElementById('modal-bank-import')?.classList.remove('active');
+    bankImportSuggestions = [];
+}
+
+async function handleBankStatementFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = '';
+    if (!hasAnyAiKey()) { showToast('Requer chave Gemini, Groq, Mistral ou Grok nas definições'); return; }
+    const setStatus = t => { const el = document.getElementById('bank-import-status'); if (el) el.textContent = t; };
+    setStatus('A processar…');
+    try {
+        let transactions = [];
+        const isImage = /\.(png|jpe?g|webp)$/i.test(file.name) || file.type.startsWith('image/');
+        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+        if (isImage) {
+            setStatus('A enviar imagem para análise IA…');
+            const base64 = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = e => res(e.target.result.split(',')[1]);
+                r.onerror = rej;
+                r.readAsDataURL(file);
+            });
+            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_AI_PROMPT('[imagem de extrato bancário]'));
+            transactions = extractJsonArray(text);
+        } else if (isPdf) {
+            setStatus('A extrair texto do PDF…');
+            const text = await extractPdfText(file);
+            if (!text || text.length < 30) { setStatus('Não foi possível extrair texto do PDF (tenta com uma foto).'); return; }
+            setStatus(`Texto extraído. A analisar com IA…`);
+            const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+            transactions = extractJsonArray(raw);
+        } else {
+            // CSV or plain text
+            setStatus('A ler ficheiro…');
+            const text = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = e => res(e.target.result);
+                r.onerror = rej;
+                r.readAsText(file, 'utf-8');
+            });
+            setStatus('A analisar com IA…');
+            const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+            transactions = extractJsonArray(raw);
+        }
+        if (!transactions.length) { setStatus('Nenhuma transação encontrada. Verifica o ficheiro.'); return; }
+        const accountId = document.getElementById('bank-import-account-sel')?.value || null;
+        bankImportSuggestions = buildBankReconciliationSuggestions(transactions, accountId);
+        renderBankReconciliation();
+        const step1 = document.getElementById('bank-import-step1');
+        const step2 = document.getElementById('bank-import-step2');
+        if (step1) step1.style.display = 'none';
+        if (step2) step2.style.display = 'flex';
+    } catch (e) {
+        console.error('Bank import error', e);
+        setStatus('⚠ ' + (e.message || 'Erro ao processar ficheiro').slice(0, 100));
+    }
+}
+
+function renderBankReconciliation() {
+    const container = document.getElementById('bank-import-results');
+    const summary = document.getElementById('bank-import-summary');
+    const applyLabel = document.getElementById('bank-import-apply-label');
+    if (!container) return;
+    const cats = getEffectiveCategories();
+    const actionColor = { 'create-expense': '#E65100', 'create-income': '#2E7D32', 'mark-fixed-paid': '#1565C0', 'mark-fixed-income-received': '#2E7D32', 'already-exists': '#9E9E9E' };
+    const actionBg = { 'create-expense': '#FFF3E0', 'create-income': '#E8F5E9', 'mark-fixed-paid': '#E3F2FD', 'mark-fixed-income-received': '#E8F5E9', 'already-exists': '#F5F5F5' };
+    const actionLabel = { 'create-expense': 'Nova despesa', 'create-income': 'Nova receita', 'mark-fixed-paid': 'Fixa → paga', 'mark-fixed-income-received': 'Fixa → recebida', 'already-exists': 'Já existe' };
+
+    const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
+    if (summary) summary.textContent = `${bankImportSuggestions.length} transação(ões) encontrada(s) · ${selectedCount} selecionada(s)`;
+    if (applyLabel) applyLabel.textContent = `Aplicar ${selectedCount} selecionada${selectedCount !== 1 ? 's' : ''}`;
+
+    container.innerHTML = bankImportSuggestions.map((s, i) => {
+        const tx = s.tx;
+        const color = actionColor[s.action] || '#9E9E9E';
+        const bg = actionBg[s.action] || '#F5F5F5';
+        const label = actionLabel[s.action] || s.action;
+        const isNew = s.action === 'create-expense' || s.action === 'create-income';
+        const catOpts = s.action === 'create-expense'
+            ? Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('')
+            : '';
+        const catSel = s.action === 'create-expense'
+            ? `<select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.72rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>`
+            : '';
+        const matchNote = s.matchDesc ? `<span style="font-size:0.68rem;color:${color};opacity:0.85"> · ${s.matchDesc.slice(0, 22)}</span>` : '';
+        const amtSign = s.tx.type === 'credit' ? '+' : '−';
+        const amtColor = s.tx.type === 'credit' ? 'var(--success)' : 'var(--text)';
+        const dateLabel = tx.date ? (() => { const d = new Date(tx.date + 'T12:00:00'); return `${String(d.getDate()).padStart(2,'0')} ${['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][d.getMonth()]}`; })() : tx.date;
+        return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);${s.action==='already-exists'?'opacity:0.5':''}">
+            <input type="checkbox" ${s.selected ? 'checked' : ''} onchange="bankImportSuggestions[${i}].selected=this.checked;renderBankReconciliation()" style="flex-shrink:0;cursor:pointer;width:16px;height:16px" ${s.action==='already-exists'?'disabled':''}>
+            <div style="flex-shrink:0;font-size:0.72rem;color:var(--text-light);width:40px">${dateLabel}</div>
+            <div style="flex:1;min-width:0">
+                <div style="font-size:0.82rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tx.description || '—'}</div>
+                <div style="display:flex;align-items:center;gap:5px;margin-top:2px;flex-wrap:wrap">
+                    <span style="font-size:0.68rem;font-weight:700;padding:1px 6px;border-radius:8px;background:${bg};color:${color}">${label}${matchNote}</span>
+                    ${catSel}
+                </div>
+            </div>
+            <div style="flex-shrink:0;font-weight:700;font-size:0.85rem;color:${amtColor};white-space:nowrap">${amtSign}${formatCurrency(tx.amount)}</div>
+        </div>`;
+    }).join('');
+}
+
+async function applyBankImportSelections() {
+    const accountId = document.getElementById('bank-import-account-sel')?.value || null;
+    const selected = bankImportSuggestions.filter(s => s.selected && s.action !== 'already-exists');
+    if (!selected.length) { showToast('Nenhuma linha selecionada'); return; }
+    const btn = document.getElementById('bank-import-apply-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A aplicar…'; }
+    let count = 0;
+    selected.forEach((s, si) => {
+        const tx = s.tx;
+        const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
+        if (s.action === 'create-expense') {
+            expenses.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', createdAt: new Date().toISOString() });
+            count++;
+        } else if (s.action === 'create-income') {
+            incomes.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: 'rendimento', accountId, notes: '', createdAt: new Date().toISOString() });
+            count++;
+        } else if (s.action === 'mark-fixed-paid') {
+            const month = tx.date.slice(0, 7);
+            const idx = fixedStatus.findIndex(fs => fs.fixedId === s.matchId && fs.month === month);
+            const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidAt: new Date().toISOString() };
+            if (idx >= 0) fixedStatus[idx] = entry; else fixedStatus.push(entry);
+            count++;
+        } else if (s.action === 'mark-fixed-income-received') {
+            const month = tx.date.slice(0, 7);
+            const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
+            const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
+            if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
+            count++;
+        }
+    });
+    saveData();
+    updateAll();
+    closeBankImportModal();
+    showToast(`${count} movimento${count !== 1 ? 's' : ''} importado${count !== 1 ? 's' : ''} com sucesso`);
+}
+
 // ===== SETTINGS MODAL =====
 function renderTemplateList() {
     const container = document.getElementById('template-list');

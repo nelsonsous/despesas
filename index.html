@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=200">
+    <link rel="stylesheet" href="styles.css?v=201">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -155,6 +155,9 @@
                     <div style="display:flex;align-items:center;gap:6px">
                         <button id="cycle-group-btn" onclick="event.stopPropagation();toggleCycleGroupMode()" title="Agrupar por categoria" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light);display:none">
                             <i class="fas fa-layer-group"></i>
+                        </button>
+                        <button onclick="event.stopPropagation();openBankImportModal()" title="Importar extrato bancário" style="background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:6px;font-size:0.75rem;color:var(--text-light)">
+                            <i class="fas fa-file-import"></i>
                         </button>
                         <i id="cycle-section-chevron" class="fas fa-chevron-down" style="color:var(--text-light);font-size:0.85rem;transition:transform 0.2s"></i>
                     </div>
@@ -2266,7 +2269,45 @@
         </div>
     </div>
 
-    <script src="app.js?v=200"></script>
+        <!-- Bank Statement Import Modal -->
+        <div id="modal-bank-import" class="modal">
+            <div class="modal-content" style="display:flex;flex-direction:column;max-height:90vh">
+                <div class="modal-header">
+                    <h2><i class="fas fa-file-import"></i> Importar Extrato</h2>
+                    <button onclick="closeBankImportModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+
+                <!-- Step 1: file pick + account -->
+                <div id="bank-import-step1">
+                    <p style="font-size:0.82rem;color:var(--text-light);margin-bottom:12px">Importa um extrato CSV, PDF ou foto e o sistema sugere como registar cada movimento.</p>
+                    <div class="form-group">
+                        <label>Conta bancária (opcional)</label>
+                        <select id="bank-import-account-sel"><option value="">— Sem conta —</option></select>
+                    </div>
+                    <label for="bank-import-file" style="display:flex;flex-direction:column;align-items:center;padding:24px;border:2px dashed var(--border);border-radius:12px;cursor:pointer;gap:8px;text-align:center">
+                        <i class="fas fa-file-arrow-up" style="font-size:2rem;color:var(--primary)"></i>
+                        <span style="font-weight:600">Clica para escolher ficheiro</span>
+                        <span style="font-size:0.75rem;color:var(--text-light)">CSV · PDF · PNG · JPG</span>
+                        <input type="file" id="bank-import-file" style="display:none" accept=".csv,.pdf,.png,.jpg,.jpeg,.webp" onchange="handleBankStatementFile(event)">
+                    </label>
+                    <div id="bank-import-status" style="margin-top:10px;font-size:0.82rem;color:var(--text-light);text-align:center;min-height:20px"></div>
+                </div>
+
+                <!-- Step 2: reconciliation table -->
+                <div id="bank-import-step2" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+                    <div id="bank-import-summary" style="font-size:0.8rem;color:var(--text-light);padding:4px 0 8px"></div>
+                    <div id="bank-import-results" style="overflow-y:auto;max-height:55vh;border:1px solid var(--border);border-radius:10px"></div>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button onclick="closeBankImportModal()" class="btn" style="flex:1">Cancelar</button>
+                        <button id="bank-import-apply-btn" onclick="applyBankImportSelections()" class="btn btn-primary" style="flex:2">
+                            <i class="fas fa-check"></i> <span id="bank-import-apply-label">Aplicar</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <script src="app.js?v=201"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
