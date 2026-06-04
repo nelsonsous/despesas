@@ -3551,19 +3551,28 @@ function renderCycleExpenses() {
     // balance above it.
     const cycleStartKey = toLocalDateStr(cycle.start);
     const hasOpeningOverride = Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, cycleStartKey);
+    const openingBreakdown = hasOpeningOverride ? null : buildCycleOpeningBreakdown(cycle.start);
+    const breakdownHtml = openingBreakdown && openingBreakdown.length > 0
+        ? `<div style="font-size:0.68rem;color:var(--text-light);margin-top:4px;padding-left:4px;border-left:2px solid var(--border)">` +
+          openingBreakdown.map(b => `<div>${b.label}: <span style="color:${b.value >= 0 ? 'var(--success)':'var(--danger)'}">${formatCurrency(b.value)}</span></div>`).join('') +
+          `</div>`
+        : '';
     const openingRowHtml = `
-        <div class="cycle-expense-row" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-top:2px solid var(--border);background:var(--surface)">
-            <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🏁</div>
-            <div style="width:42px;flex-shrink:0"></div>
-            <div style="flex:1;min-width:0;font-size:0.74rem;font-weight:600;color:var(--text-light)">
-                Saldo transitado
-                <span style="font-weight:400;font-size:0.62rem">${hasOpeningOverride ? '(valor manual)' : '(fecho do ciclo anterior)'}</span>
+        <div class="cycle-expense-row" style="display:flex;flex-direction:column;gap:4px;padding:8px 4px;border-top:2px solid var(--border);background:var(--surface)">
+            <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🏁</div>
+                <div style="width:42px;flex-shrink:0"></div>
+                <div style="flex:1;min-width:0;font-size:0.74rem;font-weight:600;color:var(--text-light)">
+                    Saldo transitado
+                    <div style="font-weight:400;font-size:0.62rem;margin-top:1px">${hasOpeningOverride ? 'valor definido manualmente' : 'saldo acumulado dos ciclos anteriores'}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+                    <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
+                    <button onclick="editCycleOpeningBalance('${cycleStartKey}', ${opening})" style="border:1px solid var(--border);background:var(--surface);cursor:pointer;padding:3px 8px;font-size:0.68rem;color:var(--text-light);border-radius:6px;white-space:nowrap">Editar</button>
+                    ${hasOpeningOverride ? `<button onclick="clearCycleOpeningOverride('${cycleStartKey}')" title="Repor cálculo automático" style="border:1px solid var(--border);background:var(--surface);cursor:pointer;padding:3px 6px;font-size:0.68rem;color:var(--text-light);border-radius:6px">↩ Auto</button>` : ''}
+                </div>
             </div>
-            <div style="display:flex;align-items:center;gap:6px">
-                <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
-                <button onclick="editCycleOpeningBalance('${cycleStartKey}', ${opening})" title="Editar saldo inicial" style="border:none;background:none;cursor:pointer;padding:2px 4px;font-size:0.7rem;color:var(--text-light);border-radius:4px;line-height:1">✏️</button>
-                ${hasOpeningOverride ? `<button onclick="clearCycleOpeningOverride('${cycleStartKey}')" title="Repor cálculo automático" style="border:none;background:none;cursor:pointer;padding:2px 4px;font-size:0.7rem;color:var(--text-light);border-radius:4px;line-height:1">↩</button>` : ''}
-            </div>
+            ${breakdownHtml}
         </div>`;
 
     // Per-account balance summary strip with cycle delta reconciliation
@@ -6078,6 +6087,29 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         realizedBalance: incReceived - expPaid,
         expByCategory
     };
+}
+
+// Returns up to 3 most-recent previous cycles' contributions for display.
+function buildCycleOpeningBreakdown(cycleStart) {
+    const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const result = [];
+    let cursor = new Date(cycleStart);
+    cursor.setDate(cursor.getDate() - 1);
+    let guard = 0;
+    while (guard++ < 60) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
+        const flows = getGoalsFlowsInRange(c.start, c.end);
+        const savNet = flows.reduce((s, f) => s + (f.type === 'add' ? f.amount : -f.amount), 0);
+        if (b.totalInc === 0 && b.totalExp === 0 && savNet === 0) break;
+        const label = `${c.start.getDate()} ${months[c.start.getMonth()]} → ${c.end.getDate()} ${months[c.end.getMonth()]}`;
+        result.push({ label, value: b.realizedBalance - savNet });
+        if (result.length >= 3) break;
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+    return result;
 }
 
 // Opening balance of a cycle = chained close of all previous cycles. Walks
