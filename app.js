@@ -3634,6 +3634,11 @@ function renderCycleExpenses() {
         all.forEach(r => {
             if (!r.realized) return;
             if (r.accountId && Object.prototype.hasOwnProperty.call(cycleAccDelta, r.accountId)) {
+                // Only count transactions that also affect the account balance
+                // (strictly after the opening balance date, matching getAccountBalance logic).
+                const accForDelta = accounts.find(a => a.id === r.accountId);
+                const sinceDelta = accForDelta?.initialBalanceDate || '';
+                if (sinceDelta && r.date <= sinceDelta) return;
                 cycleAccDelta[r.accountId] += r.delta;
             } else if (!r.accountId) {
                 untaggedDelta += r.delta;
@@ -12928,7 +12933,8 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 const m = mappedExp || mappedInc;
                 if (mappedExp) matchedExpIds.add(mappedExp.id);
                 if (mappedInc) matchedIncIds.add(mappedInc.id);
-                suggestions.push({ tx, action: 'validate', matchId: m.id, matchKind: mappedExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: true, mappedFrom: mapping.bankRaw });
+                const alreadyDone0 = !!(m.bankValidated);
+                suggestions.push({ tx, action: alreadyDone0 ? 'already-validated' : 'validate', matchId: m.id, matchKind: mappedExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: !alreadyDone0, mappedFrom: mapping.bankRaw });
                 return;
             }
         }
@@ -12946,7 +12952,8 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             const m = existingExp || existingInc;
             if (existingExp) matchedExpIds.add(existingExp.id);
             if (existingInc) matchedIncIds.add(existingInc.id);
-            suggestions.push({ tx, action: 'validate', matchId: m.id, matchKind: existingExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: true });
+            const alreadyDone1 = !!(m.bankValidated);
+            suggestions.push({ tx, action: alreadyDone1 ? 'already-validated' : 'validate', matchId: m.id, matchKind: existingExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: !alreadyDone1 });
             return;
         }
 
@@ -13171,6 +13178,11 @@ async function handleBankStatementFile(event) {
     }
 }
 
+function bankSelectAll(select) {
+    bankImportSuggestions.forEach(s => { if (s.action !== 'no-match') s.selected = select; });
+    renderBankReconciliation();
+}
+
 function renderBankReconciliation() {
     const container = document.getElementById('bank-import-results');
     const summary = document.getElementById('bank-import-summary');
@@ -13181,12 +13193,17 @@ function renderBankReconciliation() {
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
-    const validGroup   = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match'].includes(s.action));
-    const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer'].includes(s.action));
-    const noMatchGroup = bankImportSuggestions.filter(s => s.action === 'no-match');
-    const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
+    const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated'].includes(s.action));
+    const createGroup      = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer'].includes(s.action));
+    const noMatchGroup     = bankImportSuggestions.filter(s => s.action === 'no-match');
+    const selectedCount    = bankImportSuggestions.filter(s => s.selected).length;
+    const selectableCount  = bankImportSuggestions.filter(s => s.action !== 'no-match').length;
 
-    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; <span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>`;
+    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; <span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
+        <span style="margin-left:8px;white-space:nowrap">
+            <button onclick="bankSelectAll(true)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Selecionar todos">☑ todos</button>
+            <button onclick="bankSelectAll(false)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer;margin-left:3px" title="Desselecionar todos">☐ nenhum</button>
+        </span>`;
     if (applyLabel) applyLabel.textContent = `Aplicar ${selectedCount} selecionada${selectedCount !== 1 ? 's' : ''}`;
 
     const renderRow = (s, i) => {
@@ -13209,6 +13226,9 @@ function renderBankReconciliation() {
                 ? ` <button onclick="event.stopPropagation();bankImportSuggestions[${i}].updateDesc=!bankImportSuggestions[${i}].updateDesc;renderBankReconciliation()" style="border:1px solid ${s.updateDesc?'#1565C0':'#BDBDBD'};background:${s.updateDesc?'#E3F2FD':'transparent'};color:${s.updateDesc?'#1565C0':'#9E9E9E'};cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px" title="Usar nome do extrato como descrição">✏ "${bankD.slice(0,16)}"</button>`
                 : '';
             tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>${mappingBadge}${descBtn}`;
+        }
+        else if (s.action === 'already-validated') {
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#F5F5F5;color:#9E9E9E">✓ já validado · "${(s.matchDesc||'').slice(0,18)}"</span>`;
         }
         else if (s.action === 'validate-split') {
             const names = (s.matchDescs || []).map(d => d.slice(0, 12)).join(' + ');
@@ -13252,7 +13272,7 @@ function renderBankReconciliation() {
         }
 
         const isDisabled = s.action === 'no-match';
-        const opacity = s.action === 'no-match' ? '0.7' : '1';
+        const opacity = s.action === 'no-match' ? '0.7' : (s.action === 'already-validated' && !s.selected ? '0.55' : '1');
         return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);opacity:${opacity}">
             <input type="checkbox" ${s.selected ? 'checked' : ''} onchange="bankImportSuggestions[${i}].selected=this.checked;renderBankReconciliation()" style="flex-shrink:0;cursor:pointer;width:15px;height:15px" ${isDisabled ? 'disabled' : ''}>
             <div style="flex-shrink:0;font-size:0.7rem;color:var(--text-light);width:38px">${fmtDate(date)}</div>
@@ -13317,6 +13337,23 @@ async function applyBankImportSelections() {
                     ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
                 if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
                 count++;
+            }
+        } else if (s.action === 'already-validated') {
+            // User explicitly re-selected an already-validated item: update account/date.
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}),
+                    ...(tx?.date ? { date: tx.date } : {}) };
+                count++;
+            } else {
+                const incIdx = incomes.findIndex(i => i.id === s.matchId);
+                if (incIdx >= 0) {
+                    incomes[incIdx] = { ...incomes[incIdx], bankValidated: true,
+                        ...(accountId ? { accountId } : {}),
+                        ...(tx?.date ? { date: tx.date } : {}) };
+                    count++;
+                }
             }
         } else if (s.action === 'create-expense') {
             const desc = s.suggestedDesc || tx.description || 'Importado extrato';
