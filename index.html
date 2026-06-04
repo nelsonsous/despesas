@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=194">
+    <link rel="stylesheet" href="styles.css?v=195">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -970,6 +970,12 @@
                     <div class="form-group" style="display:none">
                         <input type="text" id="expense-with" value="">
                     </div>
+                    <div class="form-group" id="expense-account-group">
+                        <label>Conta / Cartão (opcional)</label>
+                        <select id="expense-account">
+                            <option value="">— Sem conta —</option>
+                        </select>
+                    </div>
                     <div class="form-group" id="expense-prepaid-group" style="display:none">
                         <label>Pagar com cartão de carregamento (opcional)</label>
                         <select id="expense-prepaid-card">
@@ -1199,6 +1205,12 @@
                         <label>Notas (opcional)</label>
                         <textarea id="income-notes" rows="2" placeholder="Notas adicionais..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Conta / Cartão (opcional)</label>
+                        <select id="income-account">
+                            <option value="">— Sem conta —</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
@@ -1259,6 +1271,47 @@
         </div>
 
         <!-- Confirm Delete Modal -->
+        <!-- Account / Card modal -->
+        <div id="modal-account" class="modal">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Conta / Cartão</h2>
+                    <button onclick="closeAccountModal()" class="btn-icon"><i class="fas fa-times"></i></button>
+                </div>
+                <form onsubmit="saveAccount(event)">
+                    <input type="hidden" id="account-modal-id">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="account-modal-name" required placeholder="Ex: CGD, Moey, BIG">
+                    </div>
+                    <div class="form-group">
+                        <label>Ícone</label>
+                        <select id="account-modal-icon" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:0.9rem">
+                            <option value="fa-university">🏦 Banco</option>
+                            <option value="fa-credit-card">💳 Cartão de crédito</option>
+                            <option value="fa-wallet">👛 Carteira</option>
+                            <option value="fa-utensils">🍽️ Cartão refeição</option>
+                            <option value="fa-mobile-alt">📱 Conta digital</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Cor</label>
+                        <input type="color" id="account-modal-color" value="#6C5CE7" style="width:100%;height:40px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
+                    </div>
+                    <div class="form-group">
+                        <label>Saldo inicial (EUR)</label>
+                        <input type="number" id="account-modal-balance" step="0.01" placeholder="0,00">
+                        <small class="field-hint">Valor actual da conta. Os movimentos futuros serão adicionados/subtraídos a partir desta data.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Data do saldo inicial</label>
+                        <input type="date" id="account-modal-balance-date">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-save"></i> Guardar</button>
+                </form>
+            </div>
+        </div>
+
         <div id="modal-confirm" class="modal">
             <div class="modal-content modal-small">
                 <div class="modal-header">
@@ -1324,6 +1377,9 @@
                     <button class="settings-tab" data-stab="budgets" onclick="switchSettingsTab('budgets')">
                         <i class="fas fa-bullseye"></i> Limites
                     </button>
+                    <button class="settings-tab" data-stab="accounts" onclick="switchSettingsTab('accounts');renderAccountsSettings()">
+                        <i class="fas fa-university"></i> Contas
+                    </button>
                     <button class="settings-tab" data-stab="profile" onclick="switchSettingsTab('profile')">
                         <i class="fas fa-user"></i> Perfil
                     </button>
@@ -1374,6 +1430,14 @@
                 <div id="stab-budgets" class="settings-tab-content">
                     <p class="settings-desc">Defina limites mensais por categoria. Receba alertas quando se aproximar do limite.</p>
                     <div id="budget-list"></div>
+                </div>
+
+                <div id="stab-accounts" class="settings-tab-content">
+                    <p class="settings-desc">Gerir contas bancárias e cartões. O saldo é calculado a partir do valor inicial que definires.</p>
+                    <button onclick="openAccountModal()" class="btn btn-primary btn-block" style="margin-bottom:12px">
+                        <i class="fas fa-plus"></i> Nova conta / cartão
+                    </button>
+                    <div id="accounts-list"></div>
                 </div>
 
                 <div id="stab-profile" class="settings-tab-content">
@@ -2017,6 +2081,12 @@
                         <label>Notas (opcional)</label>
                         <textarea id="fixed-notes" rows="2" placeholder="Ex: Banco BPI, ref. 123..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Conta / Cartão (opcional)</label>
+                        <select id="fixed-account">
+                            <option value="">— Sem conta —</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
@@ -2101,6 +2171,12 @@
                         <label>Notas (opcional)</label>
                         <textarea id="fixed-income-notes" rows="2" placeholder="Ex: Empresa X, dia 25..."></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Conta / Cartão (opcional)</label>
+                        <select id="fixed-income-account">
+                            <option value="">— Sem conta —</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
                     </button>
@@ -2179,7 +2255,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=194"></script>
+    <script src="app.js?v=195"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

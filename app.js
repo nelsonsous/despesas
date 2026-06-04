@@ -63,6 +63,8 @@ function getSpousePct() {
 }
 const TEMPLATES_KEY = 'despesas_templates';
 const PREPAID_KEY = 'despesas_prepaid_cards';
+const ACCOUNTS_KEY = 'despesas_accounts';
+let accounts = []; // { id, name, color, icon, initialBalance, initialBalanceDate }
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1789,6 +1791,7 @@ function populateCategorySelects() {
         });
         if (val) incSel.value = val;
     });
+    populateAccountSelects();
 }
 
 function loadData() {
@@ -1832,6 +1835,8 @@ function loadData() {
     categoryBudgets = budData ? JSON.parse(budData) : {};
     const prepaidData = localStorage.getItem(PREPAID_KEY);
     prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
+    const accountsData = localStorage.getItem(ACCOUNTS_KEY);
+    accounts = accountsData ? JSON.parse(accountsData) : [];
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
     // Migrate legacy savedSoFar (single number) to a transactions ledger so
@@ -1944,6 +1949,7 @@ function saveData() {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
     localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
     localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
     localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
@@ -3315,6 +3321,7 @@ function renderCycleExpenses() {
         varRows.push({ kind: 'var', id: adj.id, date: adj.date,
             description: adj.description || '(sem descrição)', category: adj.category,
             amount: adj.amount || 0,
+            accountId: e.accountId || null,
             childId: adj.type && adj.type !== 'personal' ? adj.type : null, status: 'pago' });
     });
 
@@ -3347,6 +3354,7 @@ function renderCycleExpenses() {
                 description: f.description,
                 category: f.category,
                 amount,
+                accountId: f.accountId || null,
                 childId: f.type && f.type !== 'personal' ? f.type : null,
                 status
             });
@@ -3379,7 +3387,7 @@ function renderCycleExpenses() {
         if (!i.date || i.date < startStr || i.date > endStr) return;
         incomeRows.push({ kind: 'income', id: i.id, date: i.date,
             description: i.description || 'Receita', category: i.category || 'ordenado',
-            amount: i.amount || 0, status: 'recebido', fixed: false });
+            amount: i.amount || 0, status: 'recebido', fixed: false, accountId: i.accountId || null });
     });
     monthsTouched.forEach(monthDate => {
         const y = monthDate.getFullYear();
@@ -3387,9 +3395,10 @@ function renderCycleExpenses() {
         const maxDay = new Date(y, m + 1, 0).getDate();
         getPaidFixedIncomesAsIncome(monthDate).forEach(fi => {
             if (!fi.date || fi.date < startStr || fi.date > endStr) return;
+            const fiObj = fixedIncomes.find(x => x.id === fi.fixedIncomeId);
             incomeRows.push({ kind: 'income', id: fi.fixedIncomeId, date: fi.date,
                 description: fi.description, category: fi.category || 'ordenado',
-                amount: fi.amount, status: 'recebido', fixed: true });
+                amount: fi.amount, status: 'recebido', fixed: true, accountId: fiObj?.accountId || null });
         });
         getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
             if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
@@ -3398,7 +3407,7 @@ function renderCycleExpenses() {
             if (dStr < startStr || dStr > endStr) return;
             incomeRows.push({ kind: 'income', id: fi.id, date: dStr,
                 description: fi.description, category: fi.category || 'ordenado',
-                amount: getEffectiveFixedIncomeAmount(fi, monthDate), status: 'pendente', fixed: true });
+                amount: getEffectiveFixedIncomeAmount(fi, monthDate), status: 'pendente', fixed: true, accountId: fi.accountId || null });
         });
     });
 
@@ -3501,9 +3510,21 @@ function renderCycleExpenses() {
             <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
         </div>`;
 
+    // Per-account balance summary strip (shown when accounts are configured)
+    const accountSummaryHtml = accounts.length ? (() => {
+        const chips = accounts.map(a => {
+            const bal = getAccountBalance(a.id);
+            const color = a.color || '#9E9E9E';
+            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:${color}18;color:${color};font-size:0.7rem;font-weight:600;white-space:nowrap">
+                <i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i> ${a.name} ${formatCurrency(bal)}
+            </span>`;
+        }).join('');
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}</div>`;
+    })() : '';
+
     if (isGrouped) {
         // Category breakdown view = spending only (no incomes / running balance).
-        body.innerHTML = renderCycleExpensesByCategory(all.filter(r => r.kind !== 'income'), cats, todayStrCycle);
+        body.innerHTML = accountSummaryHtml + renderCycleExpensesByCategory(all.filter(r => r.kind !== 'income'), cats, todayStrCycle);
         return;
     }
 
@@ -3564,6 +3585,8 @@ function renderCycleExpenses() {
                     ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
                     : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
                 const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
+                const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
+                const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
                 return `
                     <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                         <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
@@ -3573,7 +3596,7 @@ function renderCycleExpenses() {
                                 ${r.fixed ? '<i class="fas fa-repeat" title="Receita fixa" style="color:#00B894;font-size:0.65rem;flex-shrink:0"></i>' : ''}
                                 <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
                             </div>
-                            <div style="font-size:0.62rem;color:var(--text-light)">Receita</div>
+                            <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--text-light)">Receita${incAccChip}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                             <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
@@ -3594,6 +3617,8 @@ function renderCycleExpenses() {
             const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}','${r.date}')` : `editExpense('${r.id}')`);
             const opacity = r.status === 'ignorado' ? '0.55' : '1';
             const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
+            const rowAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
+            const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
             return `
                 <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
                     <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
@@ -3604,7 +3629,7 @@ function renderCycleExpenses() {
                             ${groupedIcon}
                             <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                         </div>
-                        <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
+                        <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--text-light)">${c.label || r.category}${accChip}</div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                         <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
@@ -3615,6 +3640,7 @@ function renderCycleExpenses() {
         }).join('');
         return header + rowsHtml;
     }).join('') + openingRowHtml;
+    body.innerHTML = accountSummaryHtml + body.innerHTML;
 }
 
 function renderCycleExpensesByCategory(all, cats, todayStr) {
@@ -9900,6 +9926,8 @@ function editExpense(id) {
     populatePrepaidSelect();
     const psel = document.getElementById('expense-prepaid-card');
     if (psel) psel.value = e.prepaidCardId || '';
+    const asel = document.getElementById('expense-account');
+    if (asel) asel.value = e.accountId || '';
     document.getElementById('expense-desc').value = e.description;
     document.getElementById('expense-amount').value = e.amount;
     document.getElementById('expense-date').value = e.date;
@@ -10171,6 +10199,7 @@ function saveExpense(event) {
         mixPartnerSplit: mixPartnerSplitOn,
         mixPartnerPaid: mixPartnerPaidOn,
         essential: document.querySelector('input[name="essential"]:checked').value === 'yes',
+        accountId: document.getElementById('expense-account')?.value || null,
         notes: notesVal,
         withPeople,
         splitAcrossChildren: splitAcross && splitChildrenIds.length >= 2,
@@ -10336,6 +10365,8 @@ function editIncome(id) {
     document.getElementById('income-date').value = e.date;
     document.getElementById('income-category').value = e.category;
     document.getElementById('income-notes').value = e.notes || '';
+    const iasel = document.getElementById('income-account');
+    if (iasel) iasel.value = e.accountId || '';
 
     pendingIncomeAttachment = e.attachment || null;
     renderAttachmentPreview('income-attachment-preview', pendingIncomeAttachment);
@@ -10354,6 +10385,7 @@ function saveIncome(event) {
         date: document.getElementById('income-date').value,
         category: document.getElementById('income-category').value,
         notes: document.getElementById('income-notes').value.trim(),
+        accountId: document.getElementById('income-account')?.value || null,
         attachment: pendingIncomeAttachment || null,
         updatedAt: new Date().toISOString()
     };
@@ -12308,6 +12340,113 @@ function populateFilterCategories() {
     });
 }
 
+// ===== ACCOUNTS / CARDS MANAGEMENT =====
+function getAccountBalance(accId) {
+    const acc = accounts.find(a => a.id === accId);
+    if (!acc) return 0;
+    const since = acc.initialBalanceDate || '1970-01-01';
+    let bal = acc.initialBalance || 0;
+    incomes.forEach(inc => { if (inc.accountId === accId && inc.date >= since) bal += inc.amount || 0; });
+    fixedIncomes.forEach(fi => {
+        if (fi.accountId !== accId) return;
+        fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
+            const d = s.month + '-01';
+            if (d >= since) bal += (s.amount || fi.amount || 0);
+        });
+    });
+    expenses.forEach(exp => { if (exp.accountId === accId && exp.date >= since && exp.status !== 'ignorado') bal -= exp.amount || 0; });
+    fixedExpenses.forEach(fe => {
+        if (fe.accountId !== accId) return;
+        fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
+            const d = s.month + '-01';
+            if (d >= since) bal -= (s.amount || fe.amount || 0);
+        });
+    });
+    return bal;
+}
+
+function renderAccountsSettings() {
+    const list = document.getElementById('accounts-list');
+    if (!list) return;
+    if (!accounts.length) {
+        list.innerHTML = '<p style="color:var(--text-light);font-size:0.82rem;text-align:center;padding:16px 0">Nenhuma conta ainda. Adiciona as tuas contas abaixo.</p>';
+        return;
+    }
+    list.innerHTML = accounts.map(a => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="width:32px;height:32px;border-radius:50%;background:${a.color || '#9E9E9E'}22;color:${a.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="fas ${a.icon || 'fa-university'}"></i>
+            </div>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:0.88rem">${a.name}</div>
+                <div style="font-size:0.72rem;color:var(--text-light)">Saldo actual: <b>${formatCurrency(getAccountBalance(a.id))}</b></div>
+            </div>
+            <button onclick="openAccountModal('${a.id}')" class="btn-icon" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
+            <button onclick="deleteAccount('${a.id}')" class="btn-icon" style="color:var(--danger)"><i class="fas fa-trash"></i></button>
+        </div>`).join('');
+}
+
+function openAccountModal(id) {
+    const acc = id ? accounts.find(a => a.id === id) : null;
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('account-modal-id').value = acc?.id || '';
+    document.getElementById('account-modal-name').value = acc?.name || '';
+    document.getElementById('account-modal-color').value = acc?.color || '#6C5CE7';
+    document.getElementById('account-modal-icon').value = acc?.icon || 'fa-university';
+    document.getElementById('account-modal-balance').value = acc ? (acc.initialBalance || 0) : '';
+    document.getElementById('account-modal-balance-date').value = acc?.initialBalanceDate || today;
+    document.getElementById('modal-account').classList.add('active');
+}
+function closeAccountModal() { document.getElementById('modal-account').classList.remove('active'); }
+
+function saveAccount(event) {
+    event.preventDefault();
+    const id = document.getElementById('account-modal-id').value;
+    const acc = {
+        id: id || generateId(),
+        name: document.getElementById('account-modal-name').value.trim(),
+        color: document.getElementById('account-modal-color').value,
+        icon: document.getElementById('account-modal-icon').value || 'fa-university',
+        initialBalance: parseFloat(document.getElementById('account-modal-balance').value) || 0,
+        initialBalanceDate: document.getElementById('account-modal-balance-date').value,
+        updatedAt: new Date().toISOString()
+    };
+    if (id) {
+        const idx = accounts.findIndex(a => a.id === id);
+        if (idx >= 0) { acc.createdAt = accounts[idx].createdAt; accounts[idx] = acc; }
+    } else {
+        acc.createdAt = new Date().toISOString();
+        accounts.push(acc);
+    }
+    saveData();
+    closeAccountModal();
+    renderAccountsSettings();
+    populateAccountSelects();
+    renderCycleExpenses();
+    showToast(id ? 'Conta atualizada!' : 'Conta criada!');
+}
+
+function deleteAccount(id) {
+    const acc = accounts.find(a => a.id === id);
+    if (!confirm(`Apagar conta "${acc?.name}"? Não apaga as despesas associadas.`)) return;
+    accounts = accounts.filter(a => a.id !== id);
+    saveData();
+    renderAccountsSettings();
+    populateAccountSelects();
+}
+
+function populateAccountSelects() {
+    const opts = '<option value="">— Sem conta —</option>' + accounts.map(a =>
+        `<option value="${a.id}">${a.name}</option>`).join('');
+    ['expense-account', 'income-account', 'fixed-income-account', 'fixed-account'].forEach(selId => {
+        const el = document.getElementById(selId);
+        if (!el) return;
+        const cur = el.value;
+        el.innerHTML = opts;
+        if (cur) el.value = cur;
+    });
+}
+
 // ===== SETTINGS MODAL =====
 function renderTemplateList() {
     const container = document.getElementById('template-list');
@@ -12615,6 +12754,8 @@ function editFixed(id, monthDate) {
     window._editFixedMonthDate = monthDate || null;
     const monthD = monthDate ? new Date(monthDate + 'T12:00:00') : null;
     const displayAmount = monthD ? getEffectiveFixedAmount(f, monthD) : f.amount;
+    const fasel = document.getElementById('fixed-account');
+    if (fasel) fasel.value = f.accountId || '';
     document.getElementById('fixed-modal-title').textContent = monthDate
         ? `Editar Despesa Fixa · ${getMonthLabel(monthD)}`
         : 'Editar Despesa Fixa';
@@ -12712,6 +12853,7 @@ function saveFixed(event) {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
         amount: (monthDateCtx && existing0) ? existing0.amount : formAmount,
+        accountId: document.getElementById('fixed-account')?.value || (existing0?.accountId || null),
         dayOfMonth: parseInt(document.getElementById('fixed-day').value) || 1,
         paymentMode: document.querySelector('input[name="fixed-pay-mode"]:checked')?.value || 'fixed-day',
         frequency: freqVal > 1 ? freqVal : undefined,
@@ -12966,6 +13108,8 @@ function editFixedIncome(id) {
     if (cpCb) cpCb.checked = !!fi.coParentChildId;
     if (cpFields) cpFields.style.display = fi.coParentChildId ? 'block' : 'none';
     if (cpSel && fi.coParentChildId) cpSel.value = fi.coParentChildId;
+    const fiasel = document.getElementById('fixed-income-account');
+    if (fiasel) fiasel.value = fi.accountId || '';
     document.getElementById('modal-fixed-income').classList.add('active');
 }
 
@@ -13021,6 +13165,7 @@ function saveFixedIncome(event) {
         coParentChildId: (document.getElementById('fixed-income-coparent-on')?.checked
             ? (document.getElementById('fixed-income-coparent-child')?.value || null)
             : null),
+        accountId: document.getElementById('fixed-income-account')?.value || null,
         updatedAt: new Date().toISOString()
     };
     if (id) {
