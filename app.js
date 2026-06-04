@@ -12950,6 +12950,24 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             return;
         }
 
+        // 1a — near-match: amount differs slightly (possible entry typo). Only fires
+        // when step 1 found nothing. Threshold: difference < 3 EUR AND < 20% of txAmt.
+        if (isDebit && !existingExp) {
+            const nearExp = expenses.find(e =>
+                !matchedExpIds.has(e.id) &&
+                !(e.isGrouped) &&
+                Math.abs((e.amount || 0) - txAmt) >= 0.02 &&
+                Math.abs((e.amount || 0) - txAmt) < Math.min(3, txAmt * 0.20) &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000);
+            if (nearExp) {
+                matchedExpIds.add(nearExp.id);
+                suggestions.push({ tx, action: 'near-match', matchId: nearExp.id,
+                    matchDesc: nearExp.description, matchAmount: nearExp.amount,
+                    category: nearExp.category, selected: true, correctAmount: false });
+                return;
+            }
+        }
+
         // 1.5 — match against an individual entry inside a grouped expense.
         // A grouped expense (e.g. Roupa total 23,10) can have entries of 12,85 and
         // 10,25; a bank debit of 10,25 (e.g. transfer to Sílvia for Carolina's share)
@@ -12960,7 +12978,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 if (matchedExpIds.has(e.id) || !e.isGrouped || !Array.isArray(e.entries)) continue;
                 const en = e.entries.find(en =>
                     Math.abs((en.amount || 0) - txAmt) < 0.02 &&
-                    Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000
+                    Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
                 );
                 if (en) { entryMatch = { expense: e, entry: en }; break; }
             }
@@ -13008,7 +13026,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 !matchedExpIds.has(e.id) &&
                 (e.amount || 0) > 0 &&
                 (e.amount || 0) < txAmt + 0.02 &&
-                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
             );
             let splitMatch = null;
             outer35: for (let si = 0; si < splitCandidates.length; si++) {
@@ -13163,7 +13181,7 @@ function renderBankReconciliation() {
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
-    const validGroup   = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received'].includes(s.action));
+    const validGroup   = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match'].includes(s.action));
     const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer'].includes(s.action));
     const noMatchGroup = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
@@ -13185,7 +13203,12 @@ function renderBankReconciliation() {
             const mappingBadge = s.mappedFrom
                 ? ` <button onclick="event.stopPropagation();bankImportSuggestions[${i}].mappedFrom=null;bankImportSuggestions[${i}].skipMapping=true;renderBankReconciliation()" title="Remover mapeamento guardado" style="border:none;background:#FFF9C4;color:#F57F17;cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px">📌 mapeamento ×</button>`
                 : '';
-            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>${mappingBadge}`;
+            const bankD = (s.tx?.description || '').trim();
+            const descDiffers = bankD && bankD.toLowerCase() !== (s.matchDesc || '').toLowerCase();
+            const descBtn = descDiffers
+                ? ` <button onclick="event.stopPropagation();bankImportSuggestions[${i}].updateDesc=!bankImportSuggestions[${i}].updateDesc;renderBankReconciliation()" style="border:1px solid ${s.updateDesc?'#1565C0':'#BDBDBD'};background:${s.updateDesc?'#E3F2FD':'transparent'};color:${s.updateDesc?'#1565C0':'#9E9E9E'};cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px" title="Usar nome do extrato como descrição">✏ "${bankD.slice(0,16)}"</button>`
+                : '';
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>${mappingBadge}${descBtn}`;
         }
         else if (s.action === 'validate-split') {
             const names = (s.matchDescs || []).map(d => d.slice(0, 12)).join(' + ');
@@ -13213,6 +13236,16 @@ function renderBankReconciliation() {
                 <select id="bank-row-tto-${i}" onchange="bankImportSuggestions[${i}].transferTo=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${accOpts}</select>
                 <button onclick="bankImportSuggestions[${i}].action=(bankImportSuggestions[${i}].tx?.type==='credit'?'create-income':'create-expense');renderBankReconciliation()" style="font-size:0.6rem;padding:1px 4px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">✕</button>
             </div>`;
+        } else if (s.action === 'near-match') {
+            const appAmt = formatCurrency(s.matchAmount);
+            const bankAmt = formatCurrency(s.tx?.amount);
+            const bankD = (s.tx?.description || '').trim();
+            const descDiffers = bankD && bankD.toLowerCase() !== (s.matchDesc || '').toLowerCase();
+            const descBtn = descDiffers
+                ? ` <button onclick="event.stopPropagation();bankImportSuggestions[${i}].updateDesc=!bankImportSuggestions[${i}].updateDesc;renderBankReconciliation()" style="border:1px solid ${s.updateDesc?'#1565C0':'#BDBDBD'};background:${s.updateDesc?'#E3F2FD':'transparent'};color:${s.updateDesc?'#1565C0':'#9E9E9E'};cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px" title="Usar nome do extrato">✏ "${bankD.slice(0,14)}"</button>`
+                : '';
+            const correctBtn = `<button onclick="event.stopPropagation();bankImportSuggestions[${i}].correctAmount=!bankImportSuggestions[${i}].correctAmount;renderBankReconciliation()" style="border:1px solid ${s.correctAmount?'#E65100':'#BDBDBD'};background:${s.correctAmount?'#FFF3E0':'transparent'};color:${s.correctAmount?'#E65100':'#9E9E9E'};cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px">${s.correctAmount?'✓ corrige valor':'corrigir valor?'}</button>`;
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#FFF8E1;color:#E65100">⚠ "${(s.matchDesc||'').slice(0,14)}" · app ${appAmt} / ext ${bankAmt}</span>${correctBtn}${descBtn}`;
         } else if (s.action === 'no-match') {
             const cat = cats[s.category] || {};
             tagHtml = `<span style="font-size:0.65rem;padding:1px 6px;border-radius:8px;background:#F5F5F5;color:#757575">${cat.label || s.category || 'outros'}</span>`;
@@ -13258,7 +13291,8 @@ async function applyBankImportSelections() {
             if (expIdx >= 0) {
                 expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
                     ...(accountId ? { accountId } : {}),
-                    ...(tx?.date ? { date: tx.date } : {}) };
+                    ...(tx?.date ? { date: tx.date } : {}),
+                    ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
                 // Save mapping unless the user explicitly removed it
                 if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
                 count++;
@@ -13267,10 +13301,22 @@ async function applyBankImportSelections() {
                 if (incIdx >= 0) {
                     incomes[incIdx] = { ...incomes[incIdx], bankValidated: true,
                         ...(accountId ? { accountId } : {}),
-                        ...(tx?.date ? { date: tx.date } : {}) };
+                        ...(tx?.date ? { date: tx.date } : {}),
+                        ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
                     if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
                     count++;
                 }
+            }
+        } else if (s.action === 'near-match') {
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}),
+                    ...(tx?.date ? { date: tx.date } : {}),
+                    ...(s.correctAmount ? { amount: parseFloat(tx.amount) || expenses[expIdx].amount } : {}),
+                    ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
+                if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
+                count++;
             }
         } else if (s.action === 'create-expense') {
             const desc = s.suggestedDesc || tx.description || 'Importado extrato';
