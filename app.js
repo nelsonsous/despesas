@@ -1292,6 +1292,10 @@ function renderSalaryCycle() {
     // because cycles often span two months.
     const cycleSavings = Math.max(0, getGoalsContributionInRange(cycleStart, cycleEnd));
 
+    // Opening balance carried in from previous cycles. Shown as a separate
+    // row so the user can distinguish cycle-budget from accumulated balance.
+    const cycleOpening = getCycleOpeningBalance(cycleStart);
+
     const totalBudget = salaryIncome || b.incPending || (spentSinceSalary + cycleFixed);
     const available = totalBudget - spentSinceSalary - cycleFixed - cycleSavings;
     const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed + cycleSavings) / totalBudget) * 100) : 0;
@@ -1391,6 +1395,22 @@ function renderSalaryCycle() {
         } else {
             overdueEl.style.display = 'none';
             overdueEl.innerHTML = '';
+        }
+    }
+    // Opening balance row — show only when the carry-over is non-trivially
+    // non-zero, so brand-new users with no history don't see a zero row.
+    const openingRow = document.getElementById('salary-opening-row');
+    const openingEl = document.getElementById('salary-opening');
+    const availableHintEl = document.getElementById('salary-available-hint');
+    if (openingRow && openingEl) {
+        if (Math.abs(cycleOpening) >= 0.01) {
+            openingRow.style.display = '';
+            openingEl.textContent = (cycleOpening >= 0 ? '+' : '') + formatCurrency(cycleOpening);
+            openingEl.style.color = cycleOpening >= 0 ? 'rgba(105,240,174,0.85)' : 'rgba(255,158,158,0.85)';
+            if (availableHintEl) availableHintEl.textContent = '(deste ciclo)';
+        } else {
+            openingRow.style.display = 'none';
+            if (availableHintEl) availableHintEl.textContent = '';
         }
     }
     animateNumber(document.getElementById('salary-available'), available, formatCurrency, 700);
