@@ -6111,6 +6111,8 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 }
 
 // Returns up to 3 most-recent previous cycles' contributions for display.
+// Stops (and shows the override as a synthetic entry) when a cycle with a
+// manual opening override is encountered, mirroring getCycleOpeningBalance.
 function buildCycleOpeningBreakdown(cycleStart) {
     const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     const result = [];
@@ -6126,6 +6128,11 @@ function buildCycleOpeningBreakdown(cycleStart) {
         if (b.totalInc === 0 && b.totalExp === 0 && savNet === 0) break;
         const label = `${c.start.getDate()} ${months[c.start.getMonth()]} → ${c.end.getDate()} ${months[c.end.getMonth()]}`;
         result.push({ label, value: b.realizedBalance - savNet });
+        const prevOverrideKey = toLocalDateStr(c.start);
+        if (Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, prevOverrideKey)) {
+            result.push({ label: `Base ${label}`, value: cycleOpeningOverrides[prevOverrideKey] });
+            break;
+        }
         if (result.length >= 3) break;
         cursor = new Date(c.start);
         cursor.setDate(cursor.getDate() - 1);
@@ -6135,9 +6142,9 @@ function buildCycleOpeningBreakdown(cycleStart) {
 
 // Opening balance of a cycle = chained close of all previous cycles. Walks
 // back cycle-by-cycle accumulating each one's realized cash net (received −
-// paid) minus its net savings outflow, so the "saldo transitado" reflects
-// real money carried in. Stops once a cycle has no movements (start of
-// history) or after a safety guard. Only realized figures count.
+// paid) minus its net savings outflow. Stops at a cycle whose opening has a
+// manual override — that override is the absolute base, so the walk adds the
+// override value and stops rather than continuing further back.
 function getCycleOpeningBalance(cycleStart) {
     const overrideKey = toLocalDateStr(cycleStart);
     if (Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, overrideKey)) {
@@ -6155,6 +6162,13 @@ function getCycleOpeningBalance(cycleStart) {
         const savNet = flows.reduce((s, f) => s + (f.type === 'add' ? f.amount : -f.amount), 0);
         if (b.totalInc === 0 && b.totalExp === 0 && savNet === 0) break; // reached start of history
         opening += b.realizedBalance - savNet;
+        // If this previous cycle itself has a manual override, treat it as the
+        // absolute base: add the override value and stop walking further back.
+        const prevOverrideKey = toLocalDateStr(c.start);
+        if (Object.prototype.hasOwnProperty.call(cycleOpeningOverrides, prevOverrideKey)) {
+            opening += cycleOpeningOverrides[prevOverrideKey];
+            break;
+        }
         cursor = new Date(c.start);
         cursor.setDate(cursor.getDate() - 1);
     }
