@@ -3421,7 +3421,24 @@ function renderCycleExpenses() {
         });
     });
 
-    const all = [...varRows, ...fixedRows, ...savingsRows, ...incomeRows];
+    // Transfers between accounts within the cycle window — shown as neutral rows.
+    const transferRows = (transfers || [])
+        .filter(t => t.date && t.date >= startStr && t.date <= endStr)
+        .map(t => ({
+            kind: 'transfer',
+            id: t.id,
+            date: t.date,
+            description: t.description || 'Transferência',
+            category: '_transfer',
+            amount: t.amount || 0,
+            fromAccountId: t.fromAccountId,
+            toAccountId: t.toAccountId,
+            childId: null,
+            status: 'transfer',
+            bankValidated: t.bankValidated || false
+        }));
+
+    const all = [...varRows, ...fixedRows, ...savingsRows, ...incomeRows, ...transferRows];
 
     // Classify each movement: flow direction (in/out), whether it's realized
     // (counts toward the running balance), and its signed realized delta.
@@ -3437,6 +3454,10 @@ function renderCycleExpenses() {
             r.flow = r.flowType === 'add' ? 'out' : 'in';
             r.realized = true;
             r.delta = r.flowType === 'add' ? -r.amount : r.amount;
+        } else if (r.kind === 'transfer') {
+            r.flow = 'transfer';
+            r.realized = true;
+            r.delta = 0;
         } else {
             r.flow = 'out';
             r.realized = r.status === 'pago';
@@ -3466,12 +3487,12 @@ function renderCycleExpenses() {
     // Header totals: spent = variables + paid fixed; committed adds pending
     // fixed. Savings 'add' = outflow, 'remove' = inflow. Incomes excluded.
     const spent = all.reduce((s, r) => {
-        if (r.kind === 'income') return s;
+        if (r.kind === 'income' || r.kind === 'transfer') return s;
         if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
         return s + (r.status === 'pago' ? r.amount : 0);
     }, 0);
     const committed = all.reduce((s, r) => {
-        if (r.kind === 'income') return s;
+        if (r.kind === 'income' || r.kind === 'transfer') return s;
         if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
         return s + (r.status === 'ignorado' ? 0 : r.amount);
     }, 0);
@@ -3546,8 +3567,9 @@ function renderCycleExpenses() {
             <i class="fas fa-question-circle" style="font-size:0.6rem"></i> sem conta ${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}
         </span>` : '';
         const importBtn = `<button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}${importBtn}</div>`;
-    })() : `<div style="padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
+        const transferBtn = `<button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}${transferBtn}${importBtn}</div>`;
+    })() : `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
 
     if (isGrouped) {
         // Category breakdown view = spending only (no incomes / running balance).
@@ -3605,6 +3627,29 @@ function renderCycleExpenses() {
                             ${balLine(r)}
                         </div>
                         <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
+                    </div>`;
+            }
+            if (r.kind === 'transfer') {
+                const fromAcc = r.fromAccountId ? accounts.find(a => a.id === r.fromAccountId) : null;
+                const toAcc   = r.toAccountId   ? accounts.find(a => a.id === r.toAccountId)   : null;
+                const fromName = fromAcc ? fromAcc.name : 'externa';
+                const toName   = toAcc   ? toAcc.name   : 'externa';
+                const validatedBadgeT = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
+                return `
+                    <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                        <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">↔</div>
+                        <div style="width:24px;height:24px;border-radius:6px;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-exchange-alt" style="font-size:0.7rem"></i></div>
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                            <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                                ${validatedBadgeT}
+                                <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                            </div>
+                            <div style="font-size:0.62rem;color:#1565C0">${fromName} → ${toName}</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                            <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.8rem">${formatCurrency(r.amount)}</span>
+                        </div>
+                        <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
                     </div>`;
             }
             if (r.kind === 'income') {
