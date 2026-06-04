@@ -12491,6 +12491,8 @@ function saveAccount(event) {
     renderAccountsSettings();
     populateAccountSelects();
     renderCycleExpenses();
+    renderSavingsGoals();
+    renderNetWorth();
     showToast(id ? 'Conta atualizada!' : 'Conta criada!');
 }
 
@@ -12501,6 +12503,9 @@ function deleteAccount(id) {
     saveData();
     renderAccountsSettings();
     populateAccountSelects();
+    renderCycleExpenses();
+    renderSavingsGoals();
+    renderNetWorth();
 }
 
 function populateAccountSelects() {
@@ -12518,8 +12523,7 @@ function populateAccountSelects() {
 // ===== BANK STATEMENT IMPORT =====
 let bankImportSuggestions = [];
 
-const BANK_STATEMENT_AI_PROMPT = (content) => `Analisa este extrato bancário português e extrai TODAS as transações.
-Devolve APENAS um array JSON (sem qualquer outro texto):
+const BANK_STATEMENT_RULES = `Devolve APENAS um array JSON (sem qualquer outro texto):
 [
   { "date": "YYYY-MM-DD", "description": "nome do beneficiário/entidade", "amount": 12.34, "type": "debit" }
 ]
@@ -12529,10 +12533,13 @@ Regras:
 - amount: sempre positivo, sem símbolo de moeda
 - date: formato YYYY-MM-DD
 - description: nome do beneficiário/entidade, limpo e curto (sem referências, sem datas)
-Ignora linhas de saldo, cabeçalhos, totais e comissões de conta.
+Ignora linhas de saldo, cabeçalhos, totais e comissões de conta.`;
 
-EXTRATO:
-${content}`;
+const BANK_STATEMENT_AI_PROMPT = (content) =>
+    `Analisa este extrato bancário português e extrai TODAS as transações.\n${BANK_STATEMENT_RULES}\n\nEXTRATO:\n${content}`;
+
+const BANK_STATEMENT_IMAGE_PROMPT =
+    `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.\n${BANK_STATEMENT_RULES}`;
 
 function guessCategoryFromDesc(desc) {
     const d = (desc || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -12653,7 +12660,7 @@ async function handleBankStatementFile(event) {
                 r.onerror = rej;
                 r.readAsDataURL(file);
             });
-            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_AI_PROMPT('[imagem de extrato bancário]'));
+            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT);
             transactions = extractJsonArray(text);
         } else if (isPdf) {
             setStatus('A extrair texto do PDF…');
