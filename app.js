@@ -3591,7 +3591,7 @@ function renderCycleExpenses() {
             else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
             const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
             const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
-            const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`);
+            const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}','${r.date}')` : `editExpense('${r.id}')`);
             const opacity = r.status === 'ignorado' ? '0.55' : '1';
             const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
             return `
@@ -12609,13 +12609,18 @@ function showAddFixed() {
     document.getElementById('fixed-modal').classList.add('active');
 }
 
-function editFixed(id) {
+function editFixed(id, monthDate) {
     const f = fixedExpenses.find(x => x.id === id);
     if (!f) return;
-    document.getElementById('fixed-modal-title').textContent = 'Editar Despesa Fixa';
+    window._editFixedMonthDate = monthDate || null;
+    const monthD = monthDate ? new Date(monthDate + 'T12:00:00') : null;
+    const displayAmount = monthD ? getEffectiveFixedAmount(f, monthD) : f.amount;
+    document.getElementById('fixed-modal-title').textContent = monthDate
+        ? `Editar Despesa Fixa · ${getMonthLabel(monthD)}`
+        : 'Editar Despesa Fixa';
     document.getElementById('fixed-id').value = f.id;
     document.getElementById('fixed-desc').value = f.description;
-    document.getElementById('fixed-amount').value = f.amount;
+    document.getElementById('fixed-amount').value = displayAmount;
     document.getElementById('fixed-day').value = f.dayOfMonth;
     const fPayModeEl = document.querySelector(`input[name="fixed-pay-mode"][value="${f.paymentMode || 'fixed-day'}"]`);
     if (fPayModeEl) fPayModeEl.checked = true;
@@ -12692,10 +12697,21 @@ function saveFixed(event) {
         ? fOvRaw
         : null;
     const freqVal = parseInt(document.getElementById('fixed-frequency')?.value) || 1;
+    const monthDateCtx = window._editFixedMonthDate || null;
+    const formAmount = parseFloat(document.getElementById('fixed-amount').value);
+    const existing0 = fixedExpenses.find(f => f.id === id);
+    // When editing from the cycle ledger (month context): save override to fixedStatus,
+    // keep f.amount unchanged so future months aren't affected.
+    if (monthDateCtx && existing0) {
+        const monthKey = getFixedMonthKey(new Date(monthDateCtx + 'T12:00:00'));
+        const stIdx = fixedStatus.findIndex(s => s.fixedId === id && s.month === monthKey);
+        if (stIdx >= 0) fixedStatus[stIdx].amount = formAmount;
+        else fixedStatus.push({ fixedId: id, month: monthKey, status: getEffectiveFixedStatus(existing0, new Date(monthDateCtx + 'T12:00:00')).status, amount: formAmount });
+    }
     const fixed = {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
-        amount: parseFloat(document.getElementById('fixed-amount').value),
+        amount: (monthDateCtx && existing0) ? existing0.amount : formAmount,
         dayOfMonth: parseInt(document.getElementById('fixed-day').value) || 1,
         paymentMode: document.querySelector('input[name="fixed-pay-mode"]:checked')?.value || 'fixed-day',
         frequency: freqVal > 1 ? freqVal : undefined,
@@ -12862,8 +12878,8 @@ function confirmDeleteFixed(id) {
 
 function closeFixedModal() {
     document.getElementById('fixed-modal').classList.remove('active');
-    // Drop any pending-promotion marker so a cancel doesn't silently hit the next save.
     window._pendingPromotedToFixed = null;
+    window._editFixedMonthDate = null;
 }
 
 // ===== FIXED INCOME MANAGEMENT =====
