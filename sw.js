@@ -1,9 +1,9 @@
-const CACHE_NAME = 'despesas-v213';
+const CACHE_NAME = 'despesas-v214';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
-    '/despesas/styles.css?v=213',
-    '/despesas/app.js?v=213',
+    '/despesas/styles.css?v=214',
+    '/despesas/app.js?v=214',
     '/despesas/manifest.json'
 ];
 

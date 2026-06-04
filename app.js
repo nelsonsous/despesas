@@ -69,6 +69,8 @@ const TRANSFERS_KEY = 'despesas_transfers';
 let transfers = []; // { id, date, amount, description, fromAccountId, toAccountId, notes, bankValidated }
 const CYCLE_OPENING_OVERRIDES_KEY = 'despesas_cycle_opening_overrides';
 let cycleOpeningOverrides = {}; // { 'YYYY-MM-DD': amount } — manual override per cycle start date
+const BANK_MAPPINGS_KEY = 'despesas_bank_mappings';
+let bankMappings = []; // { bankNorm, bankRaw, cleanName, category, lastUsed }
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1845,6 +1847,8 @@ function loadData() {
     transfers = transfersData ? JSON.parse(transfersData) : [];
     const cycleOverridesData = localStorage.getItem(CYCLE_OPENING_OVERRIDES_KEY);
     cycleOpeningOverrides = cycleOverridesData ? JSON.parse(cycleOverridesData) : {};
+    const bankMappingsData = localStorage.getItem(BANK_MAPPINGS_KEY);
+    bankMappings = bankMappingsData ? JSON.parse(bankMappingsData) : [];
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
     // Migrate legacy savedSoFar (single number) to a transactions ledger so
@@ -1960,6 +1964,7 @@ function saveData() {
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
     localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
     localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
+    localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings));
     localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
     localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
@@ -12814,6 +12819,48 @@ function guessCategoryFromDesc(desc) {
     return 'outros';
 }
 
+// Strips date tokens, reference numbers and excess whitespace from a raw bank
+// description so that "AUCHAN AMADORA 06JUN 123456789" normalises to the same
+// string as "AUCHAN AMADORA 07JUL 987654321" and can be looked up in the map.
+function normalizeBankDesc(desc) {
+    return (desc || '')
+        .toUpperCase()
+        .replace(/\b\d{1,2}(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ|JAN|FEB|MAR|APR|MAY|AUG|SEP|OCT|DEC)\b/g, '')
+        .replace(/\d{6,}/g, '')           // long digit strings (card/ref numbers)
+        .replace(/\b\d{1,4}\b/g, '')      // short standalone numbers (dates, amounts)
+        .replace(/[\/\-_.,;:!?]/g, ' ')   // punctuation → space
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function recordBankMapping(bankRaw, cleanName, category) {
+    if (!bankRaw || !cleanName) return;
+    if (bankRaw.toLowerCase().trim() === cleanName.toLowerCase().trim()) return; // nothing to map
+    const bankNorm = normalizeBankDesc(bankRaw);
+    const idx = bankMappings.findIndex(m => m.bankNorm === bankNorm);
+    const entry = { bankNorm, bankRaw, cleanName, category: category || 'outros', lastUsed: new Date().toISOString() };
+    if (idx >= 0) bankMappings[idx] = entry; else bankMappings.push(entry);
+}
+
+function findBankMapping(bankDesc) {
+    if (!bankDesc || !bankMappings.length) return null;
+    const norm = normalizeBankDesc(bankDesc);
+    // Exact normalised match
+    const exact = bankMappings.find(m => m.bankNorm === norm);
+    if (exact) return exact;
+    // Substring: stored norm is contained in tx norm or vice versa (handles
+    // extra tokens on either side). Pick longest stored key that matches.
+    let best = null, bestLen = 0;
+    bankMappings.forEach(m => {
+        if (!m.bankNorm) return;
+        if (norm.includes(m.bankNorm) || m.bankNorm.includes(norm)) {
+            const len = m.bankNorm.length;
+            if (len > bestLen) { bestLen = len; best = m; }
+        }
+    });
+    return bestLen >= 4 ? best : null; // ignore trivially short matches
+}
+
 function buildBankReconciliationSuggestions(transactions, accountId) {
     const suggestions = [];
     const matchedExpIds = new Set();
@@ -12827,6 +12874,28 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         if (!txDate || txAmt <= 0) return;
 
         const dateMs = new Date(txDate + 'T12:00:00').getTime();
+
+        // 0 — description mapping: bank name was previously mapped to a clean app name
+        const mapping = findBankMapping(tx.description);
+        if (mapping) {
+            const mappedExp = isDebit ? expenses.find(e =>
+                !matchedExpIds.has(e.id) &&
+                Math.abs((e.amount || 0) - txAmt) < 0.02 &&
+                e.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : null;
+            const mappedInc = !isDebit ? incomes.find(i =>
+                !matchedIncIds.has(i.id) &&
+                Math.abs((i.amount || 0) - txAmt) < 0.02 &&
+                i.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
+                Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : null;
+            if (mappedExp || mappedInc) {
+                const m = mappedExp || mappedInc;
+                if (mappedExp) matchedExpIds.add(mappedExp.id);
+                if (mappedInc) matchedIncIds.add(mappedInc.id);
+                suggestions.push({ tx, action: 'validate', matchId: m.id, matchKind: mappedExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: true, mappedFrom: mapping.bankRaw });
+                return;
+            }
+        }
 
         // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
         const existingExp = isDebit ? expenses.find(e =>
@@ -12871,9 +12940,10 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
-        // 4 — not found: suggest creating
-        const cat = isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento';
-        suggestions.push({ tx, action: isDebit ? 'create-expense' : 'create-income', category: cat, selected: true });
+        // 4 — not found: suggest creating (use mapped clean name/category if known)
+        const cat = mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento');
+        const suggestedDesc = mapping?.cleanName || null;
+        suggestions.push({ tx, action: isDebit ? 'create-expense' : 'create-income', category: cat, suggestedDesc, selected: true });
     });
 
     // 5 — find app expenses/incomes in the detected period NOT matched by any bank transaction
@@ -13091,6 +13161,8 @@ async function applyBankImportSelections() {
                 expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
                     ...(accountId ? { accountId } : {}),
                     ...(tx?.date ? { date: tx.date } : {}) };
+                // Save mapping if bank description differs from app description
+                if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
                 count++;
             } else {
                 const incIdx = incomes.findIndex(i => i.id === s.matchId);
@@ -13098,14 +13170,17 @@ async function applyBankImportSelections() {
                     incomes[incIdx] = { ...incomes[incIdx], bankValidated: true,
                         ...(accountId ? { accountId } : {}),
                         ...(tx?.date ? { date: tx.date } : {}) };
+                    if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
                     count++;
                 }
             }
         } else if (s.action === 'create-expense') {
-            expenses.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            const desc = s.suggestedDesc || tx.description || 'Importado extrato';
+            expenses.push({ id: generateId(), date: tx.date, description: desc, amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         } else if (s.action === 'create-income') {
-            incomes.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: 'rendimento', accountId, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            const desc = s.suggestedDesc || tx.description || 'Importado extrato';
+            incomes.push({ id: generateId(), date: tx.date, description: desc, amount: tx.amount, category: 'rendimento', accountId, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         } else if (s.action === 'mark-fixed-paid') {
             const month = tx.date.slice(0, 7);
