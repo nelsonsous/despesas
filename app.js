@@ -12597,7 +12597,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
             const fixedMatch = fixedExpenses.find(fe => {
-                const effAmt = getEffectiveFixedAmount(fe, txMonth + '-01');
+                const effAmt = getEffectiveFixedAmount(fe, new Date(txMonth + '-01T12:00:00'));
                 if (Math.abs(effAmt - txAmt) >= 0.02) return false;
                 return !fixedStatus.some(s => s.fixedId === fe.id && s.month === txMonth && s.status === 'pago');
             });
