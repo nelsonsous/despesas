@@ -12735,12 +12735,15 @@ function saveFixed(event) {
     };
     if (id) {
         const idx = fixedExpenses.findIndex(f => f.id === id);
-        const currentMonthKey = getFixedMonthKey(new Date());
-        const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
+        // When editing from the cycle ledger, split at the edited month (not today)
+        // so the new dayOfMonth applies from that month onwards.
+        const splitRef = monthDateCtx ? new Date(monthDateCtx + 'T12:00:00') : new Date();
+        const currentMonthKey = getFixedMonthKey(splitRef);
+        const prevDate = new Date(splitRef); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
         const prevMonthKey = getFixedMonthKey(prevDate);
         const existing = idx >= 0 ? fixedExpenses[idx] : null;
         if (existing && existing.startDate < currentMonthKey) {
-            // Has past data: end the old record and create a new version from current month
+            // Has past data: end the old record and create a new version from the split month
             fixedExpenses[idx].endDate = prevMonthKey;
             const newFixed = { ...fixed, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
             fixedExpenses.push(newFixed);
