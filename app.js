@@ -12934,6 +12934,30 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             return;
         }
 
+        // 1.5 — match against an individual entry inside a grouped expense.
+        // A grouped expense (e.g. Roupa total 23,10) can have entries of 12,85 and
+        // 10,25; a bank debit of 10,25 (e.g. transfer to Sílvia for Carolina's share)
+        // matches the 10,25 entry even though the parent's total doesn't.
+        if (isDebit) {
+            let entryMatch = null;
+            for (const e of expenses) {
+                if (matchedExpIds.has(e.id) || !e.isGrouped || !Array.isArray(e.entries)) continue;
+                const en = e.entries.find(en =>
+                    Math.abs((en.amount || 0) - txAmt) < 0.02 &&
+                    Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000
+                );
+                if (en) { entryMatch = { expense: e, entry: en }; break; }
+            }
+            if (entryMatch) {
+                matchedExpIds.add(entryMatch.expense.id);
+                suggestions.push({ tx, action: 'validate-entry',
+                    matchId: entryMatch.expense.id, matchEid: entryMatch.entry.eid,
+                    matchDesc: entryMatch.expense.description,
+                    category: entryMatch.expense.category, selected: true });
+                return;
+            }
+        }
+
         // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
             const fixedMatch = fixedExpenses.find(fe => {
@@ -12956,6 +12980,35 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             });
             if (fixedIncMatch) {
                 suggestions.push({ tx, action: 'mark-fixed-income-received', matchId: fixedIncMatch.id, matchDesc: fixedIncMatch.description, category: fixedIncMatch.category, selected: true });
+                return;
+            }
+        }
+
+        // 3.5 — split match: two app expenses that together sum to the tx amount.
+        // Handles purchases split across children/categories in the app that appear
+        // as a single debit in the bank (e.g. Roupa 25,70 = 12,85 Carolina + 12,85 Eduarda).
+        if (isDebit) {
+            const splitCandidates = expenses.filter(e =>
+                !matchedExpIds.has(e.id) &&
+                (e.amount || 0) > 0 &&
+                (e.amount || 0) < txAmt + 0.02 &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000
+            );
+            let splitMatch = null;
+            outer35: for (let si = 0; si < splitCandidates.length; si++) {
+                for (let sj = si + 1; sj < splitCandidates.length; sj++) {
+                    if (Math.abs((splitCandidates[si].amount + splitCandidates[sj].amount) - txAmt) < 0.02) {
+                        splitMatch = [splitCandidates[si], splitCandidates[sj]];
+                        break outer35;
+                    }
+                }
+            }
+            if (splitMatch) {
+                splitMatch.forEach(e => matchedExpIds.add(e.id));
+                suggestions.push({ tx, action: 'validate-split',
+                    matchIds: splitMatch.map(e => e.id),
+                    matchDescs: splitMatch.map(e => e.description),
+                    category: splitMatch[0].category, selected: true });
                 return;
             }
         }
@@ -13094,7 +13147,7 @@ function renderBankReconciliation() {
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
-    const validGroup   = bankImportSuggestions.filter(s => ['validate','mark-fixed-paid','mark-fixed-income-received'].includes(s.action));
+    const validGroup   = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received'].includes(s.action));
     const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer'].includes(s.action));
     const noMatchGroup = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
@@ -13112,7 +13165,16 @@ function renderBankReconciliation() {
         const amtColor = isCredit ? 'var(--success)' : (s.action === 'no-match' ? 'var(--danger)' : 'var(--text)');
 
         let tagHtml = '';
-        if (s.action === 'validate') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>`;
+        if (s.action === 'validate') {
+            const mappingBadge = s.mappedFrom
+                ? ` <button onclick="event.stopPropagation();bankImportSuggestions[${i}].mappedFrom=null;bankImportSuggestions[${i}].skipMapping=true;renderBankReconciliation()" title="Remover mapeamento guardado" style="border:none;background:#FFF9C4;color:#F57F17;cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px">📌 mapeamento ×</button>`
+                : '';
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ valida "${(s.matchDesc||'').slice(0,18)}"</span>${mappingBadge}`;
+        }
+        else if (s.action === 'validate-split') {
+            const names = (s.matchDescs || []).map(d => d.slice(0, 12)).join(' + ');
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ split: ${names}</span>`;
+        } else if (s.action === 'validate-entry') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ entrada em "${(s.matchDesc||'').slice(0,14)}"</span>`;
         else if (s.action === 'mark-fixed-paid') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E3F2FD;color:#1565C0">Fixa → paga · ${(s.matchDesc||'').slice(0,16)}</span>`;
         else if (s.action === 'mark-fixed-income-received') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Fixa → recebida · ${(s.matchDesc||'').slice(0,14)}</span>`;
         else if (s.action === 'create-expense') {
@@ -13181,8 +13243,8 @@ async function applyBankImportSelections() {
                 expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
                     ...(accountId ? { accountId } : {}),
                     ...(tx?.date ? { date: tx.date } : {}) };
-                // Save mapping if bank description differs from app description
-                if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
+                // Save mapping unless the user explicitly removed it
+                if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
                 count++;
             } else {
                 const incIdx = incomes.findIndex(i => i.id === s.matchId);
@@ -13213,6 +13275,29 @@ async function applyBankImportSelections() {
             const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
             const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
+            count++;
+        } else if (s.action === 'validate-split') {
+            // Two expenses that together equal the bank tx amount (split purchase).
+            (s.matchIds || []).forEach(id => {
+                const expIdx = expenses.findIndex(e => e.id === id);
+                if (expIdx >= 0) {
+                    expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                        ...(accountId ? { accountId } : {}),
+                        ...(tx?.date ? { date: tx.date } : {}) };
+                }
+            });
+            if (tx?.description && s.matchDescs?.length) {
+                s.matchDescs.forEach(desc => recordBankMapping(tx.description, desc, s.category));
+            }
+            count++;
+        } else if (s.action === 'validate-entry') {
+            // One entry inside a grouped expense matched the bank tx.
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}) };
+                if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
+            }
             count++;
         } else if (s.action === 'create-transfer') {
             const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || accountId;
