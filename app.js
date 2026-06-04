@@ -3539,8 +3539,9 @@ function renderCycleExpenses() {
         const untaggedChip = untaggedDelta !== 0 ? `<span title="Movimentos realizados neste ciclo sem conta atribuída" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:#9E9E9E15;color:#757575;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px dashed #9E9E9E55">
             <i class="fas fa-question-circle" style="font-size:0.6rem"></i> sem conta ${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}
         </span>` : '';
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}</div>`;
-    })() : '';
+        const importBtn = `<button onclick="openBankImportModal()" title="Validar / importar extrato bancário" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:var(--primary)18;color:var(--primary);font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid var(--primary)33;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}${importBtn}</div>`;
+    })() : `<div style="padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:var(--primary)18;color:var(--primary);font-size:0.7rem;font-weight:600;border:1px solid var(--primary)33;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
 
     if (isGrouped) {
         // Category breakdown view = spending only (no incomes / running balance).
