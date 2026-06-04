@@ -12607,20 +12607,20 @@ function getAccountBalance(accId) {
     if (!acc) return 0;
     const since = acc.initialBalanceDate || '1970-01-01';
     let bal = acc.initialBalance || 0;
-    incomes.forEach(inc => { if (inc.accountId === accId && inc.date >= since) bal += inc.amount || 0; });
+    incomes.forEach(inc => { if (inc.accountId === accId && inc.date > since) bal += inc.amount || 0; });
     fixedIncomes.forEach(fi => {
         if (fi.accountId !== accId) return;
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
             const d = s.month + '-01';
-            if (d >= since) bal += (s.amount || fi.amount || 0);
+            if (d > since) bal += (s.amount || fi.amount || 0);
         });
     });
-    expenses.forEach(exp => { if (exp.accountId === accId && exp.date >= since && exp.status !== 'ignorado') bal -= exp.amount || 0; });
+    expenses.forEach(exp => { if (exp.accountId === accId && exp.date > since && exp.status !== 'ignorado') bal -= exp.amount || 0; });
     fixedExpenses.forEach(fe => {
         if (fe.accountId !== accId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
             const d = s.month + '-01';
-            if (d >= since) bal -= (s.amount || fe.amount || 0);
+            if (d > since) bal -= (s.amount || fe.amount || 0);
         });
     });
     if (acc.isSavings) {
