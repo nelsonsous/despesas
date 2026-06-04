@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=195">
+    <link rel="stylesheet" href="styles.css?v=196">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1299,6 +1299,11 @@
                         <input type="color" id="account-modal-color" value="#6C5CE7" style="width:100%;height:40px;border:1px solid var(--border);border-radius:8px;cursor:pointer">
                     </div>
                     <div class="form-group">
+                        <label>Últimos 4 dígitos do cartão (opcional)</label>
+                        <input type="text" id="account-modal-last4" maxlength="4" placeholder="Ex: 1234" pattern="\d{0,4}" inputmode="numeric">
+                        <small class="field-hint">Permite detetar automaticamente a conta ao digitalizar um recibo.</small>
+                    </div>
+                    <div class="form-group">
                         <label>Saldo inicial (EUR)</label>
                         <input type="number" id="account-modal-balance" step="0.01" placeholder="0,00">
                         <small class="field-hint">Valor actual da conta. Os movimentos futuros serão adicionados/subtraídos a partir desta data.</small>
@@ -2255,7 +2260,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=195"></script>
+    <script src="app.js?v=196"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

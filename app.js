@@ -9285,6 +9285,16 @@ function applyOcrFieldsToOpenModal(obj) {
         const radio = document.querySelector(`input[name="essential"][value="${obj.essencial ? 'yes' : 'no'}"]`);
         if (radio) radio.checked = true;
     }
+    // Auto-detect account from card last-4 digits on the receipt
+    const ocrLast4 = pendingReceiptFields.cardLast4;
+    const accSel = document.getElementById('expense-account');
+    if (accSel && ocrLast4 && !accSel.value) {
+        const matched = accounts.find(a => a.last4 && a.last4 === ocrLast4);
+        if (matched) {
+            accSel.value = matched.id;
+            showToast(`Conta detectada: ${matched.name} (*${ocrLast4})`);
+        }
+    }
     updateFiscalFieldsUI();
     applyFiscalFieldsContext();
 }
@@ -12378,7 +12388,7 @@ function renderAccountsSettings() {
                 <i class="fas ${a.icon || 'fa-university'}"></i>
             </div>
             <div style="flex:1;min-width:0">
-                <div style="font-weight:600;font-size:0.88rem">${a.name}</div>
+                <div style="font-weight:600;font-size:0.88rem">${a.name}${a.last4 ? ` <span style="font-size:0.7rem;color:var(--text-light);font-weight:400">*${a.last4}</span>` : ''}</div>
                 <div style="font-size:0.72rem;color:var(--text-light)">Saldo actual: <b>${formatCurrency(getAccountBalance(a.id))}</b></div>
             </div>
             <button onclick="openAccountModal('${a.id}')" class="btn-icon" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
@@ -12393,6 +12403,7 @@ function openAccountModal(id) {
     document.getElementById('account-modal-name').value = acc?.name || '';
     document.getElementById('account-modal-color').value = acc?.color || '#6C5CE7';
     document.getElementById('account-modal-icon').value = acc?.icon || 'fa-university';
+    document.getElementById('account-modal-last4').value = acc?.last4 || '';
     document.getElementById('account-modal-balance').value = acc ? (acc.initialBalance || 0) : '';
     document.getElementById('account-modal-balance-date').value = acc?.initialBalanceDate || today;
     document.getElementById('modal-account').classList.add('active');
@@ -12407,6 +12418,7 @@ function saveAccount(event) {
         name: document.getElementById('account-modal-name').value.trim(),
         color: document.getElementById('account-modal-color').value,
         icon: document.getElementById('account-modal-icon').value || 'fa-university',
+        last4: (document.getElementById('account-modal-last4').value || '').replace(/\D/g, '').slice(0, 4) || null,
         initialBalance: parseFloat(document.getElementById('account-modal-balance').value) || 0,
         initialBalanceDate: document.getElementById('account-modal-balance-date').value,
         updatedAt: new Date().toISOString()
