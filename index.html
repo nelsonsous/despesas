@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=198">
+    <link rel="stylesheet" href="styles.css?v=199">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1781,6 +1781,10 @@
                         <label>Nota (opcional)</label>
                         <input type="text" id="grouped-entry-notes" placeholder="Ex: Auchan, Mercadona...">
                     </div>
+                    <div class="form-group">
+                        <label>Conta / Cartão (opcional)</label>
+                        <select id="grouped-entry-account"><option value="">— Sem conta —</option></select>
+                    </div>
                     <div class="form-group" id="grouped-entry-partner-group" style="display:none">
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                             <input type="checkbox" id="grouped-entry-with-partner">
@@ -2261,7 +2265,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=198"></script>
+    <script src="app.js?v=199"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

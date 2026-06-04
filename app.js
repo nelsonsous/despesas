@@ -3312,6 +3312,7 @@ function renderCycleExpenses() {
                     description: e.description || '(sem descrição)', category: e.category,
                     amount: entryAmt,
                     isGroupedEntry: true,
+                    accountId: en.accountId || e.accountId || null,
                     childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
             });
             return;
@@ -4768,6 +4769,8 @@ function addGroupedEntry(id) {
     document.getElementById('grouped-entry-amount').value = '';
     document.getElementById('grouped-entry-date').valueAsDate = new Date();
     document.getElementById('grouped-entry-notes').value = '';
+    const accSel = document.getElementById('grouped-entry-account');
+    if (accSel) accSel.value = e.accountId || '';
     const withGroup = document.getElementById('grouped-entry-with-group');
     const withSel = document.getElementById('grouped-entry-with');
     if (withGroup && withSel && children.length >= 2) {
@@ -4808,6 +4811,8 @@ function editGroupedEntry(parentId, eid) {
     document.getElementById('grouped-entry-amount').value = entry.amount;
     document.getElementById('grouped-entry-date').value = entry.date;
     document.getElementById('grouped-entry-notes').value = entry.notes || '';
+    const accSel2 = document.getElementById('grouped-entry-account');
+    if (accSel2) accSel2.value = entry.accountId || e.accountId || '';
     const withGroup = document.getElementById('grouped-entry-with-group');
     const withSel = document.getElementById('grouped-entry-with');
     if (withGroup && withSel && children.length >= 2) {
@@ -4848,13 +4853,14 @@ function saveGroupedEntry(event) {
         ? document.getElementById('grouped-entry-with').value
         : e.type;
     const withPartner = !!document.getElementById('grouped-entry-with-partner')?.checked;
+    const entryAccountId = document.getElementById('grouped-entry-account')?.value || null;
     e.entries = e.entries || [];
     if (pendingEditEntryEid) {
         const entryIdx = e.entries.findIndex(en => en.eid === pendingEditEntryEid);
-        if (entryIdx >= 0) e.entries[entryIdx] = { ...e.entries[entryIdx], date, amount, notes, type: entryType, withPartner };
+        if (entryIdx >= 0) e.entries[entryIdx] = { ...e.entries[entryIdx], date, amount, notes, type: entryType, withPartner, accountId: entryAccountId };
         showToast('Entrada atualizada');
     } else {
-        e.entries.push({ eid: generateId(), date, amount, notes, type: entryType, withPartner });
+        e.entries.push({ eid: generateId(), date, amount, notes, type: entryType, withPartner, accountId: entryAccountId });
         showToast(`Entrada adicionada: ${formatCurrency(amount)}`);
     }
     e.amount = computeGroupedTotal(e);
@@ -12459,7 +12465,7 @@ function deleteAccount(id) {
 function populateAccountSelects() {
     const opts = '<option value="">— Sem conta —</option>' + accounts.map(a =>
         `<option value="${a.id}">${a.name}</option>`).join('');
-    ['expense-account', 'income-account', 'fixed-income-account', 'fixed-account'].forEach(selId => {
+    ['expense-account', 'income-account', 'fixed-income-account', 'fixed-account', 'grouped-entry-account'].forEach(selId => {
         const el = document.getElementById(selId);
         if (!el) return;
         const cur = el.value;
