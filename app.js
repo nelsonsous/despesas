@@ -3519,7 +3519,11 @@ function renderCycleExpenses() {
     let cycleMarkerInserted = false;
 
     // Compact row: status badge · date · description · category · amount · jump-to-edit
+    let zebraLastDate = null;
+    let zebraParity = 0;
     body.innerHTML = all.map(r => {
+        if (r.date !== zebraLastDate) { zebraLastDate = r.date; zebraParity ^= 1; }
+        const zebraBg = zebraParity === 1 ? 'background:var(--bg);' : '';
         let markerPrefix = '';
         if (showCycleTodayMarker && !cycleMarkerInserted && r.date && r.date < todayStrCycle) {
             markerPrefix = '<div class="today-marker"><span>HOJE</span></div>';
@@ -3535,7 +3539,7 @@ function renderCycleExpenses() {
             const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
             return `
                 ${markerPrefix}
-                <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                <div class="cycle-expense-row savings-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                     <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
                     <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                     <div style="width:24px;height:24px;border-radius:6px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.7rem"></i></div>
@@ -3562,7 +3566,7 @@ function renderCycleExpenses() {
             const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
             return `
                 ${markerPrefix}
-                <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                <div class="cycle-expense-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                     <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
                     <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                     <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
@@ -3595,7 +3599,7 @@ function renderCycleExpenses() {
         const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
         return `
             ${markerPrefix}
-            <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+            <div class="cycle-expense-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
                 <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
                 <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                 <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
