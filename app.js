@@ -3412,8 +3412,8 @@ function renderCycleExpenses() {
         });
         getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
             if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
-            const day = Math.min(fi.dayOfMonth, maxDay);
-            const dStr = `${y}-${String(m + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const payDate = getFixedIncomePaymentDate(fi, y, m);
+            const dStr = toLocalDateStr(payDate);
             if (dStr < startStr || dStr > endStr) return;
             incomeRows.push({ kind: 'income', id: fi.id, date: dStr,
                 description: fi.description, category: fi.category || 'ordenado',
