@@ -65,6 +65,8 @@ const TEMPLATES_KEY = 'despesas_templates';
 const PREPAID_KEY = 'despesas_prepaid_cards';
 const ACCOUNTS_KEY = 'despesas_accounts';
 let accounts = []; // { id, name, color, icon, initialBalance, initialBalanceDate }
+const TRANSFERS_KEY = 'despesas_transfers';
+let transfers = []; // { id, date, amount, description, fromAccountId, toAccountId, notes, bankValidated }
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1837,6 +1839,8 @@ function loadData() {
     prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
     const accountsData = localStorage.getItem(ACCOUNTS_KEY);
     accounts = accountsData ? JSON.parse(accountsData) : [];
+    const transfersData = localStorage.getItem(TRANSFERS_KEY);
+    transfers = transfersData ? JSON.parse(transfersData) : [];
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
     // Migrate legacy savedSoFar (single number) to a transactions ledger so
@@ -1950,6 +1954,7 @@ function saveData() {
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
     localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
     localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
     localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
@@ -2596,6 +2601,7 @@ function updateAll() {
     renderIncomeTab();
     renderChildrenTab();
     renderReports();
+    renderTransfersList();
 }
 
 // ===== DASHBOARD =====
@@ -12426,7 +12432,35 @@ function getAccountBalance(accId) {
             });
         });
     }
+    (transfers || []).forEach(t => {
+        if (!t.date || t.date < since) return;
+        if (t.fromAccountId === accId) bal -= t.amount || 0;
+        if (t.toAccountId === accId) bal += t.amount || 0;
+    });
     return bal;
+}
+
+function renderTransfersList() {
+    const el = document.getElementById('transfers-list');
+    if (!el) return;
+    if (!transfers.length) { el.innerHTML = ''; return; }
+    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fmtD = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]} ${dt.getFullYear()}`; };
+    const getAccName = id => accounts.find(a => a.id === id)?.name || '—';
+    el.innerHTML = `<div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 4px">Transferências</div>` +
+        transfers.slice(0, 20).map(t => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+            <div style="width:28px;height:28px;border-radius:50%;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.75rem">
+                <i class="fas fa-exchange-alt"></i>
+            </div>
+            <div style="flex:1;min-width:0">
+                <div style="font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.description || 'Transferência'}</div>
+                <div style="font-size:0.7rem;color:var(--text-light)">${fmtD(t.date)} · ${getAccName(t.fromAccountId)} → ${getAccName(t.toAccountId)}</div>
+            </div>
+            <div style="font-size:0.82rem;font-weight:700;color:#1565C0;flex-shrink:0">${formatCurrency(t.amount)}</div>
+            <button onclick="openTransferModal('${t.id}')" class="btn-icon" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
+            <button onclick="deleteTransfer('${t.id}')" class="btn-icon" style="color:var(--danger)"><i class="fas fa-trash"></i></button>
+        </div>`).join('');
 }
 
 function renderAccountsSettings() {
@@ -12448,6 +12482,7 @@ function renderAccountsSettings() {
             <button onclick="openAccountModal('${a.id}')" class="btn-icon" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
             <button onclick="deleteAccount('${a.id}')" class="btn-icon" style="color:var(--danger)"><i class="fas fa-trash"></i></button>
         </div>`).join('');
+    renderTransfersList();
 }
 
 function openAccountModal(id) {
@@ -12516,6 +12551,58 @@ function deleteAccount(id) {
     renderNetWorth();
 }
 
+// ===== TRANSFERS BETWEEN ACCOUNTS =====
+function openTransferModal(id) {
+    const modal = document.getElementById('modal-transfer');
+    if (!modal) return;
+    const t = id ? (transfers.find(x => x.id === id) || null) : null;
+    document.getElementById('transfer-id').value = t ? t.id : '';
+    document.getElementById('transfer-date').value = t ? t.date : toLocalDateStr(new Date());
+    document.getElementById('transfer-amount').value = t ? t.amount : '';
+    document.getElementById('transfer-description').value = t ? (t.description || '') : '';
+    document.getElementById('transfer-notes').value = t ? (t.notes || '') : '';
+    const accOpts = '<option value="">— Sem conta —</option>' + accounts.map(a =>
+        `<option value="${a.id}">${a.name}${a.last4 ? ` (*${a.last4})` : ''}</option>`).join('');
+    const fromSel = document.getElementById('transfer-from');
+    const toSel = document.getElementById('transfer-to');
+    if (fromSel) { fromSel.innerHTML = accOpts; if (t) fromSel.value = t.fromAccountId || ''; }
+    if (toSel) { toSel.innerHTML = accOpts; if (t) toSel.value = t.toAccountId || ''; }
+    modal.classList.add('active');
+    setTimeout(() => document.getElementById('transfer-amount')?.focus(), 100);
+}
+
+function closeTransferModal() {
+    document.getElementById('modal-transfer')?.classList.remove('active');
+}
+
+function saveTransfer(event) {
+    if (event) event.preventDefault();
+    const id = document.getElementById('transfer-id').value;
+    const date = document.getElementById('transfer-date').value;
+    const amount = parseFloat(document.getElementById('transfer-amount').value) || 0;
+    const description = (document.getElementById('transfer-description').value || '').trim();
+    const fromAccountId = document.getElementById('transfer-from').value || null;
+    const toAccountId = document.getElementById('transfer-to').value || null;
+    const notes = (document.getElementById('transfer-notes').value || '').trim();
+    if (!date || amount <= 0) { showToast('Preenche data e valor'); return; }
+    if (fromAccountId === toAccountId) { showToast('Conta de origem e destino não podem ser iguais'); return; }
+    const entry = { id: id || generateId(), date, amount, description: description || 'Transferência', fromAccountId, toAccountId, notes, bankValidated: false };
+    if (id) { const idx = transfers.findIndex(x => x.id === id); if (idx >= 0) transfers[idx] = entry; else transfers.push(entry); }
+    else transfers.push(entry);
+    transfers.sort((a, b) => b.date.localeCompare(a.date));
+    saveData();
+    updateAll();
+    closeTransferModal();
+    showToast(id ? 'Transferência atualizada' : 'Transferência registada');
+}
+
+function deleteTransfer(id) {
+    if (!confirm('Apagar esta transferência?')) return;
+    transfers = transfers.filter(t => t.id !== id);
+    saveData();
+    updateAll();
+}
+
 function populateAccountSelects() {
     const opts = '<option value="">— Sem conta —</option>' + accounts.map(a =>
         `<option value="${a.id}">${a.name}</option>`).join('');
@@ -12531,7 +12618,11 @@ function populateAccountSelects() {
 // ===== BANK STATEMENT IMPORT =====
 let bankImportSuggestions = [];
 
-const BANK_STATEMENT_RULES = `Devolve APENAS um array JSON (sem qualquer outro texto):
+function getBankStatementRules() {
+    const today = toLocalDateStr(new Date());
+    const year = today.slice(0, 4);
+    return `Data de hoje: ${today}. Quando o ano não estiver explícito no extrato, usa ${year}.
+Devolve APENAS um array JSON (sem qualquer outro texto):
 [
   { "date": "YYYY-MM-DD", "description": "nome do beneficiário/entidade", "amount": 12.34, "type": "debit" }
 ]
@@ -12539,15 +12630,16 @@ Regras:
 - type "debit": dinheiro SAI da conta (compras, pagamentos, levantamentos, transferências saída)
 - type "credit": dinheiro ENTRA na conta (salários, reembolsos, transferências entrada, depósitos)
 - amount: sempre positivo, sem símbolo de moeda
-- date: formato YYYY-MM-DD
+- date: formato YYYY-MM-DD com o ano correto (${year} se não indicado)
 - description: nome do beneficiário/entidade, limpo e curto (sem referências, sem datas)
 Ignora linhas de saldo, cabeçalhos, totais e comissões de conta.`;
+}
 
 const BANK_STATEMENT_AI_PROMPT = (content) =>
-    `Analisa este extrato bancário português e extrai TODAS as transações.\n${BANK_STATEMENT_RULES}\n\nEXTRATO:\n${content}`;
+    `Analisa este extrato bancário português e extrai TODAS as transações.\n${getBankStatementRules()}\n\nEXTRATO:\n${content}`;
 
-const BANK_STATEMENT_IMAGE_PROMPT =
-    `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.\n${BANK_STATEMENT_RULES}`;
+const BANK_STATEMENT_IMAGE_PROMPT = () =>
+    `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.\n${getBankStatementRules()}`;
 
 function guessCategoryFromDesc(desc) {
     const d = (desc || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -12707,7 +12799,7 @@ async function handleBankStatementFile(event) {
                 r.onerror = rej;
                 r.readAsDataURL(file);
             });
-            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT);
+            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT());
             transactions = extractJsonArray(text);
         } else if (isPdf) {
             setStatus('A extrair texto do PDF…');
@@ -12754,7 +12846,7 @@ function renderBankReconciliation() {
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
     const validGroup   = bankImportSuggestions.filter(s => ['validate','mark-fixed-paid','mark-fixed-income-received'].includes(s.action));
-    const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income'].includes(s.action));
+    const createGroup  = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer'].includes(s.action));
     const noMatchGroup = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount = bankImportSuggestions.filter(s => s.selected).length;
 
@@ -12776,9 +12868,24 @@ function renderBankReconciliation() {
         else if (s.action === 'mark-fixed-income-received') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Fixa → recebida · ${(s.matchDesc||'').slice(0,14)}</span>`;
         else if (s.action === 'create-expense') {
             const catOpts = Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('');
-            tagHtml = `<select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:120px">${catOpts}</select>`;
+            tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>
+                <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transferência</button>
+            </div>`;
         } else if (s.action === 'create-income') {
-            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Nova receita</span>`;
+            tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Nova receita</span>
+                <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transferência</button>
+            </div>`;
+        } else if (s.action === 'create-transfer') {
+            const accOpts = '<option value="">—</option>' + accounts.map(a => `<option value="${a.id}">${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`).join('');
+            tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <span style="font-size:0.6rem;color:#546E7A">De</span>
+                <select id="bank-row-tfrom-${i}" onchange="bankImportSuggestions[${i}].transferFrom=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${accOpts}</select>
+                <span style="font-size:0.6rem;color:#546E7A">Para</span>
+                <select id="bank-row-tto-${i}" onchange="bankImportSuggestions[${i}].transferTo=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${accOpts}</select>
+                <button onclick="bankImportSuggestions[${i}].action=(bankImportSuggestions[${i}].tx?.type==='credit'?'create-income':'create-expense');renderBankReconciliation()" style="font-size:0.6rem;padding:1px 4px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">✕</button>
+            </div>`;
         } else if (s.action === 'no-match') {
             const cat = cats[s.category] || {};
             tagHtml = `<span style="font-size:0.65rem;padding:1px 6px;border-radius:8px;background:#F5F5F5;color:#757575">${cat.label || s.category || 'outros'}</span>`;
@@ -12821,10 +12928,19 @@ async function applyBankImportSelections() {
         const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
         if (s.action === 'validate') {
             const expIdx = expenses.findIndex(e => e.id === s.matchId);
-            if (expIdx >= 0) { expenses[expIdx] = { ...expenses[expIdx], bankValidated: true }; count++; }
-            else {
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}),
+                    ...(tx?.date ? { date: tx.date } : {}) };
+                count++;
+            } else {
                 const incIdx = incomes.findIndex(i => i.id === s.matchId);
-                if (incIdx >= 0) { incomes[incIdx] = { ...incomes[incIdx], bankValidated: true }; count++; }
+                if (incIdx >= 0) {
+                    incomes[incIdx] = { ...incomes[incIdx], bankValidated: true,
+                        ...(accountId ? { accountId } : {}),
+                        ...(tx?.date ? { date: tx.date } : {}) };
+                    count++;
+                }
             }
         } else if (s.action === 'create-expense') {
             expenses.push({ id: generateId(), date: tx.date, description: tx.description || 'Importado extrato', amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', bankValidated: true, createdAt: new Date().toISOString() });
@@ -12844,8 +12960,14 @@ async function applyBankImportSelections() {
             const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
             count++;
+        } else if (s.action === 'create-transfer') {
+            const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || accountId;
+            const toId = document.getElementById(`bank-row-tto-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferTo || null;
+            transfers.push({ id: generateId(), date: tx.date, amount: tx.amount, description: tx.description || 'Transferência', fromAccountId: fromId || null, toAccountId: toId || null, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            count++;
         }
     });
+    transfers.sort((a, b) => b.date.localeCompare(a.date));
     saveData();
     updateAll();
     closeBankImportModal();

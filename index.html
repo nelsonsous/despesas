@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=206">
+    <link rel="stylesheet" href="styles.css?v=207">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1442,9 +1442,15 @@
                             <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-save"></i> Guardar</button>
                         </form>
                     </div>
-                    <button onclick="openAccountModal()" class="btn btn-primary btn-block" style="margin-top:12px">
-                        <i class="fas fa-plus"></i> Nova conta / cartão
-                    </button>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button onclick="openAccountModal()" class="btn btn-primary" style="flex:1">
+                            <i class="fas fa-plus"></i> Nova conta
+                        </button>
+                        <button onclick="openTransferModal()" class="btn" style="flex:1;background:#E3F2FD;color:#1565C0;border:1px solid #BBDEFB">
+                            <i class="fas fa-exchange-alt"></i> Transferência
+                        </button>
+                    </div>
+                    <div id="transfers-list" style="margin-top:8px"></div>
                 </div>
 
                 <div id="stab-profile" class="settings-tab-content">
@@ -2304,7 +2310,48 @@
             </div>
         </div>
 
-    <script src="app.js?v=206"></script>
+    <!-- Transfer between accounts modal -->
+    <div id="modal-transfer" class="modal">
+        <div class="modal-content" style="max-width:400px">
+            <div class="modal-header">
+                <h3><i class="fas fa-exchange-alt"></i> Transferência entre contas</h3>
+                <button onclick="closeTransferModal()" class="btn-close">×</button>
+            </div>
+            <form onsubmit="saveTransfer(event)" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+                <input type="hidden" id="transfer-id">
+                <div class="form-group">
+                    <label>Data</label>
+                    <input type="date" id="transfer-date" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Valor (EUR)</label>
+                    <input type="number" id="transfer-amount" class="form-control" step="0.01" min="0.01" placeholder="0,00" required>
+                </div>
+                <div class="form-group">
+                    <label>Descrição (opcional)</label>
+                    <input type="text" id="transfer-description" class="form-control" placeholder="Transferência">
+                </div>
+                <div class="form-group">
+                    <label>Da conta</label>
+                    <select id="transfer-from" class="form-control"><option value="">— Sem conta —</option></select>
+                </div>
+                <div class="form-group">
+                    <label>Para a conta</label>
+                    <select id="transfer-to" class="form-control"><option value="">— Sem conta —</option></select>
+                </div>
+                <div class="form-group">
+                    <label>Notas (opcional)</label>
+                    <input type="text" id="transfer-notes" class="form-control" placeholder="">
+                </div>
+                <div style="display:flex;gap:8px;margin-top:4px">
+                    <button type="button" onclick="closeTransferModal()" class="btn" style="flex:1">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" style="flex:2"><i class="fas fa-check"></i> Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js?v=207"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
