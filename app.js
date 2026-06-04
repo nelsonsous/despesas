@@ -3371,31 +3371,99 @@ function renderCycleExpenses() {
         status: f.type === 'add' ? 'pago' : 'recebido'
     }));
 
-    const all = [...varRows, ...fixedRows, ...savingsRows].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    // Income rows inside the cycle window — variable incomes plus fixed
+    // incomes (received and pending). Mirrors the income side of
+    // getSalaryCycleBreakdown so the running balance reconciles.
+    const incomeRows = [];
+    incomes.forEach(i => {
+        if (!i.date || i.date < startStr || i.date > endStr) return;
+        incomeRows.push({ kind: 'income', id: i.id, date: i.date,
+            description: i.description || 'Receita', category: i.category || 'ordenado',
+            amount: i.amount || 0, status: 'recebido', fixed: false });
+    });
+    monthsTouched.forEach(monthDate => {
+        const y = monthDate.getFullYear();
+        const m = monthDate.getMonth();
+        const maxDay = new Date(y, m + 1, 0).getDate();
+        getPaidFixedIncomesAsIncome(monthDate).forEach(fi => {
+            if (!fi.date || fi.date < startStr || fi.date > endStr) return;
+            incomeRows.push({ kind: 'income', id: fi.fixedIncomeId, date: fi.date,
+                description: fi.description, category: fi.category || 'ordenado',
+                amount: fi.amount, status: 'recebido', fixed: true });
+        });
+        getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
+            if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
+            const day = Math.min(fi.dayOfMonth, maxDay);
+            const dStr = `${y}-${String(m + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            if (dStr < startStr || dStr > endStr) return;
+            incomeRows.push({ kind: 'income', id: fi.id, date: dStr,
+                description: fi.description, category: fi.category || 'ordenado',
+                amount: getEffectiveFixedIncomeAmount(fi, monthDate), status: 'pendente', fixed: true });
+        });
+    });
 
-    // Header totals: spent = variables + paid fixed (pending fixed is shown
-    // in the list with the pendente badge but does not inflate "spent").
-    // Savings flows: 'add' = outflow (counts in spent + committed); 'remove'
-    // = inflow (subtracted, brings money back).
+    const all = [...varRows, ...fixedRows, ...savingsRows, ...incomeRows];
+
+    // Classify each movement: flow direction (in/out), whether it's realized
+    // (counts toward the running balance), and its signed realized delta.
+    const nowStr = toLocalDateStr(today);
+    all.forEach(r => {
+        if (r.kind === 'income') {
+            r.flow = 'in';
+            // Fixed received are already day-gated upstream; variable incomes
+            // realize once their date is reached. Pending never realize.
+            r.realized = r.status === 'recebido' && (r.fixed || r.date <= nowStr);
+            r.delta = r.realized ? r.amount : 0;
+        } else if (r.kind === 'savings') {
+            r.flow = r.flowType === 'add' ? 'out' : 'in';
+            r.realized = true;
+            r.delta = r.flowType === 'add' ? -r.amount : r.amount;
+        } else {
+            r.flow = 'out';
+            r.realized = r.status === 'pago';
+            r.delta = r.status === 'pago' ? -r.amount : 0;
+        }
+    });
+
+    // Running balance: opening = chained close of previous cycles. Walk
+    // ascending (income before expense on ties) and stamp each realized row
+    // with the balance after it. Pending/future rows get no balance.
+    const opening = getCycleOpeningBalance(cycle.start);
+    const ascending = [...all].sort((a, b) =>
+        (a.date || '').localeCompare(b.date || '') ||
+        ((a.flow === 'in' ? 0 : 1) - (b.flow === 'in' ? 0 : 1)));
+    let run = opening;
+    ascending.forEach(r => {
+        if (r.realized) { run += r.delta; r.balanceAfter = run; }
+        else { r.balanceAfter = null; }
+    });
+    const closingBalance = run;
+
+    // Display order: newest first (expense before income on date ties).
+    all.sort((a, b) =>
+        (b.date || '').localeCompare(a.date || '') ||
+        ((b.flow === 'in' ? 0 : 1) - (a.flow === 'in' ? 0 : 1)));
+
+    // Header totals: spent = variables + paid fixed; committed adds pending
+    // fixed. Savings 'add' = outflow, 'remove' = inflow. Incomes excluded.
     const spent = all.reduce((s, r) => {
+        if (r.kind === 'income') return s;
         if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
         return s + (r.status === 'pago' ? r.amount : 0);
     }, 0);
     const committed = all.reduce((s, r) => {
+        if (r.kind === 'income') return s;
         if (r.kind === 'savings') return s + (r.flowType === 'add' ? r.amount : -r.amount);
         return s + (r.status === 'ignorado' ? 0 : r.amount);
     }, 0);
+    const received = all.reduce((s, r) => s + (r.kind === 'income' && r.realized ? r.amount : 0), 0);
 
     const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
     const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
     const inCycle = today >= cycle.start && today <= cycle.end;
     const dayN = inCycle ? Math.max(1, Math.min(cycleLength, Math.round((today - cycle.start) / 86400000) + 1)) : cycleLength;
-    const countShown = all.filter(r => r.status !== 'ignorado').length;
-    const totalsLbl = committed > spent
-        ? `${formatCurrency(spent)} / ${formatCurrency(committed)}`
-        : formatCurrency(spent);
-    const sub = `📅 ${periodLabel} · Dia ${dayN}/${cycleLength} · ${countShown} ${countShown === 1 ? 'gasto' : 'gastos'} · ${totalsLbl}`;
+    const sub = `📅 ${periodLabel} · Dia ${dayN}/${cycleLength} · ↑${formatCurrency(received)} ↓${formatCurrency(spent)} · Saldo ${formatCurrency(closingBalance)}`;
 
     section.style.display = 'block';
     const subEl = document.getElementById('cycle-expenses-sub');
@@ -3416,16 +3484,32 @@ function renderCycleExpenses() {
 
     if (!body) return;
     if (all.length === 0) {
-        body.innerHTML = '<div class="empty-state" style="padding:14px 0"><p>Nenhum gasto registado neste ciclo ainda.</p></div>';
+        body.innerHTML = '<div class="empty-state" style="padding:14px 0"><p>Nenhum movimento registado neste ciclo ainda.</p></div>';
         return;
     }
 
     const todayStrCycle = toLocalDateStr(today);
 
+    // Opening "Saldo transitado" row — the cycle's starting balance, shown at
+    // the bottom of the (newest-first) list as the foundation of the running
+    // balance above it.
+    const openingRowHtml = `
+        <div class="cycle-expense-row" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-top:2px solid var(--border);background:var(--surface)">
+            <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🏁</div>
+            <div style="width:42px;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0;font-size:0.74rem;font-weight:600;color:var(--text-light)">Saldo transitado <span style="font-weight:400;font-size:0.62rem">(fecho do ciclo anterior)</span></div>
+            <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
+        </div>`;
+
     if (isGrouped) {
-        body.innerHTML = renderCycleExpensesByCategory(all, cats, todayStrCycle);
+        // Category breakdown view = spending only (no incomes / running balance).
+        body.innerHTML = renderCycleExpensesByCategory(all.filter(r => r.kind !== 'income'), cats, todayStrCycle);
         return;
     }
+
+    // Small "saldo após" line shown under each movement's amount.
+    const balLine = (r) => r.balanceAfter == null ? '' :
+        `<div style="font-size:0.6rem;color:var(--text-light);text-align:right;margin-top:1px">saldo ${formatCurrency(r.balanceAfter)}</div>`;
 
     // Today marker: only inject if cycle contains today AND list crosses today.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
@@ -3462,8 +3546,38 @@ function renderCycleExpenses() {
                         </div>
                         <div style="font-size:0.62rem;color:var(--text-light)">${dirLabel}</div>
                     </div>
-                    <div style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                        <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
+                        ${balLine(r)}
+                    </div>
                     <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            `;
+        }
+        // Income row — green, + amount, up arrow. Realized = received & dated.
+        if (r.kind === 'income') {
+            const incBadge = r.status === 'recebido'
+                ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
+                : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
+            const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
+            return `
+                ${markerPrefix}
+                <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                    <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
+                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
+                    <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                        <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                            ${r.fixed ? '<i class="fas fa-repeat" title="Receita fixa" style="color:#00B894;font-size:0.65rem;flex-shrink:0"></i>' : ''}
+                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                        </div>
+                        <div style="font-size:0.62rem;color:var(--text-light)">Receita</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                        <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
+                        ${balLine(r)}
+                    </div>
+                    <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                 </div>
             `;
         }
@@ -3493,11 +3607,14 @@ function renderCycleExpenses() {
                     </div>
                     <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
                 </div>
-                <div style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                    <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
+                    ${balLine(r)}
+                </div>
                 <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
             </div>
         `;
-    }).join('');
+    }).join('') + openingRowHtml;
 }
 
 function renderCycleExpensesByCategory(all, cats, todayStr) {
@@ -5831,6 +5948,30 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         realizedBalance: incReceived - expPaid,
         expByCategory
     };
+}
+
+// Opening balance of a cycle = chained close of all previous cycles. Walks
+// back cycle-by-cycle accumulating each one's realized cash net (received −
+// paid) minus its net savings outflow, so the "saldo transitado" reflects
+// real money carried in. Stops once a cycle has no movements (start of
+// history) or after a safety guard. Only realized figures count.
+function getCycleOpeningBalance(cycleStart) {
+    let opening = 0;
+    let cursor = new Date(cycleStart);
+    cursor.setDate(cursor.getDate() - 1); // step into the previous cycle
+    let guard = 0;
+    while (guard++ < 60) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
+        const flows = getGoalsFlowsInRange(c.start, c.end);
+        const savNet = flows.reduce((s, f) => s + (f.type === 'add' ? f.amount : -f.amount), 0);
+        if (b.totalInc === 0 && b.totalExp === 0 && savNet === 0) break; // reached start of history
+        opening += b.realizedBalance - savNet;
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+    return opening;
 }
 
 function renderSalaryCycleReport() {
