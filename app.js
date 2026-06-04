@@ -3516,7 +3516,7 @@ function renderCycleExpenses() {
             const bal = getAccountBalance(a.id);
             const color = a.color || '#9E9E9E';
             return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:${color}18;color:${color};font-size:0.7rem;font-weight:600;white-space:nowrap">
-                <i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i> ${a.name} ${formatCurrency(bal)}
+                ${a.isSavings ? '🐷' : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i>`} ${a.name} ${formatCurrency(bal)}
             </span>`;
         }).join('');
         return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}</div>`;
@@ -12388,7 +12388,7 @@ function renderAccountsSettings() {
                 <i class="fas ${a.icon || 'fa-university'}"></i>
             </div>
             <div style="flex:1;min-width:0">
-                <div style="font-weight:600;font-size:0.88rem">${a.name}${a.last4 ? ` <span style="font-size:0.7rem;color:var(--text-light);font-weight:400">*${a.last4}</span>` : ''}</div>
+                <div style="font-weight:600;font-size:0.88rem">${a.name}${a.last4 ? ` <span style="font-size:0.7rem;color:var(--text-light);font-weight:400">*${a.last4}</span>` : ''}${a.isSavings ? ' <span title="Conta de poupanças">🐷</span>' : ''}</div>
                 <div style="font-size:0.72rem;color:var(--text-light)">Saldo actual: <b>${formatCurrency(getAccountBalance(a.id))}</b></div>
             </div>
             <button onclick="openAccountModal('${a.id}')" class="btn-icon" style="color:var(--primary)"><i class="fas fa-pen"></i></button>
@@ -12406,6 +12406,8 @@ function openAccountModal(id) {
     document.getElementById('account-modal-last4').value = acc?.last4 || '';
     document.getElementById('account-modal-balance').value = acc ? (acc.initialBalance || 0) : '';
     document.getElementById('account-modal-balance-date').value = acc?.initialBalanceDate || today;
+    const isSavEl = document.getElementById('account-modal-is-savings');
+    if (isSavEl) isSavEl.checked = acc?.isSavings || false;
     const title = document.getElementById('account-form-title');
     if (title) title.textContent = acc ? `Editar: ${acc.name}` : 'Nova conta / cartão';
     const form = document.getElementById('account-inline-form');
@@ -12425,6 +12427,7 @@ function saveAccount(event) {
         color: document.getElementById('account-modal-color').value,
         icon: document.getElementById('account-modal-icon').value || 'fa-university',
         last4: (document.getElementById('account-modal-last4').value || '').replace(/\D/g, '').slice(0, 4) || null,
+        isSavings: document.getElementById('account-modal-is-savings')?.checked || false,
         initialBalance: parseFloat(document.getElementById('account-modal-balance').value) || 0,
         initialBalanceDate: document.getElementById('account-modal-balance-date').value,
         updatedAt: new Date().toISOString()

@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=197">
+    <link rel="stylesheet" href="styles.css?v=198">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1435,6 +1435,9 @@
                                 <label>Data do saldo inicial</label>
                                 <input type="date" id="account-modal-balance-date">
                             </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="account-modal-is-savings"> 🐷 Esta conta contém as poupanças</label>
+                            </div>
                             <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-save"></i> Guardar</button>
                         </form>
                     </div>
@@ -2258,7 +2261,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=197"></script>
+    <script src="app.js?v=198"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
