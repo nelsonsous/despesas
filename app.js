@@ -3511,16 +3511,32 @@ function renderCycleExpenses() {
             <div style="font-weight:700;white-space:nowrap;font-size:0.8rem;color:${opening >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(opening)}</div>
         </div>`;
 
-    // Per-account balance summary strip (shown when accounts are configured)
+    // Per-account balance summary strip with cycle delta reconciliation
     const accountSummaryHtml = accounts.length ? (() => {
+        const cycleAccDelta = {};
+        accounts.forEach(a => { cycleAccDelta[a.id] = 0; });
+        let untaggedDelta = 0;
+        all.forEach(r => {
+            if (!r.realized) return;
+            if (r.accountId && Object.prototype.hasOwnProperty.call(cycleAccDelta, r.accountId)) {
+                cycleAccDelta[r.accountId] += r.delta;
+            } else if (!r.accountId) {
+                untaggedDelta += r.delta;
+            }
+        });
         const chips = accounts.map(a => {
             const bal = getAccountBalance(a.id);
+            const cd = cycleAccDelta[a.id];
             const color = a.color || '#9E9E9E';
+            const cdStr = cd !== 0 ? ` <span style="opacity:0.75;font-size:0.62rem">${cd >= 0 ? '+' : ''}${formatCurrency(cd)}</span>` : '';
             return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:${color}18;color:${color};font-size:0.7rem;font-weight:600;white-space:nowrap">
-                ${a.isSavings ? '🐷' : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i>`} ${a.name} ${formatCurrency(bal)}
+                ${a.isSavings ? '🐷' : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i>`} ${a.name} ${formatCurrency(bal)}${cdStr}
             </span>`;
         }).join('');
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}</div>`;
+        const untaggedChip = untaggedDelta !== 0 ? `<span title="Movimentos realizados neste ciclo sem conta atribuída" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:#9E9E9E15;color:#757575;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px dashed #9E9E9E55">
+            <i class="fas fa-question-circle" style="font-size:0.6rem"></i> sem conta ${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}
+        </span>` : '';
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}</div>`;
     })() : '';
 
     if (isGrouped) {
@@ -10878,6 +10894,18 @@ function renderSavingsGoals() {
     const list = document.getElementById('savings-goals-list');
     if (!card || !list) return;
     card.style.display = 'block';
+    const savingsAcc = accounts.find(a => a.isSavings);
+    if (savingsAcc) {
+        const savBal = getAccountBalance(savingsAcc.id);
+        const savAccBanner = document.getElementById('savings-account-banner');
+        if (savAccBanner) {
+            savAccBanner.style.display = 'flex';
+            savAccBanner.innerHTML = `<span style="font-size:1.1rem">🐷</span><div style="flex:1"><div style="font-size:0.7rem;color:#B8336B;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">Conta poupança · ${savingsAcc.name}</div><div style="font-weight:700;font-size:1.05rem;color:#2A1F4F">${formatCurrency(savBal)}</div></div>`;
+        }
+    } else {
+        const savAccBanner = document.getElementById('savings-account-banner');
+        if (savAccBanner) savAccBanner.style.display = 'none';
+    }
     if (!savingsGoals.length) {
         list.innerHTML = '<p class="empty-state" style="padding:10px 0">Sem objetivos ainda. Cria um para começar a poupar com propósito (férias, fundo de emergência, …).</p>';
         return;
@@ -11106,11 +11134,10 @@ function renderNetWorth() {
     const body = document.getElementById('net-worth-body');
     if (!card || !body) return;
     const manualAssets = (netWorth.assets || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
-    // Savings goals roll up into the Património automatically: every euro
-    // the user moves into a goal counts as an asset. Avoids the user
-    // having to keep two lists in sync manually.
     const goalsBalance = (savingsGoals || []).reduce((s, g) => s + getGoalBalance(g), 0);
-    const assets = manualAssets + goalsBalance;
+    const hasAccounts = accounts.length > 0;
+    const accountsTotal = hasAccounts ? accounts.reduce((s, a) => s + getAccountBalance(a.id), 0) : 0;
+    const assets = manualAssets + (hasAccounts ? accountsTotal : goalsBalance);
     const liabilities = (netWorth.liabilities || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
     const total = assets - liabilities;
     card.style.display = 'block';
@@ -11120,16 +11147,20 @@ function renderNetWorth() {
         return;
     }
     const updated = netWorth.updatedAt ? new Date(netWorth.updatedAt).toLocaleDateString('pt-PT') : '—';
-    const assetsLabel = goalsBalance > 0
-        ? `Ativos · ${(netWorth.assets || []).length} + poupança`
+    const assetsLabel = hasAccounts
+        ? `Ativos · ${(netWorth.assets || []).length} + ${accounts.length} conta${accounts.length !== 1 ? 's' : ''}`
+        : goalsBalance > 0 ? `Ativos · ${(netWorth.assets || []).length} + poupança`
         : `Ativos · ${(netWorth.assets || []).length}`;
+    const assetsSubline = hasAccounts
+        ? `<div style="font-size:0.66rem;color:var(--text-light)">${formatCurrency(accountsTotal)} em contas${manualAssets > 0 ? ` + ${formatCurrency(manualAssets)} manual` : ''}</div>`
+        : goalsBalance > 0 ? `<div style="font-size:0.66rem;color:var(--text-light)">+${formatCurrency(goalsBalance)} de objetivos</div>` : '';
     body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div><div style="font-size:0.72rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em">Património líquido</div>
         <div style="font-size:1.6rem;font-weight:700;color:${total >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatCurrency(total)}</div></div>
         <button onclick="openNetWorthModal()" class="btn btn-sm" style="background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0"><i class="fas fa-pen"></i></button>
     </div>
     <div style="display:flex;gap:10px">
-        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">${assetsLabel}</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div>${goalsBalance > 0 ? `<div style="font-size:0.66rem;color:var(--text-light)">+${formatCurrency(goalsBalance)} de objetivos</div>` : ''}</div>
+        <div style="flex:1;padding:8px;background:#E8F5E9;border-radius:8px"><div style="font-size:0.72rem;color:#2E7D32">${assetsLabel}</div><div style="font-weight:700;color:#2E7D32">${formatCurrency(assets)}</div>${assetsSubline}</div>
         <div style="flex:1;padding:8px;background:#FFEBEE;border-radius:8px"><div style="font-size:0.72rem;color:#C62828">Passivos · ${(netWorth.liabilities || []).length}</div><div style="font-weight:700;color:#C62828">${formatCurrency(liabilities)}</div></div>
     </div>
     <div style="font-size:0.68rem;color:var(--text-light);text-align:right;margin-top:6px">Atualizado em ${updated}</div>`;
@@ -12378,6 +12409,15 @@ function getAccountBalance(accId) {
             if (d >= since) bal -= (s.amount || fe.amount || 0);
         });
     });
+    if (acc.isSavings) {
+        (savingsGoals || []).forEach(g => {
+            (g.transactions || []).forEach(t => {
+                if (!t.date || t.date < since) return;
+                if (t.type === 'add') bal += t.amount || 0;
+                else if (t.type === 'remove') bal -= t.amount || 0;
+            });
+        });
+    }
     return bal;
 }
 
@@ -12438,6 +12478,7 @@ function saveAccount(event) {
         initialBalanceDate: document.getElementById('account-modal-balance-date').value,
         updatedAt: new Date().toISOString()
     };
+    if (acc.isSavings) accounts.forEach(a => { if (a.id !== acc.id) a.isSavings = false; });
     if (id) {
         const idx = accounts.findIndex(a => a.id === id);
         if (idx >= 0) { acc.createdAt = accounts[idx].createdAt; accounts[idx] = acc; }
