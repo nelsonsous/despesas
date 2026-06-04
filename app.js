@@ -3511,113 +3511,109 @@ function renderCycleExpenses() {
     const balLine = (r) => r.balanceAfter == null ? '' :
         `<div style="font-size:0.6rem;color:var(--text-light);text-align:right;margin-top:1px">saldo ${formatCurrency(r.balanceAfter)}</div>`;
 
-    // Today marker: only inject if cycle contains today AND list crosses today.
+    // Group rows by date — bank-statement style with a date header per day.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
-    const cycleHasPast = all.some(r => r.date && r.date < todayStrCycle);
-    const cycleHasFuture = all.some(r => r.date && r.date >= todayStrCycle);
-    const showCycleTodayMarker = cycleContainsToday && cycleHasPast && cycleHasFuture;
-    let cycleMarkerInserted = false;
+    const DOW_PT = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+    const MON_PT = ['jan.','fev.','mar.','abr.','mai.','jun.','jul.','ago.','set.','out.','nov.','dez.'];
 
-    // Compact row: status badge · date · description · category · amount · jump-to-edit
-    let zebraLastDate = null;
-    let zebraParity = 0;
-    body.innerHTML = all.map(r => {
-        if (r.date !== zebraLastDate) { zebraLastDate = r.date; zebraParity ^= 1; }
-        const zebraBg = zebraParity === 1 ? 'background:rgba(0,0,0,0.035);' : '';
-        let markerPrefix = '';
-        if (showCycleTodayMarker && !cycleMarkerInserted && r.date && r.date < todayStrCycle) {
-            markerPrefix = '<div class="today-marker"><span>HOJE</span></div>';
-            cycleMarkerInserted = true;
-        }
-        const isFutureRow = r.date && r.date > todayStrCycle;
-        const futureClass = (showCycleTodayMarker && isFutureRow && r.status !== 'pago') ? ' future-row' : '';
-        // Savings flow row — coral background, 🐷 POUPANÇA tag, no edit pen
-        // (chevron-right routes the user to the goal modal instead).
-        if (r.kind === 'savings') {
-            const sign = r.flowType === 'add' ? '−' : '+';
-            const amountColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
-            const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
+    const dayHeader = (dateStr) => {
+        const isToday = dateStr === todayStrCycle;
+        const d = new Date(dateStr + 'T12:00:00');
+        const label = `${DOW_PT[d.getDay()]}, ${d.getDate()} ${MON_PT[d.getMonth()]}`;
+        const color = isToday ? 'var(--primary)' : 'var(--text-light)';
+        const badge = isToday ? ' <span style="font-size:0.62rem;background:var(--primary);color:#fff;padding:1px 7px;border-radius:8px;vertical-align:middle;margin-left:4px">HOJE</span>' : '';
+        return `<div style="padding:14px 4px 5px;font-size:0.72rem;font-weight:700;color:${color};letter-spacing:0.02em;text-transform:capitalize">${label}${badge}</div>`;
+    };
+
+    const dateGroups = [];
+    let _lastDate = null;
+    all.forEach(r => {
+        if (r.date !== _lastDate) { _lastDate = r.date; dateGroups.push({ date: r.date, rows: [] }); }
+        dateGroups[dateGroups.length - 1].rows.push(r);
+    });
+
+    body.innerHTML = dateGroups.map(({ date, rows }) => {
+        const header = date ? dayHeader(date) : '';
+        const isFutureDate = cycleContainsToday && date > todayStrCycle;
+        const rowsHtml = rows.map(r => {
+            const futureClass = (isFutureDate && r.status !== 'pago') ? ' future-row' : '';
+            if (r.kind === 'savings') {
+                const sign = r.flowType === 'add' ? '−' : '+';
+                const amountColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
+                const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
+                return `
+                    <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                        <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
+                        <div style="width:24px;height:24px;border-radius:6px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.7rem"></i></div>
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                            <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                                <span class="cycle-row-tag" style="background:#FFE0EC;color:#B8336B"><i class="fas fa-piggy-bank"></i> POUPANÇA</span>
+                                <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                            </div>
+                            <div style="font-size:0.62rem;color:var(--text-light)">${dirLabel}</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                            <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
+                            ${balLine(r)}
+                        </div>
+                        <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
+                    </div>`;
+            }
+            if (r.kind === 'income') {
+                const incBadge = r.status === 'recebido'
+                    ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
+                    : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
+                const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
+                return `
+                    <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                        <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
+                        <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                            <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
+                                ${r.fixed ? '<i class="fas fa-repeat" title="Receita fixa" style="color:#00B894;font-size:0.65rem;flex-shrink:0"></i>' : ''}
+                                <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                            </div>
+                            <div style="font-size:0.62rem;color:var(--text-light)">Receita</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+                            <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
+                            ${balLine(r)}
+                        </div>
+                        <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                    </div>`;
+            }
+            const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
+            const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
+            const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
+            let badge;
+            if (r.status === 'pago') badge = '<span title="Pago" style="font-size:0.85rem">✅</span>';
+            else if (r.status === 'pendente') badge = '<span title="Pendente" style="font-size:0.85rem">⏳</span>';
+            else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
+            const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
+            const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
+            const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
+            const opacity = r.status === 'ignorado' ? '0.55' : '1';
+            const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
             return `
-                ${markerPrefix}
-                <div class="cycle-expense-row savings-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
-                    <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
-                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-                    <div style="width:24px;height:24px;border-radius:6px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.7rem"></i></div>
+                <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+                    <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
+                    <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                         <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
-                            <span class="cycle-row-tag" style="background:#FFE0EC;color:#B8336B"><i class="fas fa-piggy-bank"></i> POUPANÇA</span>
-                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                            ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
+                            ${groupedIcon}
+                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                         </div>
-                        <div style="font-size:0.62rem;color:var(--text-light)">${dirLabel}</div>
+                        <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                        <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
+                        <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
                         ${balLine(r)}
                     </div>
-                    <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
-                </div>
-            `;
-        }
-        // Income row — green, + amount, up arrow. Realized = received & dated.
-        if (r.kind === 'income') {
-            const incBadge = r.status === 'recebido'
-                ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
-                : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
-            const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
-            return `
-                ${markerPrefix}
-                <div class="cycle-expense-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
-                    <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
-                    <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-                    <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
-                    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
-                        <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
-                            ${r.fixed ? '<i class="fas fa-repeat" title="Receita fixa" style="color:#00B894;font-size:0.65rem;flex-shrink:0"></i>' : ''}
-                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
-                        </div>
-                        <div style="font-size:0.62rem;color:var(--text-light)">Receita</div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                        <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
-                        ${balLine(r)}
-                    </div>
-                    <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
-                </div>
-            `;
-        }
-        const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
-        const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
-        const childTag = child ? `<span style="font-size:0.65rem;background:${child.color || 'var(--bg)'}22;color:${child.color || 'var(--text-light)'};padding:1px 6px;border-radius:8px;margin-left:6px">${child.name || child.id}</span>` : '';
-        let badge;
-        if (r.status === 'pago') badge = '<span title="Pago" style="font-size:0.85rem">✅</span>';
-        else if (r.status === 'pendente') badge = '<span title="Pendente" style="font-size:0.85rem">⏳</span>';
-        else badge = '<span title="Ignorado" style="font-size:0.85rem;opacity:0.6">⏸</span>';
-        const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
-        const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
-        const action = r.kind === 'fixed' ? `editFixed('${r.id}')` : `editExpense('${r.id}')`;
-        const opacity = r.status === 'ignorado' ? '0.55' : '1';
-        const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
-        return `
-            ${markerPrefix}
-            <div class="cycle-expense-row${futureClass}" style="${zebraBg}display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
-                <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
-                <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
-                <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
-                <div style="flex:1;min-width:0;display:flex;flex-direction:column">
-                    <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
-                        ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
-                        ${groupedIcon}
-                        <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
-                    </div>
-                    <div style="font-size:0.62rem;color:var(--text-light)">${c.label || r.category}</div>
-                </div>
-                <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                    <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
-                    ${balLine(r)}
-                </div>
-                <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
-            </div>
-        `;
+                    <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                </div>`;
+        }).join('');
+        return header + rowsHtml;
     }).join('') + openingRowHtml;
 }
 
