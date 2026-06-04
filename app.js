@@ -12406,9 +12406,15 @@ function openAccountModal(id) {
     document.getElementById('account-modal-last4').value = acc?.last4 || '';
     document.getElementById('account-modal-balance').value = acc ? (acc.initialBalance || 0) : '';
     document.getElementById('account-modal-balance-date').value = acc?.initialBalanceDate || today;
-    document.getElementById('modal-account').classList.add('active');
+    const title = document.getElementById('account-form-title');
+    if (title) title.textContent = acc ? `Editar: ${acc.name}` : 'Nova conta / cartão';
+    const form = document.getElementById('account-inline-form');
+    if (form) { form.style.display = 'block'; form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 }
-function closeAccountModal() { document.getElementById('modal-account').classList.remove('active'); }
+function closeAccountModal() {
+    const form = document.getElementById('account-inline-form');
+    if (form) form.style.display = 'none';
+}
 
 function saveAccount(event) {
     event.preventDefault();
