@@ -2135,13 +2135,22 @@ function getFixedPendingTotal(date) {
 function markFixedPaid(fixedId, date, paid) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
+    const todayStr = toLocalDateStr(new Date());
     if (idx >= 0) {
         fixedStatus[idx].status = paid ? 'pago' : 'pendente';
-        // When user explicitly sets to pendente, lock it so auto-approval doesn't override
-        if (!paid) fixedStatus[idx].manualPendente = true;
-        else delete fixedStatus[idx].manualPendente;
+        if (paid) {
+            // Store actual payment date so the cycle ledger places the row on the
+            // day cash left, not the scheduled due date.
+            fixedStatus[idx].paidDate = todayStr;
+            delete fixedStatus[idx].manualPendente;
+        } else {
+            fixedStatus[idx].manualPendente = true;
+            delete fixedStatus[idx].paidDate;
+        }
     } else {
-        fixedStatus.push({ fixedId, month: monthKey, status: paid ? 'pago' : 'pendente', ...(paid ? {} : { manualPendente: true }) });
+        fixedStatus.push({ fixedId, month: monthKey,
+            status: paid ? 'pago' : 'pendente',
+            ...(paid ? { paidDate: todayStr } : { manualPendente: true }) });
     }
     saveData();
     updateAll();
@@ -2250,10 +2259,15 @@ function getEffectiveFixedIncomeAmount(fi, date) {
 function markFixedIncomePaid(fixedIncomeId, date, received) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedIncomeStatus.findIndex(s => s.fixedIncomeId === fixedIncomeId && s.month === monthKey);
+    const todayStr = toLocalDateStr(new Date());
     if (idx >= 0) {
         fixedIncomeStatus[idx].status = received ? 'recebido' : 'pendente';
+        if (received) fixedIncomeStatus[idx].receivedDate = todayStr;
+        else delete fixedIncomeStatus[idx].receivedDate;
     } else {
-        fixedIncomeStatus.push({ fixedIncomeId, month: monthKey, status: received ? 'recebido' : 'pendente' });
+        fixedIncomeStatus.push({ fixedIncomeId, month: monthKey,
+            status: received ? 'recebido' : 'pendente',
+            ...(received ? { receivedDate: todayStr } : {}) });
     }
     saveData();
     updateAll();
@@ -2486,11 +2500,13 @@ function getPaidFixedIncomesAsIncome(date) {
         })
         .map(fi => {
             const payDate = getFixedIncomePaymentDate(fi, date.getFullYear(), date.getMonth());
+            const st = getFixedIncomeStatusForMonth(fi.id, date);
+            const receivedDate = st?.receivedDate || toLocalDateStr(payDate);
             return {
                 id: `fixedinc_${fi.id}_${monthKey}`,
                 description: fi.description,
                 amount: getEffectiveFixedIncomeAmount(fi, date),
-                date: toLocalDateStr(payDate),
+                date: receivedDate,
                 category: fi.category || 'ordenado',
                 isFixedIncome: true,
                 fixedIncomeId: fi.id
@@ -3360,10 +3376,15 @@ function renderCycleExpenses() {
         const maxDay = new Date(y, m + 1, 0).getDate();
         getActiveFixedForMonth(monthDate).forEach(f => {
             const payDate = getFixedExpensePaymentDate(f, y, m);
-            const dateStr = toLocalDateStr(payDate);
-            if (dateStr < startStr || dateStr > endStr) return;
+            const dueDateStr = toLocalDateStr(payDate);
+            // Membership check always uses the scheduled due date so each
+            // expense appears in exactly one cycle.
+            if (dueDateStr < startStr || dueDateStr > endStr) return;
             const eff = getEffectiveFixedStatus(f, monthDate);
             const status = eff.status; // 'pago' | 'pendente' | 'ignorado'
+            // If manually paid before the due date, place the row on the actual
+            // payment date so the running balance reflects when cash left.
+            const dateStr = (status === 'pago' && !eff.auto && eff.paidDate) ? eff.paidDate : dueDateStr;
             const amount = status === 'ignorado' ? 0 : getEffectiveFixedAmount(f, monthDate);
             fixedRows.push({
                 kind: 'fixed',
