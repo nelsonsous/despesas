@@ -12827,17 +12827,40 @@ function getBankStatementRules() {
     const today = toLocalDateStr(new Date());
     const year = today.slice(0, 4);
     return `Data de hoje: ${today}. Quando o ano não estiver explícito no extrato, usa ${year}.
-Devolve APENAS um array JSON (sem qualquer outro texto):
+Devolve APENAS um array JSON (sem qualquer outro texto). O PRIMEIRO elemento deve ser um objeto _meta com informação sobre a conta:
 [
+  { "_meta": true, "last4": "4424", "bank": "Santander" },
   { "date": "YYYY-MM-DD", "description": "nome do beneficiário/entidade", "amount": 12.34, "type": "debit" }
 ]
-Regras:
+O objeto _meta deve ter:
+- last4: últimos 4 dígitos do cartão/conta visíveis no extrato (null se não visível)
+- bank: nome do banco ou emissor (ex: "Santander", "CGD", "BIG", "Moey", "Inetum")
+Regras para as transações:
 - type "debit": dinheiro SAI da conta (compras, pagamentos, levantamentos, transferências saída)
 - type "credit": dinheiro ENTRA na conta (salários, reembolsos, transferências entrada, depósitos)
 - amount: sempre positivo, sem símbolo de moeda
 - date: formato YYYY-MM-DD com o ano correto (${year} se não indicado)
 - description: nome do beneficiário/entidade, limpo e curto (sem referências, sem datas)
 Ignora linhas de saldo, cabeçalhos, totais e comissões de conta.`;
+}
+
+function autoDetectBankAccount(meta) {
+    if (!meta) return null;
+    // 1 — match by last 4 digits of card (most reliable)
+    if (meta.last4 && /^\d{4}$/.test(meta.last4)) {
+        const byLast4 = accounts.find(a => a.last4 === meta.last4);
+        if (byLast4) return byLast4.id;
+    }
+    // 2 — match by bank/issuer name substring
+    if (meta.bank) {
+        const bankNorm = meta.bank.toLowerCase().trim();
+        const byName = accounts.find(a =>
+            a.name.toLowerCase().includes(bankNorm) ||
+            bankNorm.includes(a.name.toLowerCase().replace(/\s+/g, ''))
+        );
+        if (byName) return byName.id;
+    }
+    return null;
 }
 
 const BANK_STATEMENT_AI_PROMPT = (content) =>
@@ -13165,6 +13188,20 @@ async function handleBankStatementFile(event) {
             transactions = extractJsonArray(raw);
         }
         if (!transactions.length) { setStatus('Nenhuma transação encontrada. Verifica o ficheiro.'); return; }
+        // Extract and remove the _meta entry injected by the AI
+        const metaIdx = transactions.findIndex(t => t._meta);
+        if (metaIdx >= 0) {
+            const meta = transactions.splice(metaIdx, 1)[0];
+            const sel = document.getElementById('bank-import-account-sel');
+            if (sel && !sel.value) {
+                const detectedId = autoDetectBankAccount(meta);
+                if (detectedId) {
+                    sel.value = detectedId;
+                    const accName = accounts.find(a => a.id === detectedId)?.name;
+                    if (accName) setStatus(`Conta detectada automaticamente: ${accName}`);
+                }
+            }
+        }
         const accountId = document.getElementById('bank-import-account-sel')?.value || null;
         bankImportSuggestions = buildBankReconciliationSuggestions(transactions, accountId);
         renderBankReconciliation();
@@ -13248,12 +13285,19 @@ function renderBankReconciliation() {
                 <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transferência</button>
             </div>`;
         } else if (s.action === 'create-transfer') {
-            const accOpts = '<option value="">—</option>' + accounts.map(a => `<option value="${a.id}">${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`).join('');
+            const importAccId = document.getElementById('bank-import-account-sel')?.value || '';
+            const isCredit = s.tx?.type === 'credit';
+            const fromDefault = s.transferFrom || (!isCredit ? importAccId : '');
+            const toDefault   = s.transferTo   || ( isCredit ? importAccId : '');
+            if (!s.transferFrom && fromDefault) s.transferFrom = fromDefault;
+            if (!s.transferTo   && toDefault)   s.transferTo   = toDefault;
+            const makeAccOpts = (sel) => '<option value="">—</option>' + accounts.map(a =>
+                `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`).join('');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                 <span style="font-size:0.6rem;color:#546E7A">De</span>
-                <select id="bank-row-tfrom-${i}" onchange="bankImportSuggestions[${i}].transferFrom=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${accOpts}</select>
+                <select id="bank-row-tfrom-${i}" onchange="bankImportSuggestions[${i}].transferFrom=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${makeAccOpts(fromDefault)}</select>
                 <span style="font-size:0.6rem;color:#546E7A">Para</span>
-                <select id="bank-row-tto-${i}" onchange="bankImportSuggestions[${i}].transferTo=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${accOpts}</select>
+                <select id="bank-row-tto-${i}" onchange="bankImportSuggestions[${i}].transferTo=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${makeAccOpts(toDefault)}</select>
                 <button onclick="bankImportSuggestions[${i}].action=(bankImportSuggestions[${i}].tx?.type==='credit'?'create-income':'create-expense');renderBankReconciliation()" style="font-size:0.6rem;padding:1px 4px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">✕</button>
             </div>`;
         } else if (s.action === 'near-match') {
