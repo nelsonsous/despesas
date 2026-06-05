@@ -2661,7 +2661,7 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
    from "já aconteceu". Already-paid rows keep full opacity. */
 .future-row,
 .cycle-expense-row.future-row {
-    opacity: 0.7;
+    filter: grayscale(60%) opacity(0.72);
 }
 
 /* ===== Savings flow card ===== */
