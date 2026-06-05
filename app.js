@@ -13091,6 +13091,16 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
         // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
+            // Check if already paid — show as already-validated (not selected by default)
+            const alreadyPaid = fixedExpenses.find(fe => {
+                const effAmt = getEffectiveFixedAmount(fe, new Date(txMonth + '-01T12:00:00'));
+                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                return fixedStatus.some(s => s.fixedId === fe.id && s.month === txMonth && s.status === 'pago');
+            });
+            if (alreadyPaid) {
+                suggestions.push({ tx, action: 'already-validated', matchId: alreadyPaid.id, matchDesc: alreadyPaid.description, category: alreadyPaid.category, selected: false });
+                return;
+            }
             const fixedMatch = fixedExpenses.find(fe => {
                 const effAmt = getEffectiveFixedAmount(fe, new Date(txMonth + '-01T12:00:00'));
                 if (Math.abs(effAmt - txAmt) >= 0.02) return false;
