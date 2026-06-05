@@ -3715,15 +3715,17 @@ function renderCycleExpenses() {
             const col = r.diff > 0 ? '#1565C0' : '#C62828';
             return { chip: `<span style="font-size:0.65rem;color:${col};font-weight:700">${r.diff > 0 ? '+' : '−'}${formatCurrency(Math.abs(r.diff))}</span>`, border: r.diff > 0 ? '#90CAF9' : '#EF9A9A' };
         };
-        const rows = accounts.map(a => {
+        const makeAccRow = (a) => {
             const bal = getAccountBalance(a.id);
             const color = a.color || '#9E9E9E';
             const isActive = _cycleAccFilter === a.id;
             const { chip, border } = snapIndicator(a.id, bal);
             const rowBg = isActive ? color + '18' : 'transparent';
+            const icon = a.isSavings ? `<span style="font-size:0.75rem;width:16px;text-align:center;flex-shrink:0;line-height:1">🐷</span>`
+                : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.65rem;color:${color};width:16px;text-align:center;flex-shrink:0"></i>`;
             return `<div style="display:flex;align-items:center;gap:0;background:${rowBg};border-radius:6px;margin:0 -4px">
                 <button onclick="setCycleAccountFilter('${a.id}')" style="display:flex;align-items:center;flex:1;padding:5px 4px;background:none;border:none;cursor:pointer;font-family:var(--font);text-align:left;min-width:0">
-                    <i class="fas ${a.icon || 'fa-university'}" style="font-size:0.65rem;color:${color};width:16px;text-align:center;flex-shrink:0"></i>
+                    ${icon}
                     <span style="font-size:0.8rem;color:${isActive ? color : 'var(--text)'};font-weight:${isActive ? '700' : '500'};margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
                 </button>
                 <button onclick="openBalanceSnapshotModal('${a.id}')" style="display:flex;align-items:center;gap:5px;padding:5px 4px;background:none;border:none;border-left:1.5px solid ${border || 'transparent'};cursor:pointer;font-family:var(--font);flex-shrink:0">
@@ -3731,7 +3733,13 @@ function renderCycleExpenses() {
                     ${chip}
                 </button>
             </div>`;
-        }).join('');
+        };
+        const currentAccounts = accounts.filter(a => !a.isSavings);
+        const savingsAccounts = accounts.filter(a => a.isSavings);
+        const currentRows = currentAccounts.map(makeAccRow).join('');
+        const savingsRows2 = savingsAccounts.length
+            ? `<div style="font-size:0.65rem;color:var(--text-light);font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:4px 4px 1px;margin-top:2px">Poupanças</div>${savingsAccounts.map(makeAccRow).join('')}`
+            : '';
         const isNoneActive = _cycleAccFilter === '__none__';
         const untaggedRow = untaggedDelta !== 0 ? `<div style="display:flex;align-items:center;gap:0;background:${isNoneActive ? '#9E9E9E18' : 'transparent'};border-radius:6px;margin:0 -4px">
             <button onclick="setCycleAccountFilter('__none__')" style="display:flex;align-items:center;flex:1;padding:5px 4px;background:none;border:none;cursor:pointer;font-family:var(--font);text-align:left">
@@ -3740,16 +3748,17 @@ function renderCycleExpenses() {
             </button>
             <span style="font-size:0.8rem;font-weight:700;color:var(--text-light);padding:5px 4px">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
         </div>` : '';
-        const totalAccBal = accounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
-        const cycleBalDiff = totalAccBal - closingBalance;
+        // Total and "vs ciclo" use only current (non-savings) accounts
+        const currentTotal = currentAccounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
+        const cycleBalDiff = currentTotal - closingBalance;
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
         const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
         return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
-            ${rows}${untaggedRow}
+            ${currentRows}${untaggedRow}${savingsRows2}
             <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
                 <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total <span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span></span>
                 <span style="display:flex;align-items:center;gap:6px">
-                    <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(totalAccBal)}</span>
+                    <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(currentTotal)}</span>
                     <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
                     <button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
                 </span>
