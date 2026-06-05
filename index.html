@@ -1983,6 +1983,17 @@
                 </div>
                 <form id="fixed-form" onsubmit="saveFixed(event)">
                     <input type="hidden" id="fixed-id">
+                    <div id="fixed-month-scope-wrap" style="display:none;background:#FFF8E1;border:1px solid #FFE082;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+                        <div style="font-size:0.72rem;font-weight:700;color:#795548;margin-bottom:8px">APLICAR ALTERAÇÕES A:</div>
+                        <div style="display:flex;gap:6px">
+                            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px;border-radius:8px;border:1.5px solid #FFE082;background:#fff;font-size:0.75rem;font-weight:600;cursor:pointer">
+                                <input type="radio" name="fixed-scope" value="month" style="margin:0"> Só este mês
+                            </label>
+                            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px;border-radius:8px;border:1.5px solid #FFE082;background:#fff;font-size:0.75rem;font-weight:600;cursor:pointer">
+                                <input type="radio" name="fixed-scope" value="forward" style="margin:0"> A partir deste mês
+                            </label>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>Descricao</label>
                         <input type="text" id="fixed-desc" required placeholder="Ex: Prestacao da casa">

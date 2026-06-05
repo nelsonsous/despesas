@@ -14832,6 +14832,8 @@ function renderFixedList() {
 function showAddFixed() {
     document.getElementById('fixed-modal-title').textContent = 'Nova Despesa Fixa';
     document.getElementById('fixed-id').value = '';
+    const sw = document.getElementById('fixed-month-scope-wrap');
+    if (sw) sw.style.display = 'none';
     populateCategorySelects();
     populateFixedTypeOptions();
     document.getElementById('fixed-form').reset();
@@ -14859,6 +14861,12 @@ function editFixed(id, monthDate) {
     if (!f) return;
     window._editFixedMonthDate = monthDate || null;
     window._editFixedScrollY = window.scrollY;
+    const scopeWrap = document.getElementById('fixed-month-scope-wrap');
+    if (scopeWrap) {
+        scopeWrap.style.display = monthDate ? 'block' : 'none';
+        const defaultScope = document.querySelector('input[name="fixed-scope"][value="month"]');
+        if (defaultScope && monthDate) defaultScope.checked = true;
+    }
     const monthD = monthDate ? new Date(monthDate + 'T12:00:00') : null;
     const displayAmount = monthD ? getEffectiveFixedAmount(f, monthD) : f.amount;
     const fasel = document.getElementById('fixed-account');
@@ -14995,11 +15003,26 @@ function saveFixed(event) {
             existing.amount !== fixed.amount ||
             existing.description !== fixed.description ||
             existing.dayOfMonth !== fixed.dayOfMonth ||
-            existing.paymentMode !== fixed.paymentMode ||
+            // Normalize paymentMode: old expenses may lack this field; treat
+            // missing and 'fixed-day' as identical to avoid false new-versions.
+            (existing.paymentMode || 'fixed-day') !== (fixed.paymentMode || 'fixed-day') ||
             existing.isVariable !== fixed.isVariable ||
             (existing.frequency || 1) !== (fixed.frequency || 1)
         );
-        if (existing && existing.startDate < currentMonthKey && materialChangeExp) {
+        // When editing from cycle list: "só este mês" scope keeps the amount
+        // override already saved to fixedStatus but leaves fixedExpenses intact.
+        const scope = document.querySelector('input[name="fixed-scope"]:checked')?.value || 'forward';
+        const onlyThisMonth = monthDateCtx && scope === 'month';
+        if (onlyThisMonth) {
+            // Amount override already written to fixedStatus above; non-material
+            // field changes (account, category) still apply in-place for all months.
+            if (!materialChangeExp && idx >= 0) {
+                fixed.createdAt = fixedExpenses[idx].createdAt;
+                fixed.startDate = fixedExpenses[idx].startDate;
+                fixedExpenses[idx] = fixed;
+            }
+            showToast('Alterado apenas para este mês');
+        } else if (existing && existing.startDate < currentMonthKey && materialChangeExp) {
             // Material change with past history: end old and create new version
             fixedExpenses[idx].endDate = prevMonthKey;
             const newFixed = { ...fixed, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
