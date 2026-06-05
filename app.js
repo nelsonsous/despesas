@@ -13060,6 +13060,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
     const matchedExpIds = new Set();
     const matchedIncIds = new Set();
     const pairedTxIndices = new Set();
+    const reimbursedTxIndices = new Set();
 
     // Pre-pass: find credit+debit pairs from the same source (e.g. Mbway received + Mbway sent)
     // where the net (debit − credit) matches an existing app expense.
@@ -13151,6 +13152,10 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
     transactions.forEach((tx, _txIdx) => {
         if (pairedTxIndices.has(_txIdx)) return;
+        if (reimbursedTxIndices.has(_txIdx)) {
+            suggestions.push({ tx, action: 'already-validated', matchId: null, matchDesc: 'Reembolso', category: 'rendimento', selected: false });
+            return;
+        }
         const txDate = tx.date || '';
         const txAmt = parseFloat(tx.amount) || 0;
         const isDebit = tx.type !== 'credit';
@@ -13387,9 +13392,39 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
+        // 3.7 — reimbursed payment: bank debit D ≈ expense E (my share) + bank credit C (reimbursement).
+        // E.g. paid 10,21€ at store, registered expense 5,11€ (net cost), got 5,10€ back from partner.
+        if (isDebit) {
+            for (let ci = 0; ci < transactions.length; ci++) {
+                if (pairedTxIndices.has(ci) || reimbursedTxIndices.has(ci)) continue;
+                const cTx = transactions[ci];
+                if (cTx.type !== 'credit') continue;
+                const cAmt = parseFloat(cTx.amount) || 0;
+                if (cAmt <= 0 || cAmt >= txAmt) continue;
+                if (Math.abs(new Date(cTx.date + 'T12:00:00').getTime() - dateMs) > 7 * 86400000) continue;
+                const expShare = Math.round((txAmt - cAmt) * 100) / 100;
+                const reimExp = expenses.find(e =>
+                    !matchedExpIds.has(e.id) &&
+                    !e.bankValidated &&
+                    !e.isGrouped &&
+                    Math.abs((e.amount || 0) - expShare) < 0.10 &&
+                    Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
+                );
+                if (reimExp) {
+                    matchedExpIds.add(reimExp.id);
+                    reimbursedTxIndices.add(ci);
+                    suggestions.push({ tx, action: 'validate-reimbursed',
+                        matchId: reimExp.id, matchDesc: reimExp.description,
+                        reimbTxDesc: cTx.description, reimbAmt: cAmt,
+                        category: reimExp.category, selected: true });
+                    return;
+                }
+            }
+        }
+
         // 3.9 — suggest-link: bank tx has no exact match but there are unvalidated app
         // expenses/incomes nearby. Show them as candidates for the user to manually confirm.
-        // Only fires when nothing matched in steps 0-3.5. Default = not selected.
+        // Only fires when nothing matched in steps 0-3.7. Default = not selected.
         {
             const sideArr = isDebit ? expenses : incomes;
             const rawCandidates = sideArr.filter(e =>
@@ -13405,7 +13440,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 return { e, hasOverlap, amtDiff, amtPct };
             }).filter(sc => sc.hasOverlap || sc.amtPct < 0.30 || sc.amtDiff < 15);
             scored.sort((a, b) => (b.hasOverlap - a.hasOverlap) || (a.amtDiff - b.amtDiff));
-            const slCandidates = scored.slice(0, 3);
+            const slCandidates = scored.slice(0, 5);
             if (slCandidates.length > 0) {
                 suggestions.push({ tx, action: 'suggest-link',
                     matchKind: isDebit ? 'expense' : 'income',
@@ -13436,18 +13471,21 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             if (e.isGrouped && Array.isArray(e.entries)) {
                 e.entries.forEach(en => {
                     if (matchedExpIds.has(e.id)) return;
+                    if (en.bankValidated) return;
                     if (!en.date || en.date < extStartStr || en.date > extEndStr) return;
                     suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: en.amount, date: en.date, selected: false });
                 });
                 return;
             }
             if (matchedExpIds.has(e.id)) return;
+            if (e.bankValidated) return;
             if (!e.date || e.date < extStartStr || e.date > extEndStr) return;
             suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: e.amount, date: e.date, selected: false });
         });
 
         incomes.forEach(i => {
             if (matchedIncIds.has(i.id)) return;
+            if (i.bankValidated) return;
             if (!i.date || i.date < extStartStr || i.date > extEndStr) return;
             suggestions.push({ tx: null, action: 'no-match', matchId: i.id, matchKind: 'income', matchDesc: i.description, category: i.category, amount: i.amount, date: i.date, selected: false });
         });
@@ -13569,7 +13607,7 @@ function renderBankReconciliation() {
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
-    const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated','net-pair'].includes(s.action));
+    const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','validate-reimbursed','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated','net-pair'].includes(s.action));
     const suggestGroup     = bankImportSuggestions.filter(s => s.action === 'suggest-link');
     const createGroup      = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer','ignore'].includes(s.action));
     const noMatchGroup     = bankImportSuggestions.filter(s => s.action === 'no-match');
@@ -13610,6 +13648,8 @@ function renderBankReconciliation() {
         else if (s.action === 'validate-split') {
             const names = (s.matchDescs || []).map(d => d.slice(0, 12)).join(' + ');
             tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ split: ${names}</span>`;
+        } else if (s.action === 'validate-reimbursed') {
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ "${(s.matchDesc||'').slice(0,14)}" · reembolso ${formatCurrency(s.reimbAmt)} incl.</span>`;
         } else if (s.action === 'validate-entry') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">✓ entrada em "${(s.matchDesc||'').slice(0,14)}"</span>`;
         else if (s.action === 'mark-fixed-paid') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E3F2FD;color:#1565C0">Fixa → paga · ${(s.matchDesc||'').slice(0,16)}</span>`;
         else if (s.action === 'mark-fixed-income-received') tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Fixa → recebida · ${(s.matchDesc||'').slice(0,14)}</span>`;
@@ -13774,6 +13814,13 @@ async function applyBankImportSelections() {
                     if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
                     count++;
                 }
+            }
+        } else if (s.action === 'validate-reimbursed') {
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}) };
+                count++;
             }
         } else if (s.action === 'already-validated') {
             // User explicitly re-selected an already-validated item: update account/date.
