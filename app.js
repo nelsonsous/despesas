@@ -13082,6 +13082,25 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 suggestions.push({ tx, action: alreadyDone0 ? 'already-validated' : 'validate', matchId: m.id, matchKind: mappedExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: !alreadyDone0, mappedFrom: mapping.bankRaw });
                 return;
             }
+            // Mapping name points to a fixed income/expense (not a regular transaction)
+            if (!isDebit && txMonth) {
+                const txMD0 = new Date(txMonth + '-01T12:00:00');
+                const mFI = fixedIncomes.find(fi => fi.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim());
+                if (mFI) {
+                    const effSt0 = getEffectiveFixedIncomeStatus(mFI, txMD0);
+                    suggestions.push({ tx, action: effSt0.status === 'recebido' ? 'already-validated' : 'mark-fixed-income-received', matchId: mFI.id, matchDesc: mFI.description, category: mFI.category, selected: effSt0.status !== 'recebido', mappedFrom: mapping.bankRaw });
+                    return;
+                }
+            }
+            if (isDebit && txMonth) {
+                const txMD0 = new Date(txMonth + '-01T12:00:00');
+                const mFE = fixedExpenses.find(fe => fe.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim());
+                if (mFE) {
+                    const isPaid0 = fixedStatus.some(s => s.fixedId === mFE.id && s.month === txMonth && s.status === 'pago');
+                    suggestions.push({ tx, action: isPaid0 ? 'already-validated' : 'mark-fixed-paid', matchId: mFE.id, matchDesc: mFE.description, category: mFE.category, selected: !isPaid0, mappedFrom: mapping.bankRaw });
+                    return;
+                }
+            }
         }
 
         // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
@@ -13187,20 +13206,26 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // 3 — match fixed income (credit, same amount, same month, not yet received)
         if (!isDebit && txMonth) {
             const txMonthDateFI = new Date(txMonth + '-01T12:00:00');
+            const fiAmtMatch = (fi) => {
+                const effAmt = getEffectiveFixedIncomeAmount(fi, txMonthDateFI);
+                // Variable incomes may have a different month amount than the base (e.g. meal
+                // subsidy varies by working days). Allow up to 20€ / 15% tolerance so that a
+                // bank debit of 198 still matches a base of 183.
+                const tol = fi.isVariable ? Math.min(20, (effAmt || fi.amount || 0) * 0.15) : 0.02;
+                return Math.abs(effAmt - txAmt) < tol || Math.abs((fi.amount || 0) - txAmt) < tol;
+            };
             // Check if already received — show as already-validated (not selected by default)
             const alreadyReceived = fixedIncomes.find(fi => {
-                if (Math.abs(getEffectiveFixedIncomeAmount(fi, txMonthDateFI) - txAmt) >= 0.02) return false;
-                const st = getFixedIncomeStatusForMonth(fi.id, txMonthDateFI);
-                return st?.status === 'recebido';
+                if (!fiAmtMatch(fi)) return false;
+                return getEffectiveFixedIncomeStatus(fi, txMonthDateFI).status === 'recebido';
             });
             if (alreadyReceived) {
                 suggestions.push({ tx, action: 'already-validated', matchId: alreadyReceived.id, matchDesc: alreadyReceived.description, category: alreadyReceived.category, selected: false });
                 return;
             }
             const fixedIncMatch = fixedIncomes.find(fi => {
-                if (Math.abs(getEffectiveFixedIncomeAmount(fi, txMonthDateFI) - txAmt) >= 0.02) return false;
-                const st = getFixedIncomeStatusForMonth(fi.id, txMonthDateFI);
-                return !st || st.status !== 'recebido';
+                if (!fiAmtMatch(fi)) return false;
+                return getEffectiveFixedIncomeStatus(fi, txMonthDateFI).status !== 'recebido';
             });
             if (fixedIncMatch) {
                 suggestions.push({ tx, action: 'mark-fixed-income-received', matchId: fixedIncMatch.id, matchDesc: fixedIncMatch.description, category: fixedIncMatch.category, selected: true });
@@ -13603,12 +13628,14 @@ async function applyBankImportSelections() {
             const idx = fixedStatus.findIndex(fs => fs.fixedId === s.matchId && fs.month === month);
             const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidAt: new Date().toISOString() };
             if (idx >= 0) fixedStatus[idx] = entry; else fixedStatus.push(entry);
+            if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
         } else if (s.action === 'mark-fixed-income-received') {
             const month = tx.date.slice(0, 7);
             const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
             const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
+            if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
         } else if (s.action === 'net-pair') {
             // Credit+debit pair from same source: net amount matches an existing expense
