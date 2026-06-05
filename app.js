@@ -13530,15 +13530,20 @@ function renderBankReconciliation() {
         }
         else if (s.action === 'create-expense') {
             const catOpts = Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('');
+            const descVal = (s.suggestedDesc != null ? s.suggestedDesc : (tx.description || '')).replace(/"/g, '&quot;');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <input value="${descVal}" oninput="bankImportSuggestions[${i}].suggestedDesc=this.value" placeholder="Descrição" style="font-size:0.68rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);min-width:90px;flex:1;max-width:170px">
                 <select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>
                 <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transf.</button>
                 <button onclick="event.stopPropagation();savePendingBankTx(bankImportSuggestions[${i}].tx,document.getElementById('bank-import-account-sel')?.value)" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Guardar para cruzar com outro extrato">💾</button>
                 <button onclick="bankImportSuggestions[${i}].action='ignore';bankImportSuggestions[${i}].selected=false;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #FFCDD2;border-radius:6px;background:#FFEBEE;color:#C62828;cursor:pointer">🚫</button>
             </div>`;
         } else if (s.action === 'create-income') {
+            const incCatOpts = Object.entries(getEffectiveIncomeCategories()).map(([id, c]) => `<option value="${id}"${id === (s.category || 'rendimento') ? ' selected' : ''}>${c.label}</option>`).join('');
+            const descValInc = (s.suggestedDesc != null ? s.suggestedDesc : (tx.description || '')).replace(/"/g, '&quot;');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-                <span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Nova receita</span>
+                <input value="${descValInc}" oninput="bankImportSuggestions[${i}].suggestedDesc=this.value" placeholder="Descrição" style="font-size:0.68rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);min-width:90px;flex:1;max-width:170px">
+                <select onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${incCatOpts}</select>
                 <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transf.</button>
                 <button onclick="event.stopPropagation();savePendingBankTx(bankImportSuggestions[${i}].tx,document.getElementById('bank-import-account-sel')?.value)" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Guardar para cruzar com outro extrato">💾</button>
                 <button onclick="bankImportSuggestions[${i}].action='ignore';bankImportSuggestions[${i}].selected=false;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #FFCDD2;border-radius:6px;background:#FFEBEE;color:#C62828;cursor:pointer">🚫</button>
@@ -13700,7 +13705,7 @@ async function applyBankImportSelections() {
             count++;
         } else if (s.action === 'create-income') {
             const desc = s.suggestedDesc || tx.description || 'Importado extrato';
-            incomes.push({ id: generateId(), date: tx.date, description: desc, amount: tx.amount, category: 'rendimento', accountId, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            incomes.push({ id: generateId(), date: tx.date, description: desc, amount: tx.amount, category: s.category || 'rendimento', accountId, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         } else if (s.action === 'mark-fixed-paid') {
             const month = tx.date.slice(0, 7);
