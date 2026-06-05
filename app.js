@@ -4237,13 +4237,31 @@ function isFiltersBarOpen() {
 function hasActiveFilters() {
     const c = document.getElementById('filter-category')?.value;
     const t = document.getElementById('filter-type')?.value;
-    return Boolean(c || t);
+    return Boolean(c || t || getFilterUnvalidated());
 }
 function activeFiltersCount() {
     let n = 0;
     if (document.getElementById('filter-category')?.value) n++;
     if (document.getElementById('filter-type')?.value) n++;
+    if (getFilterUnvalidated()) n++;
     return n;
+}
+function getFilterUnvalidated() {
+    return localStorage.getItem('despesas_filter_unvalidated') === '1';
+}
+function toggleFilterUnvalidated() {
+    const next = !getFilterUnvalidated();
+    localStorage.setItem('despesas_filter_unvalidated', next ? '1' : '0');
+    const btn = document.getElementById('filter-unvalidated-btn');
+    if (btn) btn.classList.toggle('active', next);
+    updateFiltersSummary();
+    renderExpenses();
+}
+function isExpenseFullyValidated(e) {
+    if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
+        return e.entries.every(en => en.bankValidated);
+    }
+    return !!e.bankValidated;
 }
 function updateFiltersSummary() {
     const txt = document.getElementById('filter-bar-summary-text');
@@ -4272,6 +4290,8 @@ function toggleFiltersBar() {
 function initFiltersBar() {
     applyFiltersBarOpen(isFiltersBarOpen());
     updateFiltersSummary();
+    const btn = document.getElementById('filter-unvalidated-btn');
+    if (btn) btn.classList.toggle('active', getFilterUnvalidated());
 }
 
 // Persisted toggle for the despesas tab list view ('category' | 'chrono').
@@ -4596,6 +4616,7 @@ function renderExpenses() {
     let filtered = monthExp;
     if (filterCat) filtered = filtered.filter(e => e.category === filterCat);
     if (filterType) filtered = filtered.filter(e => e.type === filterType);
+    if (getFilterUnvalidated()) filtered = filtered.filter(e => !isExpenseFullyValidated(e));
     filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     const otherTotal = filtered.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
@@ -4719,6 +4740,7 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
     let all = [...varRows, ...fixedRows];
     if (filterCat) all = all.filter(e => e.category === filterCat);
     if (filterType) all = all.filter(e => e.type === filterType);
+    if (getFilterUnvalidated()) all = all.filter(e => e._kind !== 'var' || !isExpenseFullyValidated(e));
 
     if (chronoFilter === 'fixed') all = all.filter(e => e._kind === 'fixed');
     else if (chronoFilter === 'variable') all = all.filter(e => e._kind === 'var');
