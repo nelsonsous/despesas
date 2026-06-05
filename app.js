@@ -3751,12 +3751,30 @@ function renderCycleExpenses() {
         // Total and "vs ciclo" use only current (non-savings) accounts
         const currentTotal = currentAccounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
         const cycleBalDiff = currentTotal - closingBalance;
+        // Persist stats for openCycleDiffModal
+        window._cycleDiffStats = {
+            currentTotal, closingBalance, cycleBalDiff,
+            cycleStart: cycle.start, opening: getCycleOpeningBalance(cycle.start),
+            accounts: currentAccounts.map(a => {
+                const bal = getAccountBalance(a.id);
+                const snaps = balanceSnapshots.filter(s => s.accountId === a.id).sort((a, b) => b.date.localeCompare(a.date));
+                const toSnap = snaps[0];
+                let gap = null;
+                if (toSnap) {
+                    let fromSnap = snaps[1];
+                    if (!fromSnap) { const a0 = accounts.find(x => x.id === a.id); fromSnap = a0?.initialBalanceDate ? { amount: a0.initialBalance || 0, date: a0.initialBalanceDate } : null; }
+                    if (fromSnap) { const r = reconcileAccount(a.id, fromSnap, toSnap); gap = Math.abs(r.diff) < 0.02 ? 0 : r.diff; }
+                }
+                return { id: a.id, name: a.name, bal, gap };
+            })
+        };
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
         const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
+        const diffClickable = Math.abs(cycleBalDiff) >= 1;
         return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
             ${currentRows}${untaggedRow}${savingsRows2}
             <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
-                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total <span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span></span>
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total ${diffClickable ? `<button onclick="openCycleDiffModal()" style="background:none;border:none;padding:0;cursor:pointer;font-family:var(--font)"><span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel} <i class="fas fa-info-circle" style="font-size:0.6rem"></i></span></button>` : `<span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span>`}</span>
                 <span style="display:flex;align-items:center;gap:6px">
                     <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(currentTotal)}</span>
                     <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
@@ -6403,6 +6421,65 @@ function getCycleOpeningBalance(cycleStart) {
         cursor.setDate(cursor.getDate() - 1);
     }
     return opening;
+}
+
+function openCycleDiffModal() {
+    const s = window._cycleDiffStats;
+    if (!s) return;
+    const { currentTotal, closingBalance, cycleBalDiff, cycleStart, opening, accounts } = s;
+    const cycleStartKey = toLocalDateStr(cycleStart);
+    const knownGap = accounts.reduce((sum, a) => sum + (a.gap || 0), 0);
+    const unexplained = cycleBalDiff - knownGap;
+
+    const accRows = accounts.map(a => {
+        const gapTxt = a.gap === null ? `<span style="color:#9E9E9E;font-size:0.7rem">sem snapshot</span>`
+            : Math.abs(a.gap) < 0.02 ? `<span style="color:#2E7D32;font-size:0.7rem">✓</span>`
+            : `<span style="color:${a.gap > 0 ? '#1565C0' : '#C62828'};font-size:0.7rem;font-weight:600">${a.gap > 0 ? '+' : ''}${formatCurrency(a.gap)}</span>`;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.78rem;padding:3px 0">
+            <span>${a.name}</span>
+            <span style="display:flex;gap:10px;align-items:center">${gapTxt}<span style="color:var(--text-light)">${formatCurrency(a.bal)}</span></span>
+        </div>`;
+    }).join('');
+
+    const newOpening = opening + cycleBalDiff;
+
+    const el = document.getElementById('modal-confirm');
+    if (!el) return;
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px">
+        <div style="font-weight:800;font-size:1rem;margin-bottom:14px">Diferença vs Ciclo</div>
+        <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0">
+            <span>Soma das contas</span><span style="font-weight:600">${formatCurrency(currentTotal)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
+            <span>Saldo do ciclo</span><span style="font-weight:600">${formatCurrency(closingBalance)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.85rem;font-weight:700;padding:4px 0;margin-bottom:12px">
+            <span>Diferença</span><span style="color:${cycleBalDiff < 0 ? '#C62828' : '#1565C0'}">${cycleBalDiff > 0 ? '+' : ''}${formatCurrency(cycleBalDiff)}</span>
+        </div>
+        <div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Validação por conta (período atual)</div>
+        ${accRows}
+        ${Math.abs(unexplained) >= 0.05 ? `<div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-light);padding:6px 8px;background:var(--bg);border-radius:6px;margin-top:8px">
+            <span>Offset histórico (pré-contas)</span>
+            <span style="font-weight:600">${unexplained > 0 ? '+' : ''}${formatCurrency(unexplained)}</span>
+        </div>` : ''}
+        <div style="font-size:0.72rem;color:var(--text-light);margin-top:10px;line-height:1.4">
+            Calibrar ajusta o <em>Saldo transitado</em> para que o ciclo passe a partir do saldo real das contas. Os gaps individuais por conta mantêm-se visíveis para validação.
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px">
+            <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-family:var(--font);font-size:0.85rem;cursor:pointer">Fechar</button>
+            <button onclick="calibrateCycleOpening('${cycleStartKey}',${newOpening})" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.85rem;font-weight:700;cursor:pointer">Calibrar</button>
+        </div>
+    </div>`;
+    el.classList.add('active');
+}
+
+function calibrateCycleOpening(cycleStartKey, newOpening) {
+    cycleOpeningOverrides[cycleStartKey] = newOpening;
+    saveData();
+    document.getElementById('modal-confirm').innerHTML = '';
+    document.getElementById('modal-confirm').classList.remove('active');
+    renderCycleExpenses();
+    showToast('Saldo transitado calibrado');
 }
 
 function editCycleOpeningBalance(cycleStartKey, currentValue) {
