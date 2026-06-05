@@ -13060,7 +13060,8 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
     const matchedExpIds = new Set();
     const matchedIncIds = new Set();
     const pairedTxIndices = new Set();
-    const reimbursedTxIndices = new Set();
+    const reimbursedTxIndices = new Set(); // credit tx indices consumed by a reimbursed pair
+    const reimbursedDebitData = new Map(); // debit tx index → { expense, reimbAmt, reimbTxDesc }
 
     // Pre-pass: find credit+debit pairs from the same source (e.g. Mbway received + Mbway sent)
     // where the net (debit − credit) matches an existing app expense.
@@ -13150,10 +13151,50 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         }
     }
 
+    // Pre-pass 3.7: identify reimbursed payment pairs before the main forEach so both
+    // the debit and its credit are resolved correctly regardless of order in the statement.
+    for (let di = 0; di < transactions.length; di++) {
+        if (pairedTxIndices.has(di)) continue;
+        const dTx = transactions[di];
+        if (dTx.type === 'credit' || !dTx.date) continue;
+        const dAmt = parseFloat(dTx.amount) || 0;
+        if (dAmt <= 0) continue;
+        const dMs = new Date(dTx.date + 'T12:00:00').getTime();
+        for (let ci = 0; ci < transactions.length; ci++) {
+            if (pairedTxIndices.has(ci) || reimbursedTxIndices.has(ci)) continue;
+            const cTx = transactions[ci];
+            if (cTx.type !== 'credit') continue;
+            const cAmt = parseFloat(cTx.amount) || 0;
+            if (cAmt <= 0 || cAmt >= dAmt) continue;
+            if (Math.abs(new Date(cTx.date + 'T12:00:00').getTime() - dMs) > 7 * 86400000) continue;
+            const expShare = Math.round((dAmt - cAmt) * 100) / 100;
+            const reimExp = expenses.find(e =>
+                !matchedExpIds.has(e.id) &&
+                !e.bankValidated &&
+                !e.isGrouped &&
+                Math.abs((e.amount || 0) - expShare) < 0.10 &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dMs) <= 7 * 86400000
+            );
+            if (reimExp) {
+                matchedExpIds.add(reimExp.id);
+                reimbursedTxIndices.add(ci);
+                reimbursedDebitData.set(di, { expense: reimExp, reimbAmt: cAmt, reimbTxDesc: cTx.description });
+                break;
+            }
+        }
+    }
+
     transactions.forEach((tx, _txIdx) => {
         if (pairedTxIndices.has(_txIdx)) return;
         if (reimbursedTxIndices.has(_txIdx)) {
             suggestions.push({ tx, action: 'already-validated', matchId: null, matchDesc: 'Reembolso', category: 'rendimento', selected: false });
+            return;
+        }
+        if (reimbursedDebitData.has(_txIdx)) {
+            const { expense: reimExp, reimbAmt, reimbTxDesc } = reimbursedDebitData.get(_txIdx);
+            suggestions.push({ tx, action: 'validate-reimbursed',
+                matchId: reimExp.id, matchDesc: reimExp.description,
+                reimbTxDesc, reimbAmt, category: reimExp.category, selected: true });
             return;
         }
         const txDate = tx.date || '';
@@ -13389,36 +13430,6 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     matchDescs: splitMatch.map(e => e.description),
                     category: splitMatch[0].category, selected: true });
                 return;
-            }
-        }
-
-        // 3.7 — reimbursed payment: bank debit D ≈ expense E (my share) + bank credit C (reimbursement).
-        // E.g. paid 10,21€ at store, registered expense 5,11€ (net cost), got 5,10€ back from partner.
-        if (isDebit) {
-            for (let ci = 0; ci < transactions.length; ci++) {
-                if (pairedTxIndices.has(ci) || reimbursedTxIndices.has(ci)) continue;
-                const cTx = transactions[ci];
-                if (cTx.type !== 'credit') continue;
-                const cAmt = parseFloat(cTx.amount) || 0;
-                if (cAmt <= 0 || cAmt >= txAmt) continue;
-                if (Math.abs(new Date(cTx.date + 'T12:00:00').getTime() - dateMs) > 7 * 86400000) continue;
-                const expShare = Math.round((txAmt - cAmt) * 100) / 100;
-                const reimExp = expenses.find(e =>
-                    !matchedExpIds.has(e.id) &&
-                    !e.bankValidated &&
-                    !e.isGrouped &&
-                    Math.abs((e.amount || 0) - expShare) < 0.10 &&
-                    Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
-                );
-                if (reimExp) {
-                    matchedExpIds.add(reimExp.id);
-                    reimbursedTxIndices.add(ci);
-                    suggestions.push({ tx, action: 'validate-reimbursed',
-                        matchId: reimExp.id, matchDesc: reimExp.description,
-                        reimbTxDesc: cTx.description, reimbAmt: cAmt,
-                        category: reimExp.category, selected: true });
-                    return;
-                }
             }
         }
 
