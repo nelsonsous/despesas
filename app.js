@@ -13228,13 +13228,26 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 Math.abs((e.amount || 0) - txAmt) < 0.02 &&
                 e.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
                 Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : [];
-            const mappedExp = _expCands.find(e => e.bankValidated) || _expCands[0] || null;
+            // Sort: closest date first; for same date prefer bankValidated
+            _expCands.sort((a, b) => {
+                const da = Math.abs(new Date(a.date + 'T12:00:00').getTime() - dateMs);
+                const db = Math.abs(new Date(b.date + 'T12:00:00').getTime() - dateMs);
+                if (da !== db) return da - db;
+                return (b.bankValidated ? 1 : 0) - (a.bankValidated ? 1 : 0);
+            });
+            const mappedExp = _expCands[0] || null;
             const _incCands = !isDebit ? incomes.filter(i =>
                 !matchedIncIds.has(i.id) &&
                 Math.abs((i.amount || 0) - txAmt) < 0.02 &&
                 i.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
                 Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : [];
-            const mappedInc = _incCands.find(i => i.bankValidated) || _incCands[0] || null;
+            _incCands.sort((a, b) => {
+                const da = Math.abs(new Date(a.date + 'T12:00:00').getTime() - dateMs);
+                const db = Math.abs(new Date(b.date + 'T12:00:00').getTime() - dateMs);
+                if (da !== db) return da - db;
+                return (b.bankValidated ? 1 : 0) - (a.bankValidated ? 1 : 0);
+            });
+            const mappedInc = _incCands[0] || null;
             if (mappedExp || mappedInc) {
                 const m = mappedExp || mappedInc;
                 if (mappedExp) matchedExpIds.add(mappedExp.id);
@@ -13265,18 +13278,31 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         }
 
         // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
-        // Prefer already-bankValidated entries so re-importing the same statement shows them
-        // as 'already-validated' even when a newer non-validated entry has the same amount/date.
+        // Sort by closest date first; among same-date ties prefer bankValidated so that
+        // re-importing shows already-validated entries correctly, but a closer-dated
+        // non-validated entry takes precedence over a further-dated validated one.
         const _expCands1 = isDebit ? expenses.filter(e =>
             !matchedExpIds.has(e.id) &&
             Math.abs((e.amount || 0) - txAmt) < 0.02 &&
             Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : [];
-        const existingExp = _expCands1.find(e => e.bankValidated) || _expCands1[0] || null;
+        _expCands1.sort((a, b) => {
+            const da = Math.abs(new Date(a.date + 'T12:00:00').getTime() - dateMs);
+            const db = Math.abs(new Date(b.date + 'T12:00:00').getTime() - dateMs);
+            if (da !== db) return da - db;
+            return (b.bankValidated ? 1 : 0) - (a.bankValidated ? 1 : 0);
+        });
+        const existingExp = _expCands1[0] || null;
         const _incCands1 = !isDebit ? incomes.filter(i =>
             !matchedIncIds.has(i.id) &&
             Math.abs((i.amount || 0) - txAmt) < 0.02 &&
             Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : [];
-        const existingInc = _incCands1.find(i => i.bankValidated) || _incCands1[0] || null;
+        _incCands1.sort((a, b) => {
+            const da = Math.abs(new Date(a.date + 'T12:00:00').getTime() - dateMs);
+            const db = Math.abs(new Date(b.date + 'T12:00:00').getTime() - dateMs);
+            if (da !== db) return da - db;
+            return (b.bankValidated ? 1 : 0) - (a.bankValidated ? 1 : 0);
+        });
+        const existingInc = _incCands1[0] || null;
         if (existingExp || existingInc) {
             const m = existingExp || existingInc;
             if (existingExp) matchedExpIds.add(existingExp.id);
