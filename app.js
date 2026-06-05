@@ -5095,6 +5095,24 @@ function toggleGroupedExpand(id) {
     el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+function unvalidateExpense(id) {
+    const idx = expenses.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    if (!confirm('Remover a validação bancária desta despesa?')) return;
+    expenses[idx] = { ...expenses[idx], bankValidated: false };
+    saveData();
+    renderAll();
+}
+
+function unvalidateIncome(id) {
+    const idx = incomes.findIndex(i => i.id === id);
+    if (idx < 0) return;
+    if (!confirm('Remover a validação bancária desta receita?')) return;
+    incomes[idx] = { ...incomes[idx], bankValidated: false };
+    saveData();
+    renderAll();
+}
+
 function duplicateExpense(id) {
     const orig = expenses.find(e => e.id === id);
     if (!orig) return;
@@ -5325,6 +5343,7 @@ function renderExpenseItem(e) {
                         <span>${formatDate(e.date)}</span>
                         <span class="expense-tag ${tagClass}">${tagLabel}</span>
                         ${accChip}
+                        ${e.bankValidated ? `<button onclick="event.stopPropagation();unvalidateExpense('${e.id}')" title="Validado por extrato — clique para remover" style="font-size:0.58rem;color:#2E7D32;border:1px solid #C8E6C9;background:#F1F8E9;border-radius:4px;cursor:pointer;padding:1px 4px;font-family:inherit;display:inline-flex;align-items:center;gap:2px;white-space:nowrap"><i class="fas fa-landmark" style="font-size:0.5rem"></i> ✓ ×</button>` : ''}
                         ${groupedInfo}
                         ${groupedBreakdown}
                         ${e.split ? (() => { const p = getEffectiveSplitPct(e, expChild); const ov = parseFloat(e.splitPctOverride); const star = (!isNaN(ov) && ov > 0 && ov < 100) ? ' <span title="% específica desta despesa" style="color:var(--warning);font-size:0.6rem">●</span>' : ''; return `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${p}/${100-p}${star}</span>`; })() : ''}
@@ -5484,6 +5503,7 @@ function renderIncomeTab() {
                         <span>${formatDate(e.date)}</span>
                         <span>${cat.label}</span>
                         ${(() => { const a = e.accountId ? accounts.find(x => x.id === e.accountId) : null; return a ? `<span style="font-size:0.62rem;color:#546E7A;background:#ECEFF1;padding:1px 5px;border-radius:4px;white-space:nowrap"><i class="fas fa-credit-card" style="font-size:0.55rem"></i> ${a.last4 ? `*${a.last4}` : a.name.slice(0,10)}</span>` : ''; })()}
+                        ${e.bankValidated ? `<button onclick="event.stopPropagation();unvalidateIncome('${e.id}')" title="Validado por extrato — clique para remover" style="font-size:0.58rem;color:#2E7D32;border:1px solid #C8E6C9;background:#F1F8E9;border-radius:4px;cursor:pointer;padding:1px 4px;font-family:inherit;display:inline-flex;align-items:center;gap:2px;white-space:nowrap"><i class="fas fa-landmark" style="font-size:0.5rem"></i> ✓ ×</button>` : ''}
                     </div>
                 </div>
                 <div class="income-amount">+${formatCurrency(e.amount)}</div>
@@ -12623,8 +12643,8 @@ function getAccountBalance(accId) {
     let bal = acc.initialBalance || 0;
     incomes.forEach(inc => { if (inc.accountId === accId && inc.date > since) bal += inc.amount || 0; });
     fixedIncomes.forEach(fi => {
-        if (fi.accountId !== accId) return;
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
+            if ((s.accountId || fi.accountId) !== accId) return;
             const d = s.month + '-01';
             if (d > since) bal += (s.amount || fi.amount || 0);
         });
@@ -13167,7 +13187,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 if (matchedExpIds.has(e.id) || !e.isGrouped || !Array.isArray(e.entries)) continue;
                 const en = e.entries.find(en =>
                     Math.abs((en.amount || 0) - txAmt) < 0.02 &&
-                    Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
+                    Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000
                 );
                 if (en) { entryMatch = { expense: e, entry: en }; break; }
             }
@@ -13246,7 +13266,9 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             let splitMatch = null;
             outer35: for (let si = 0; si < splitCandidates.length; si++) {
                 for (let sj = si + 1; sj < splitCandidates.length; sj++) {
-                    if (Math.abs((splitCandidates[si].amount + splitCandidates[sj].amount) - txAmt) < 0.02) {
+                    if (Math.abs((splitCandidates[si].amount + splitCandidates[sj].amount) - txAmt) < 0.02 &&
+                        (bankDescWordOverlap(tx.description, splitCandidates[si].description) ||
+                         bankDescWordOverlap(tx.description, splitCandidates[sj].description))) {
                         splitMatch = [splitCandidates[si], splitCandidates[sj]];
                         break outer35;
                     }
@@ -13633,7 +13655,7 @@ async function applyBankImportSelections() {
         } else if (s.action === 'mark-fixed-income-received') {
             const month = tx.date.slice(0, 7);
             const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
-            const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
+            const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString(), ...(accountId ? { accountId } : {}) };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
             if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
