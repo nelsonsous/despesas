@@ -2303,6 +2303,16 @@
                         <label>Conta bancária (opcional)</label>
                         <select id="bank-import-account-sel"><option value="">— Sem conta —</option></select>
                     </div>
+                    <div style="display:flex;gap:8px;margin-bottom:10px">
+                        <div style="flex:1">
+                            <label style="font-size:0.75rem;color:var(--text-light);display:block;margin-bottom:3px">De</label>
+                            <input type="date" id="bank-import-from" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:0.82rem;box-sizing:border-box;background:var(--card-bg);color:var(--text)">
+                        </div>
+                        <div style="flex:1">
+                            <label style="font-size:0.75rem;color:var(--text-light);display:block;margin-bottom:3px">Até</label>
+                            <input type="date" id="bank-import-to" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:0.82rem;box-sizing:border-box;background:var(--card-bg);color:var(--text)">
+                        </div>
+                    </div>
                     <label for="bank-import-file" style="display:flex;flex-direction:column;align-items:center;padding:24px;border:2px dashed var(--border);border-radius:12px;cursor:pointer;gap:8px;text-align:center">
                         <i class="fas fa-file-arrow-up" style="font-size:2rem;color:var(--primary)"></i>
                         <span style="font-weight:600">Clica para escolher ficheiro</span>

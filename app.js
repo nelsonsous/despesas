@@ -13020,7 +13020,7 @@ function renderBalanceSnapshotModal() {
                 <span>⏳ Despesas por validar</span>
                 <span style="display:flex;align-items:center;gap:6px">
                     <span>−${formatCurrency(r.pendingExpenses)}</span>
-                    <button onclick="closeBalanceSnapshotModal();openBankImportModal('${accId}')" style="font-size:0.65rem;padding:2px 7px;border-radius:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;cursor:pointer;white-space:nowrap"><i class="fas fa-file-import" style="font-size:0.55rem"></i> Validar extrato</button>
+                    <button onclick="closeBalanceSnapshotModal();openBankImportModal('${accId}','${fromSnap.date}','${toSnap.date}')" style="font-size:0.65rem;padding:2px 7px;border-radius:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;cursor:pointer;white-space:nowrap"><i class="fas fa-file-import" style="font-size:0.55rem"></i> Validar extrato</button>
                 </span>
             </div>` : ''}
             ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por validar</span><span>+${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
@@ -13288,11 +13288,23 @@ function autoDetectBankAccount(meta) {
     return null;
 }
 
-const BANK_STATEMENT_AI_PROMPT = (content) =>
-    `Analisa este extrato bancário português e extrai TODAS as transações.\n${getBankStatementRules()}\n\nEXTRATO:\n${content}`;
+const BANK_STATEMENT_AI_PROMPT = (content) => {
+    const fromEl = document.getElementById('bank-import-from');
+    const toEl = document.getElementById('bank-import-to');
+    const rangeHint = (fromEl?.value && toEl?.value)
+        ? `\nFoca-te nas transações entre ${fromEl.value} e ${toEl.value} (inclui ambas as datas).`
+        : '';
+    return `Analisa este extrato bancário português e extrai TODAS as transações.${rangeHint}\n${getBankStatementRules()}\n\nEXTRATO:\n${content}`;
+};
 
-const BANK_STATEMENT_IMAGE_PROMPT = () =>
-    `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.\n${getBankStatementRules()}`;
+const BANK_STATEMENT_IMAGE_PROMPT = () => {
+    const fromEl = document.getElementById('bank-import-from');
+    const toEl = document.getElementById('bank-import-to');
+    const rangeHint = (fromEl?.value && toEl?.value)
+        ? `\nFoca-te nas transações entre ${fromEl.value} e ${toEl.value} (inclui ambas as datas).`
+        : '';
+    return `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.${rangeHint}\n${getBankStatementRules()}`;
+};
 
 function guessCategoryFromDesc(desc) {
     const d = (desc || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -13959,7 +13971,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
     return suggestions;
 }
 
-function openBankImportModal(preSelectAccountId) {
+function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     bankImportSuggestions = [];
     const modal = document.getElementById('modal-bank-import');
     if (!modal) return;
@@ -13983,6 +13995,11 @@ function openBankImportModal(preSelectAccountId) {
             if (nonSavings.length === 1) sel.value = nonSavings[0].id;
         }
     }
+    // Pre-fill date range if provided
+    const fromEl = document.getElementById('bank-import-from');
+    const toEl = document.getElementById('bank-import-to');
+    if (fromEl) fromEl.value = fromDate || '';
+    if (toEl) toEl.value = toDate || '';
     modal.classList.add('active');
 }
 
