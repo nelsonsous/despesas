@@ -5286,6 +5286,8 @@ function renderExpenseItem(e) {
 
     const catColor = cat.color || '#6C5CE7';
     const badgesRow = `${mixBadge}${splitWithBadge}${coParentBadge}`;
+    const expAcc = e.accountId ? accounts.find(a => a.id === e.accountId) : null;
+    const accChip = expAcc ? `<span style="font-size:0.62rem;color:#546E7A;background:#ECEFF1;padding:1px 5px;border-radius:4px;white-space:nowrap"><i class="fas fa-credit-card" style="font-size:0.55rem"></i> ${expAcc.last4 ? `*${expAcc.last4}` : expAcc.name.slice(0,10)}</span>` : '';
     // Prepaid card visual treatment: top-ups get a purple chip ("Carregamento"),
     // expenses paid from a card balance get a chip + muted strikethrough on
     // the amount because that money was already counted at top-up time.
@@ -5322,6 +5324,7 @@ function renderExpenseItem(e) {
                     <div class="expense-meta" style="min-width:0;flex:1">
                         <span>${formatDate(e.date)}</span>
                         <span class="expense-tag ${tagClass}">${tagLabel}</span>
+                        ${accChip}
                         ${groupedInfo}
                         ${groupedBreakdown}
                         ${e.split ? (() => { const p = getEffectiveSplitPct(e, expChild); const ov = parseFloat(e.splitPctOverride); const star = (!isNaN(ov) && ov > 0 && ov < 100) ? ' <span title="% específica desta despesa" style="color:var(--warning);font-size:0.6rem">●</span>' : ''; return `<span style="color:var(--primary)"><i class="fas fa-divide"></i> ${p}/${100-p}${star}</span>`; })() : ''}
@@ -5480,6 +5483,7 @@ function renderIncomeTab() {
                     <div class="expense-meta">
                         <span>${formatDate(e.date)}</span>
                         <span>${cat.label}</span>
+                        ${(() => { const a = e.accountId ? accounts.find(x => x.id === e.accountId) : null; return a ? `<span style="font-size:0.62rem;color:#546E7A;background:#ECEFF1;padding:1px 5px;border-radius:4px;white-space:nowrap"><i class="fas fa-credit-card" style="font-size:0.55rem"></i> ${a.last4 ? `*${a.last4}` : a.name.slice(0,10)}</span>` : ''; })()}
                     </div>
                 </div>
                 <div class="income-amount">+${formatCurrency(e.amount)}</div>
@@ -13512,6 +13516,13 @@ async function applyBankImportSelections() {
     const selected = bankImportSuggestions.filter(s => s.selected && s.action !== 'already-exists');
     if (!selected.length) { showToast('Nenhuma linha selecionada'); return; }
     const btn = document.getElementById('bank-import-apply-btn');
+    // Warn if no account selected and there are new expenses/incomes being created
+    if (!accountId) {
+        const hasNew = selected.some(s => ['create-expense','create-income','create-transfer','mark-fixed-paid','mark-fixed-income-received','net-pair'].includes(s.action));
+        if (hasNew && !confirm('Nenhuma conta selecionada — as despesas/receitas criadas não serão associadas a nenhum cartão/conta.\n\nContinuar mesmo assim?')) {
+            return;
+        }
+    }
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A aplicar…'; }
     let count = 0;
     selected.forEach((s, si) => {
