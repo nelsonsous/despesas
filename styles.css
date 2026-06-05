@@ -675,6 +675,22 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     gap: 8px;
 }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.btn-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-light);
+    font-size: 1.3rem;
+    line-height: 1;
+    padding: 4px 8px;
+    min-width: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
 
 /* ===== Form ===== */
 .form-group { margin-bottom: 16px; }
