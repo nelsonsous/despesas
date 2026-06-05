@@ -3771,6 +3771,7 @@ function renderCycleExpenses() {
                             ${balLine(r)}
                         </div>
                         <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                        ${!r.fixed ? `<button onclick="event.stopPropagation();confirmDeleteIncome('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
                     </div>`;
             }
             const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
@@ -3817,6 +3818,7 @@ function renderCycleExpenses() {
                         ${balLine(r)}
                     </div>
                     <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                    ${!r.isGroupedEntry && r.kind !== 'fixed' ? `<button onclick="event.stopPropagation();confirmDelete('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
                 </div>`;
         }).join('');
         return header + rowsHtml;
@@ -13578,7 +13580,7 @@ function renderBankReconciliation() {
         }
         else if (s.action === 'create-expense') {
             const catOpts = Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('');
-            const descVal = (s.suggestedDesc != null ? s.suggestedDesc : (tx.description || '')).replace(/"/g, '&quot;');
+            const descVal = (s.suggestedDesc != null ? s.suggestedDesc : (s.tx?.description || '')).replace(/"/g, '&quot;');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                 <input value="${descVal}" oninput="bankImportSuggestions[${i}].suggestedDesc=this.value" placeholder="Descrição" style="font-size:0.68rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);min-width:90px;flex:1;max-width:170px">
                 <select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>
@@ -13588,7 +13590,7 @@ function renderBankReconciliation() {
             </div>`;
         } else if (s.action === 'create-income') {
             const incCatOpts = Object.entries(getEffectiveIncomeCategories()).map(([id, c]) => `<option value="${id}"${id === (s.category || 'rendimento') ? ' selected' : ''}>${c.label}</option>`).join('');
-            const descValInc = (s.suggestedDesc != null ? s.suggestedDesc : (tx.description || '')).replace(/"/g, '&quot;');
+            const descValInc = (s.suggestedDesc != null ? s.suggestedDesc : (s.tx?.description || '')).replace(/"/g, '&quot;');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                 <input value="${descValInc}" oninput="bankImportSuggestions[${i}].suggestedDesc=this.value" placeholder="Descrição" style="font-size:0.68rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);min-width:90px;flex:1;max-width:170px">
                 <select onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${incCatOpts}</select>
