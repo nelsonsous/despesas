@@ -3469,6 +3469,7 @@ function renderCycleExpenses() {
         amount: f.amount,
         flowType: f.type,
         childId: null,
+        accountId: f.goalAccountId || null,
         status: f.type === 'add' ? 'pago' : 'recebido'
     }));
 
@@ -3733,14 +3734,7 @@ function renderCycleExpenses() {
     // Small "saldo após" line shown under each movement's amount.
     const balLine = (r) => {
         if (r.balanceAfter === null || r.balanceAfter === undefined) return '';
-        const globalPart = `<span style="color:var(--text-light)">= ${formatCurrency(r.balanceAfter)}</span>`;
-        if (r.accBalanceAfter !== undefined && r.accountId) {
-            const acc2 = accounts.find(a => a.id === r.accountId);
-            const accColor = acc2?.color || 'var(--text-light)';
-            const accPart = `<span style="color:${accColor};font-weight:600">${acc2?.name || ''} ${formatCurrency(r.accBalanceAfter)}</span>`;
-            return `<div style="font-size:0.6rem;margin-top:1px;display:flex;gap:4px;flex-wrap:wrap">${accPart} <span style="color:var(--text-light)">·</span> ${globalPart}</div>`;
-        }
-        return `<div style="font-size:0.6rem;margin-top:1px">${globalPart}</div>`;
+        return `<div style="font-size:0.6rem;margin-top:1px;color:var(--text-light)">= ${formatCurrency(r.balanceAfter)}</div>`;
     };
 
     // Helper to build swipe-to-delete attributes for a row div.
@@ -11078,7 +11072,7 @@ function getGoalsFlowsInRange(start, end) {
         (g.transactions || []).forEach(t => {
             if (!t.date) return;
             if (t.date < startStr || t.date > endStr) return;
-            out.push({ goalId: g.id, goalName: g.name, ...t });
+            out.push({ goalId: g.id, goalName: g.name, goalAccountId: g.accountId || null, ...t });
         });
     });
     return out;
@@ -11134,6 +11128,12 @@ function openGoalModal(id) {
     // Initial balance only makes sense on creation; the user changes later
     // values via the dedicated + / − buttons on the goal card.
     document.getElementById('goal-form-initial-group').style.display = g ? 'none' : 'block';
+    const accSel = document.getElementById('goal-form-account');
+    if (accSel) {
+        accSel.innerHTML = '<option value="">— Sem conta associada —</option>' +
+            accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        accSel.value = g?.accountId || '';
+    }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-form-name')?.focus(), 100);
 }
@@ -11147,6 +11147,7 @@ function submitSavingsGoal() {
     const deadline = document.getElementById('goal-form-deadline').value || null;
     const monthlyVal = parseFloat((document.getElementById('goal-form-monthly').value || '').replace(',', '.'));
     const monthlyTarget = isFinite(monthlyVal) && monthlyVal > 0 ? monthlyVal : null;
+    const accountId = document.getElementById('goal-form-account')?.value || null;
     if (id) {
         const g = savingsGoals.find(x => x.id === id);
         if (!g) return;
@@ -11154,6 +11155,7 @@ function submitSavingsGoal() {
         g.target = target;
         g.deadline = deadline;
         g.monthlyTarget = monthlyTarget;
+        g.accountId = accountId || null;
     } else {
         const initial = parseFloat((document.getElementById('goal-form-initial').value || '').replace(',', '.'));
         const goal = {
@@ -11162,6 +11164,7 @@ function submitSavingsGoal() {
             target,
             deadline,
             monthlyTarget,
+            accountId: accountId || null,
             transactions: [],
             color: '#5A3BD8',
             createdAt: new Date().toISOString()
