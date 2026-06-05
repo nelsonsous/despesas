@@ -3692,13 +3692,28 @@ function renderCycleExpenses() {
         });
         const snapIndicator = (accId, calc) => {
             const snaps = balanceSnapshots.filter(s => s.accountId === accId).sort((a, b) => b.date.localeCompare(a.date));
-            const latest = snaps[0];
-            if (!latest) return { chip: '', border: 'transparent' };
-            const diff = latest.amount - calc;
-            if (Math.abs(diff) < 0.02) return { chip: `<span style="font-size:0.7rem;color:#2E7D32;font-weight:700">✓</span>`, border: '#A5D6A7' };
-            const sign = diff > 0 ? '+' : '−';
-            const col = diff > 0 ? '#1565C0' : '#C62828';
-            return { chip: `<span style="font-size:0.65rem;color:${col};font-weight:700">${sign}${formatCurrency(Math.abs(diff))}</span>`, border: diff > 0 ? '#90CAF9' : '#EF9A9A' };
+            const toSnap = snaps[0];
+            if (!toSnap) return { chip: '', border: 'transparent' };
+            // Use reconcileAccount so the indicator reflects unexplained movements
+            // within the snapshot period, not just snapshot-vs-running-balance.
+            let fromSnap = snaps[1];
+            if (!fromSnap) {
+                const acc0 = accounts.find(a => a.id === accId);
+                fromSnap = acc0?.initialBalanceDate
+                    ? { amount: acc0.initialBalance || 0, date: acc0.initialBalanceDate }
+                    : null;
+            }
+            if (!fromSnap) {
+                // Only one data point — simple comparison
+                const diff = toSnap.amount - calc;
+                if (Math.abs(diff) < 0.02) return { chip: `<span style="font-size:0.7rem;color:#2E7D32;font-weight:700">✓</span>`, border: '#A5D6A7' };
+                const col = diff > 0 ? '#1565C0' : '#C62828';
+                return { chip: `<span style="font-size:0.65rem;color:${col};font-weight:700">${diff > 0 ? '+' : '−'}${formatCurrency(Math.abs(diff))}</span>`, border: diff > 0 ? '#90CAF9' : '#EF9A9A' };
+            }
+            const r = reconcileAccount(accId, fromSnap, toSnap);
+            if (Math.abs(r.diff) < 0.02) return { chip: `<span style="font-size:0.7rem;color:#2E7D32;font-weight:700">✓</span>`, border: '#A5D6A7' };
+            const col = r.diff > 0 ? '#1565C0' : '#C62828';
+            return { chip: `<span style="font-size:0.65rem;color:${col};font-weight:700">${r.diff > 0 ? '+' : '−'}${formatCurrency(Math.abs(r.diff))}</span>`, border: r.diff > 0 ? '#90CAF9' : '#EF9A9A' };
         };
         const rows = accounts.map(a => {
             const bal = getAccountBalance(a.id);
