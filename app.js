@@ -1395,7 +1395,7 @@ function renderSalaryCycle() {
     if (overdueEl) {
         if (b.expPendingOverdue > 0) {
             overdueEl.style.display = '';
-            overdueEl.innerHTML = `<i class="fas fa-triangle-exclamation"></i> ${formatCurrency(b.expPendingOverdue).replace(' EUR', ' €')} em atraso`;
+            overdueEl.innerHTML = `<i class="fas fa-triangle-exclamation"></i> ${formatCurrency(b.expPendingOverdue).replace(' €', ' €')} em atraso`;
             overdueEl.title = 'Despesas fixas pendentes cuja data já passou. Marca como pagas se já saíram da conta.';
         } else {
             overdueEl.style.display = 'none';
@@ -4856,11 +4856,11 @@ function renderExpensesChrono(monthExp, filterCat, filterType) {
         const total = paid + pending;
         // Compact short form (no "EUR" suffix on the first number, € symbol
         // on the total) so the split fits next to the toggle on a phone.
-        const shortPaid = formatCurrency(paid).replace(' EUR', '');
+        const shortPaid = formatCurrency(paid).replace(' €', '');
         if (all.length === 0) {
             otherTotalEl.innerHTML = '';
         } else if (pending > 0) {
-            otherTotalEl.innerHTML = `(${all.length}) <span style="color:var(--primary)">${shortPaid}</span><span style="color:var(--text-light);font-weight:500"> / ${formatCurrency(total).replace(' EUR', ' €')}</span>`;
+            otherTotalEl.innerHTML = `(${all.length}) <span style="color:var(--primary)">${shortPaid}</span><span style="color:var(--text-light);font-weight:500"> / ${formatCurrency(total).replace(' €', ' €')}</span>`;
         } else {
             otherTotalEl.textContent = `(${all.length}) ${formatCurrency(paid)}`;
         }
@@ -6712,7 +6712,7 @@ function renderWeekdayHeatmap() {
                 const barColor = isFuture ? 'var(--text-light)' : isWeekend ? 'var(--warning)' : 'var(--primary)';
                 const opacity = isFuture ? '0.15' : '1';
                 return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;opacity:${opacity}">
-                    <div style="font-size:0.6rem;color:var(--text-light);text-align:center;line-height:1.2">${!isFuture && val > 0 ? formatCurrency(val).replace(' EUR','').replace(',00','') : ''}</div>
+                    <div style="font-size:0.6rem;color:var(--text-light);text-align:center;line-height:1.2">${!isFuture && val > 0 ? formatCurrency(val).replace(' €','').replace(',00','') : ''}</div>
                     <div style="width:100%;height:${h}%;min-height:${!isFuture && val > 0 ? 3 : 0}px;background:${barColor};border-radius:4px 4px 0 0;transition:height 0.3s"></div>
                     <div style="font-size:0.7rem;font-weight:${isToday ? '800' : '600'};text-decoration:${isToday ? 'underline' : 'none'}">${name}</div>
                 </div>`;
@@ -15455,7 +15455,7 @@ function generateId() {
 }
 
 function formatCurrency(value) {
-    return value.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
+    return value.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
 // Tweens an element's text from its previously-shown numeric value to `to`.
