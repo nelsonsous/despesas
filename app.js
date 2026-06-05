@@ -10364,6 +10364,7 @@ function addPersonToInput(name) {
 function editExpense(id) {
     const e = expenses.find(x => x.id === id);
     if (!e) return;
+    window._editExpenseScrollY = window.scrollY;
     // Open the modal up-front. Same reasoning as showAddExpense: any
     // downstream init failure (a missing optional DOM node, a bad cached
     // value) shouldn't leave the user with an unresponsive row tap.
@@ -10778,7 +10779,8 @@ function saveExpense(event) {
     }
 
     saveData();
-    const _scrollY = window.scrollY;
+    const _scrollY = window._editExpenseScrollY ?? window.scrollY;
+    window._editExpenseScrollY = undefined;
     closeModal();
     pendingAttachment = null;
     // If this save came from approving a pending imported expense, drop it
@@ -14779,6 +14781,7 @@ function editFixed(id, monthDate) {
     const f = fixedExpenses.find(x => x.id === id);
     if (!f) return;
     window._editFixedMonthDate = monthDate || null;
+    window._editFixedScrollY = window.scrollY;
     const monthD = monthDate ? new Date(monthDate + 'T12:00:00') : null;
     const displayAmount = monthD ? getEffectiveFixedAmount(f, monthD) : f.amount;
     const fasel = document.getElementById('fixed-account');
@@ -14880,7 +14883,7 @@ function saveFixed(event) {
         id: id || generateId(),
         description: document.getElementById('fixed-desc').value.trim(),
         amount: (monthDateCtx && existing0) ? existing0.amount : formAmount,
-        accountId: document.getElementById('fixed-account')?.value || (existing0?.accountId || null),
+        accountId: document.getElementById('fixed-account')?.value || null,
         dayOfMonth: parseInt(document.getElementById('fixed-day').value) || 1,
         paymentMode: document.querySelector('input[name="fixed-pay-mode"]:checked')?.value || 'fixed-day',
         frequency: freqVal > 1 ? freqVal : undefined,
@@ -14936,7 +14939,8 @@ function saveFixed(event) {
         showToast('Despesa fixa criada!');
     }
     saveData();
-    const _scrollYFixed = window.scrollY;
+    const _scrollYFixed = window._editFixedScrollY ?? window.scrollY;
+    window._editFixedScrollY = undefined;
     closeFixedModal();
     renderFixedList();
     updateAll();
