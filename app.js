@@ -3764,7 +3764,7 @@ function renderCycleExpenses() {
                 const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
                 const incInner = `
-                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;${!r.fixed ? 'background:var(--surface);position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'}">
+                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);${!r.fixed ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'}">
                         <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
                         <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3809,7 +3809,7 @@ function renderCycleExpenses() {
             const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
             const expSwipe = !r.isGroupedEntry && r.kind !== 'fixed';
             const expInner = `
-                <div class="cycle-expense-row${futureClass}" ${expSwipe ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;${expSwipe ? 'background:var(--surface);position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'};opacity:${opacity}">
+                <div class="cycle-expense-row${futureClass}" ${expSwipe ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);${expSwipe ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'};opacity:${opacity}">
                     <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
                     <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -13170,15 +13170,14 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             const expShare = Math.round((dAmt - cAmt) * 100) / 100;
             const reimExp = expenses.find(e =>
                 !matchedExpIds.has(e.id) &&
-                !e.bankValidated &&
                 !e.isGrouped &&
                 Math.abs((e.amount || 0) - expShare) < 0.10 &&
                 Math.abs(new Date(e.date + 'T12:00:00').getTime() - dMs) <= 7 * 86400000
             );
             if (reimExp) {
-                matchedExpIds.add(reimExp.id);
+                if (!reimExp.bankValidated) matchedExpIds.add(reimExp.id);
                 reimbursedTxIndices.add(ci);
-                reimbursedDebitData.set(di, { expense: reimExp, reimbAmt: cAmt, reimbTxDesc: cTx.description });
+                reimbursedDebitData.set(di, { expense: reimExp, reimbAmt: cAmt, reimbTxDesc: cTx.description, alreadyDone: !!reimExp.bankValidated });
                 break;
             }
         }
@@ -13191,10 +13190,14 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             return;
         }
         if (reimbursedDebitData.has(_txIdx)) {
-            const { expense: reimExp, reimbAmt, reimbTxDesc } = reimbursedDebitData.get(_txIdx);
-            suggestions.push({ tx, action: 'validate-reimbursed',
-                matchId: reimExp.id, matchDesc: reimExp.description,
-                reimbTxDesc, reimbAmt, category: reimExp.category, selected: true });
+            const { expense: reimExp, reimbAmt, reimbTxDesc, alreadyDone } = reimbursedDebitData.get(_txIdx);
+            if (alreadyDone) {
+                suggestions.push({ tx, action: 'already-validated', matchId: reimExp.id, matchDesc: reimExp.description, category: reimExp.category, selected: false });
+            } else {
+                suggestions.push({ tx, action: 'validate-reimbursed',
+                    matchId: reimExp.id, matchDesc: reimExp.description,
+                    reimbTxDesc, reimbAmt, category: reimExp.category, selected: true });
+            }
             return;
         }
         const txDate = tx.date || '';
