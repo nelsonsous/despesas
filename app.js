@@ -3692,38 +3692,36 @@ function renderCycleExpenses() {
         });
         const chips = accounts.map(a => {
             const bal = getAccountBalance(a.id);
-            const cd = cycleAccDelta[a.id];
             const color = a.color || '#9E9E9E';
             const isActive = _cycleAccFilter === a.id;
-            const cdColor = cd > 0 ? '#2E7D32' : cd < 0 ? '#C62828' : 'var(--text-light)';
-            const cdStr = cd !== 0 ? `<div style="font-size:0.6rem;color:${cdColor};margin-top:1px;white-space:nowrap">${cd >= 0 ? '+' : ''}${formatCurrency(cd)} neste ciclo</div>` : '';
-            return `<div onclick="setCycleAccountFilter('${a.id}')" title="Filtrar por ${a.name}" style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:${isActive ? color + '28' : color + '10'};border:1.5px solid ${isActive ? color : color + '28'};cursor:pointer;flex-shrink:0">
-                <div style="display:flex;align-items:center;gap:3px;margin-bottom:2px">
-                    ${a.isSavings ? `<span style="font-size:0.65rem">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem;color:${color}"></i>`}
-                    <span style="font-size:0.65rem;color:${color};font-weight:700;white-space:nowrap">${a.name}</span>
-                </div>
-                <div style="font-size:0.78rem;font-weight:700;color:var(--text);white-space:nowrap">${formatCurrency(bal)}</div>
-                ${cdStr}
-            </div>`;
+            return `<button onclick="setCycleAccountFilter('${a.id}')" title="${a.name}" style="display:flex;flex-direction:column;padding:4px 9px;border-radius:10px;background:${isActive ? color + '28' : color + '10'};border:1.5px solid ${isActive ? color : color + '30'};cursor:pointer;flex-shrink:0;text-align:left;font-family:var(--font);min-width:0">
+                <span style="display:flex;align-items:center;gap:3px">
+                    ${a.isSavings ? `<span style="font-size:0.6rem">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.55rem;color:${color}"></i>`}
+                    <span style="font-size:0.6rem;color:${color};font-weight:700;white-space:nowrap;max-width:72px;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
+                </span>
+                <span style="font-size:0.75rem;font-weight:700;color:var(--text);white-space:nowrap">${formatCurrency(bal)}</span>
+            </button>`;
         }).join('');
         const isNoneActive = _cycleAccFilter === '__none__';
-        const untaggedChip = untaggedDelta !== 0 ? `<div onclick="setCycleAccountFilter('__none__')" title="Filtrar movimentos sem conta" style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:${isNoneActive ? '#9E9E9E28' : '#9E9E9E10'};border:1.5px ${isNoneActive ? 'solid #9E9E9E' : 'dashed #9E9E9E55'};cursor:pointer;flex-shrink:0">
-            <div style="font-size:0.65rem;color:#757575;font-weight:700;white-space:nowrap">Sem conta</div>
-            <div style="font-size:0.78rem;font-weight:700;color:var(--text);white-space:nowrap">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</div>
-            <div style="font-size:0.6rem;color:var(--text-light);margin-top:1px">neste ciclo</div>
-        </div>` : '';
-        const importBtn = `<button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;align-self:flex-end"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
-        const transferBtn = `<button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;align-self:flex-end"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>`;
+        const untaggedChip = untaggedDelta !== 0 ? `<button onclick="setCycleAccountFilter('__none__')" title="Sem conta" style="display:flex;flex-direction:column;padding:4px 9px;border-radius:10px;background:${isNoneActive ? '#9E9E9E28' : '#9E9E9E0D'};border:1.5px ${isNoneActive ? 'solid #9E9E9E' : 'dashed #9E9E9E55'};cursor:pointer;flex-shrink:0;text-align:left;font-family:var(--font)">
+            <span style="font-size:0.6rem;color:#757575;font-weight:700;white-space:nowrap">Sem conta</span>
+            <span style="font-size:0.75rem;font-weight:700;color:var(--text);white-space:nowrap">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
+        </button>` : '';
         const totalAccBal = accounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
         const cycleBalDiff = totalAccBal - closingBalance;
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
-        const totalChip = `<div style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:#f0f0f0;border:1.5px solid ${Math.abs(cycleBalDiff) < 1 ? '#A5D6A7' : '#E0E0E0'};flex-shrink:0" title="Total de todas as contas vs saldo do ciclo">
-            <div style="font-size:0.65rem;color:var(--text-light);font-weight:700;white-space:nowrap">Total contas</div>
-            <div style="font-size:0.78rem;font-weight:700;color:var(--text);white-space:nowrap">${formatCurrency(totalAccBal)}</div>
-            <div style="font-size:0.6rem;color:${diffColor};margin-top:1px;white-space:nowrap">${Math.abs(cycleBalDiff) < 1 ? '✓ bate certo' : (cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo'}</div>
+        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓ bate certo' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
+        return `<div style="padding:6px 0 8px;border-bottom:1px solid var(--border)">
+            <div style="display:flex;gap:5px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;-webkit-overflow-scrolling:touch">${chips}${untaggedChip}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
+                <span style="font-size:0.72rem;font-weight:700;color:${diffColor}">${formatCurrency(totalAccBal)} <span style="font-weight:400;font-size:0.65rem">${diffLabel}</span></span>
+                <span style="display:flex;gap:5px">
+                    <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
+                    <button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
+                </span>
+            </div>
         </div>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border);align-items:flex-start">${chips}${untaggedChip}${totalChip}<div style="display:flex;flex-direction:column;gap:4px;margin-left:auto">${transferBtn}${importBtn}</div></div>`;
-    })() : `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
+    })() : `<div style="display:flex;gap:5px;padding:6px 0 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
 
     if (isGrouped) {
         // Category breakdown view = spending only (no incomes / running balance).
