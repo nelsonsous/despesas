@@ -2907,10 +2907,9 @@ function updateDashboard() {
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
-    // Balance snapshot buttons (show only when there are accounts)
+    // Balance snapshot section is now merged into the cycle strip — keep hidden
     const balSnapSec = document.getElementById('balance-snapshot-section');
-    if (balSnapSec) balSnapSec.style.display = accounts.length ? 'block' : 'none';
-    renderBalanceSnapshotButtons();
+    if (balSnapSec) balSnapSec.style.display = 'none';
     renderThirdPartySplits();
     renderInsights();
     renderAiInsightsCard();
@@ -3691,23 +3690,41 @@ function renderCycleExpenses() {
                 untaggedDelta += r.delta;
             }
         });
-        const rowStyle = (isActive, color) => `display:flex;align-items:center;padding:4px 0;cursor:pointer;border-radius:6px;margin:0 -4px;padding-left:4px;padding-right:4px;background:${isActive ? color + '18' : 'transparent'};border:none;width:100%;font-family:var(--font);text-align:left`;
+        const snapIndicator = (accId, calc) => {
+            const snaps = balanceSnapshots.filter(s => s.accountId === accId).sort((a, b) => b.date.localeCompare(a.date));
+            const latest = snaps[0];
+            if (!latest) return { chip: '', border: 'transparent' };
+            const diff = latest.amount - calc;
+            if (Math.abs(diff) < 0.02) return { chip: `<span style="font-size:0.7rem;color:#2E7D32;font-weight:700">✓</span>`, border: '#A5D6A7' };
+            const sign = diff > 0 ? '+' : '−';
+            const col = diff > 0 ? '#1565C0' : '#C62828';
+            return { chip: `<span style="font-size:0.65rem;color:${col};font-weight:700">${sign}${formatCurrency(Math.abs(diff))}</span>`, border: diff > 0 ? '#90CAF9' : '#EF9A9A' };
+        };
         const rows = accounts.map(a => {
             const bal = getAccountBalance(a.id);
             const color = a.color || '#9E9E9E';
             const isActive = _cycleAccFilter === a.id;
-            return `<button onclick="setCycleAccountFilter('${a.id}')" style="${rowStyle(isActive, color)}">
-                ${a.isSavings ? `<span style="font-size:0.7rem;width:16px;text-align:center">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.65rem;color:${color};width:16px;text-align:center"></i>`}
-                <span style="font-size:0.8rem;color:${isActive ? color : 'var(--text)'};font-weight:${isActive ? '700' : '500'};flex:1;margin-left:6px">${a.name}</span>
-                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">${formatCurrency(bal)}</span>
-            </button>`;
+            const { chip, border } = snapIndicator(a.id, bal);
+            const rowBg = isActive ? color + '18' : 'transparent';
+            return `<div style="display:flex;align-items:center;gap:0;background:${rowBg};border-radius:6px;margin:0 -4px">
+                <button onclick="setCycleAccountFilter('${a.id}')" style="display:flex;align-items:center;flex:1;padding:5px 4px;background:none;border:none;cursor:pointer;font-family:var(--font);text-align:left;min-width:0">
+                    <i class="fas ${a.icon || 'fa-university'}" style="font-size:0.65rem;color:${color};width:16px;text-align:center;flex-shrink:0"></i>
+                    <span style="font-size:0.8rem;color:${isActive ? color : 'var(--text)'};font-weight:${isActive ? '700' : '500'};margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
+                </button>
+                <button onclick="openBalanceSnapshotModal('${a.id}')" style="display:flex;align-items:center;gap:5px;padding:5px 4px;background:none;border:none;border-left:1.5px solid ${border || 'transparent'};cursor:pointer;font-family:var(--font);flex-shrink:0">
+                    <span style="font-size:0.8rem;font-weight:700;color:var(--text)">${formatCurrency(bal)}</span>
+                    ${chip}
+                </button>
+            </div>`;
         }).join('');
         const isNoneActive = _cycleAccFilter === '__none__';
-        const untaggedRow = untaggedDelta !== 0 ? `<button onclick="setCycleAccountFilter('__none__')" style="${rowStyle(isNoneActive, '#9E9E9E')}">
-            <i class="fas fa-question-circle" style="font-size:0.65rem;color:#9E9E9E;width:16px;text-align:center"></i>
-            <span style="font-size:0.8rem;color:${isNoneActive ? '#757575' : 'var(--text)'};font-weight:${isNoneActive ? '700' : '500'};flex:1;margin-left:6px">Sem conta</span>
-            <span style="font-size:0.8rem;font-weight:700;color:var(--text)">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
-        </button>` : '';
+        const untaggedRow = untaggedDelta !== 0 ? `<div style="display:flex;align-items:center;gap:0;background:${isNoneActive ? '#9E9E9E18' : 'transparent'};border-radius:6px;margin:0 -4px">
+            <button onclick="setCycleAccountFilter('__none__')" style="display:flex;align-items:center;flex:1;padding:5px 4px;background:none;border:none;cursor:pointer;font-family:var(--font);text-align:left">
+                <i class="fas fa-question-circle" style="font-size:0.65rem;color:#9E9E9E;width:16px;text-align:center;flex-shrink:0"></i>
+                <span style="font-size:0.8rem;color:${isNoneActive ? '#757575' : 'var(--text-light)'};font-weight:${isNoneActive ? '700' : '400'};margin-left:6px">Sem conta</span>
+            </button>
+            <span style="font-size:0.8rem;font-weight:700;color:var(--text-light);padding:5px 4px">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
+        </div>` : '';
         const totalAccBal = accounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
         const cycleBalDiff = totalAccBal - closingBalance;
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
@@ -3716,7 +3733,7 @@ function renderCycleExpenses() {
             ${rows}${untaggedRow}
             <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
                 <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total <span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span></span>
-                <span style="display:flex;align-items:center;gap:8px">
+                <span style="display:flex;align-items:center;gap:6px">
                     <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(totalAccBal)}</span>
                     <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
                     <button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
