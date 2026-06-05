@@ -14033,6 +14033,17 @@ async function applyBankImportSelections() {
             count++;
         }
     });
+    // Always assign accountId to all matched items from this import, even already-validated ones
+    // (those are selected:false by default so the main loop skips them, leaving accountId unset).
+    if (accountId) {
+        bankImportSuggestions.forEach(s => {
+            if (!s.matchId) return;
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) { expenses[expIdx] = { ...expenses[expIdx], accountId }; return; }
+            const incIdx = incomes.findIndex(i => i.id === s.matchId);
+            if (incIdx >= 0) incomes[incIdx] = { ...incomes[incIdx], accountId };
+        });
+    }
     transfers.sort((a, b) => b.date.localeCompare(a.date));
     saveData();
     updateAll();
