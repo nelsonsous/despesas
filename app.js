@@ -13284,6 +13284,35 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
+        // 3.9 — suggest-link: bank tx has no exact match but there are unvalidated app
+        // expenses/incomes nearby. Show them as candidates for the user to manually confirm.
+        // Only fires when nothing matched in steps 0-3.5. Default = not selected.
+        {
+            const sideArr = isDebit ? expenses : incomes;
+            const rawCandidates = sideArr.filter(e =>
+                !(isDebit ? matchedExpIds : matchedIncIds).has(e.id) &&
+                !e.bankValidated &&
+                !(e.isGrouped) &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 14 * 86400000
+            );
+            const scored = rawCandidates.map(e => {
+                const hasOverlap = bankDescWordOverlap(tx.description, e.description);
+                const amtDiff = Math.abs((e.amount || 0) - txAmt);
+                const amtPct = txAmt > 0 ? amtDiff / txAmt : 1;
+                return { e, hasOverlap, amtDiff, amtPct };
+            }).filter(sc => sc.hasOverlap || sc.amtPct < 0.30 || sc.amtDiff < 15);
+            scored.sort((a, b) => (b.hasOverlap - a.hasOverlap) || (a.amtDiff - b.amtDiff));
+            const slCandidates = scored.slice(0, 3);
+            if (slCandidates.length > 0) {
+                suggestions.push({ tx, action: 'suggest-link',
+                    matchKind: isDebit ? 'expense' : 'income',
+                    candidates: slCandidates.map(sc => ({ id: sc.e.id, description: sc.e.description, amount: sc.e.amount, date: sc.e.date, category: sc.e.category, hasOverlap: sc.hasOverlap })),
+                    selectedCandidateId: null, selected: false,
+                    category: mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento') });
+                return;
+            }
+        }
+
         // 4 — not found: suggest creating (only use mapping for category, never for name to avoid stale suggestions)
         const cat = mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento');
         const suggestedDesc = null;
@@ -13438,12 +13467,13 @@ function renderBankReconciliation() {
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
     const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated','net-pair'].includes(s.action));
+    const suggestGroup     = bankImportSuggestions.filter(s => s.action === 'suggest-link');
     const createGroup      = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer','ignore'].includes(s.action));
     const noMatchGroup     = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount    = bankImportSuggestions.filter(s => s.selected).length;
     const selectableCount  = bankImportSuggestions.filter(s => s.action !== 'no-match').length;
 
-    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; <span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
+    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; ${suggestGroup.length > 0 ? `<span style="color:#F57C00;font-weight:600">${suggestGroup.length} a confirmar</span> &nbsp;·&nbsp; ` : ''}<span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
         <span style="margin-left:8px;white-space:nowrap">
             <button onclick="bankSelectAll(true)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Selecionar todos">☑ todos</button>
             <button onclick="bankSelectAll(false)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer;margin-left:3px" title="Desselecionar todos">☐ nenhum</button>
@@ -13483,6 +13513,20 @@ function renderBankReconciliation() {
         else if (s.action === 'ignore') {
             tagHtml = `<span style="font-size:0.65rem;padding:1px 6px;border-radius:8px;background:#FFEBEE;color:#C62828">🚫 ignorado</span>
                 <button onclick="bankImportSuggestions[${i}].action=(bankImportSuggestions[${i}].tx?.type==='credit'?'create-income':'create-expense');bankImportSuggestions[${i}].selected=true;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 4px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer;margin-left:4px">× repor</button>`;
+        }
+        else if (s.action === 'suggest-link') {
+            const candidateBtns = (s.candidates || []).map(c => {
+                const isChosen = s.selectedCandidateId === c.id;
+                const overlap = c.hasOverlap ? '≈ ' : '';
+                return `<button onclick="event.stopPropagation();bankImportSuggestions[${i}].selectedCandidateId='${c.id}';bankImportSuggestions[${i}].selected=true;renderBankReconciliation()" style="font-size:0.62rem;padding:2px 6px;border-radius:6px;border:1px solid ${isChosen ? '#1565C0' : '#B0BEC5'};background:${isChosen ? '#E3F2FD' : 'var(--surface)'};color:${isChosen ? '#1565C0' : '#546E7A'};cursor:pointer;font-family:inherit;white-space:nowrap">${overlap}${c.description.slice(0,15)} ${formatCurrency(c.amount)}</button>`;
+            }).join('');
+            const noChosen = !s.selectedCandidateId;
+            tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <span style="font-size:0.6rem;color:#F57C00;font-weight:600;white-space:nowrap">🔍 ligar a:</span>
+                ${candidateBtns}
+                <button onclick="event.stopPropagation();bankImportSuggestions[${i}].selectedCandidateId=null;bankImportSuggestions[${i}].action='create-expense';bankImportSuggestions[${i}].selected=true;renderBankReconciliation()" style="font-size:0.62rem;padding:2px 6px;border-radius:6px;border:1px solid #FFCC80;background:${noChosen?'#FFF3E0':'var(--surface)'};color:#E65100;cursor:pointer;font-family:inherit">+ Nova</button>
+                <button onclick="bankImportSuggestions[${i}].action='ignore';bankImportSuggestions[${i}].selected=false;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 4px;border:1px solid #FFCDD2;border-radius:6px;background:#FFEBEE;color:#C62828;cursor:pointer">🚫</button>
+            </div>`;
         }
         else if (s.action === 'create-expense') {
             const catOpts = Object.entries(cats).map(([id, c]) => `<option value="${id}"${id === s.category ? ' selected' : ''}>${c.label}</option>`).join('');
@@ -13554,6 +13598,7 @@ function renderBankReconciliation() {
 
     container.innerHTML =
         sectionHtml('✅ Confirmados no extrato', '#E8F5E9', '#2E7D32', validGroup) +
+        sectionHtml('🔍 A confirmar — possível correspondência', '#FFF8E1', '#F57C00', suggestGroup) +
         sectionHtml('❓ No extrato, sem registo na app', '#FFF3E0', '#E65100', createGroup) +
         sectionHtml('⚠ Na app, sem correspondência no extrato', '#F5F5F5', '#757575', noMatchGroup);
 }
@@ -13565,7 +13610,7 @@ async function applyBankImportSelections() {
     const btn = document.getElementById('bank-import-apply-btn');
     // Warn if no account selected and there are new expenses/incomes being created
     if (!accountId) {
-        const hasNew = selected.some(s => ['create-expense','create-income','create-transfer','mark-fixed-paid','mark-fixed-income-received','net-pair'].includes(s.action));
+        const hasNew = selected.some(s => ['create-expense','create-income','create-transfer','mark-fixed-paid','mark-fixed-income-received','net-pair','suggest-link'].includes(s.action));
         if (hasNew && !confirm('Nenhuma conta selecionada — as despesas/receitas criadas não serão associadas a nenhum cartão/conta.\n\nContinuar mesmo assim?')) {
             return;
         }
@@ -13637,6 +13682,18 @@ async function applyBankImportSelections() {
                     count++;
                 }
             }
+        } else if (s.action === 'suggest-link') {
+            if (s.selectedCandidateId) {
+                const isInc = s.matchKind === 'income';
+                const arr = isInc ? incomes : expenses;
+                const idx = arr.findIndex(e => e.id === s.selectedCandidateId);
+                if (idx >= 0) {
+                    arr[idx] = { ...arr[idx], bankValidated: true, ...(accountId ? { accountId } : {}) };
+                    if (tx?.description && arr[idx].description) recordBankMapping(tx.description, arr[idx].description, arr[idx].category);
+                    count++;
+                }
+            }
+            // if no candidate chosen the row stays unresolved — user should pick "+ Nova" or 🚫 first
         } else if (s.action === 'create-expense') {
             const desc = s.suggestedDesc || tx.description || 'Importado extrato';
             expenses.push({ id: generateId(), date: tx.date, description: desc, amount: tx.amount, category: rowCat, accountId, status: 'pago', notes: '', bankValidated: true, createdAt: new Date().toISOString() });
