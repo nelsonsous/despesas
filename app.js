@@ -13223,16 +13223,18 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // 0 — description mapping: bank name was previously mapped to a clean app name
         const mapping = findBankMapping(tx.description);
         if (mapping) {
-            const mappedExp = isDebit ? expenses.find(e =>
+            const _expCands = isDebit ? expenses.filter(e =>
                 !matchedExpIds.has(e.id) &&
                 Math.abs((e.amount || 0) - txAmt) < 0.02 &&
                 e.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
-                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : null;
-            const mappedInc = !isDebit ? incomes.find(i =>
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : [];
+            const mappedExp = _expCands.find(e => e.bankValidated) || _expCands[0] || null;
+            const _incCands = !isDebit ? incomes.filter(i =>
                 !matchedIncIds.has(i.id) &&
                 Math.abs((i.amount || 0) - txAmt) < 0.02 &&
                 i.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
-                Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : null;
+                Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000) : [];
+            const mappedInc = _incCands.find(i => i.bankValidated) || _incCands[0] || null;
             if (mappedExp || mappedInc) {
                 const m = mappedExp || mappedInc;
                 if (mappedExp) matchedExpIds.add(mappedExp.id);
