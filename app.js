@@ -12896,9 +12896,11 @@ function openBalanceSnapshotModal(accountId) {
     const acc = accounts.find(a => a.id === accountId);
     const modal = document.getElementById('balance-snapshot-modal');
     if (!modal) return;
-    document.getElementById('bal-modal-title').textContent = acc ? `Saldos — ${acc.name}` : 'Saldos';
+    const calcBal = getAccountBalance(accountId);
+    document.getElementById('bal-modal-title').textContent = acc ? `Nivelar · ${acc.name}` : 'Nivelar saldo';
     document.getElementById('bal-snap-date').value = toLocalDateStr(new Date());
     document.getElementById('bal-snap-amount').value = '';
+    document.getElementById('bal-snap-amount').placeholder = `Saldo banco (app: ${formatCurrency(calcBal)})`;
     document.getElementById('bal-snap-notes').value = '';
     renderBalanceSnapshotModal();
     modal.style.display = 'flex';
@@ -12929,7 +12931,12 @@ function renderBalanceSnapshotModal() {
     if (!histEl || !recEl) return;
 
     if (!snaps.length) {
-        histEl.innerHTML = '<div style="color:var(--text-light);font-size:0.8rem;text-align:center;padding:12px 0">Sem saldos registados</div>';
+        const calcNow = getAccountBalance(accId);
+        histEl.innerHTML = `<div style="text-align:center;padding:14px 0 6px">
+            <div style="font-size:0.8rem;color:var(--text-light);margin-bottom:6px">Saldo calculado pela app</div>
+            <div style="font-size:1.4rem;font-weight:700;color:var(--text);margin-bottom:8px">${formatCurrency(calcNow)}</div>
+            <div style="font-size:0.75rem;color:var(--text-light)">Introduz o saldo real do banco em cima para reconciliar e criar um ajuste se necessário.</div>
+        </div>`;
         recEl.innerHTML = '';
         return;
     }
@@ -12946,14 +12953,18 @@ function renderBalanceSnapshotModal() {
             <button onclick="deleteBalanceSnapshot('${s.id}');renderBalanceSnapshotModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.75rem;padding:2px 6px"><i class="fas fa-trash"></i></button>
         </div>`).join('');
 
-    // Reconciliation between last two snapshots
-    if (snaps.length < 2) {
-        recEl.innerHTML = '<div style="color:var(--text-light);font-size:0.78rem;padding:8px 0">Adiciona mais um saldo para ver a reconciliação.</div>';
-        return;
-    }
-
+    // Reconciliation: between last two snapshots, or between account initialBalance and first snapshot.
     const toSnap = snaps[0];
-    const fromSnap = snaps[1];
+    let fromSnap = snaps[1];
+    if (!fromSnap) {
+        const acc0 = accounts.find(a => a.id === accId);
+        if (acc0 && acc0.initialBalanceDate) {
+            fromSnap = { amount: acc0.initialBalance || 0, date: acc0.initialBalanceDate };
+        } else {
+            recEl.innerHTML = '<div style="color:var(--text-light);font-size:0.78rem;padding:8px 0">Adiciona mais um saldo para ver a reconciliação.</div>';
+            return;
+        }
+    }
     const r = reconcileAccount(accId, fromSnap, toSnap);
     const diffColor = Math.abs(r.diff) < 0.02 ? '#2E7D32' : (r.diff > 0 ? '#1565C0' : '#C62828');
     const diffIcon = Math.abs(r.diff) < 0.02 ? '✓' : (r.diff > 0 ? '▲' : '▼');
