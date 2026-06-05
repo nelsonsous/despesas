@@ -3745,6 +3745,7 @@ function renderCycleExpenses() {
                             <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.8rem">${formatCurrency(r.amount)}</span>
                         </div>
                         <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
+                        <button onclick="deleteTransfer('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0"><i class="fas fa-trash"></i></button>
                     </div>`;
             }
             if (r.kind === 'income') {
@@ -13081,6 +13082,18 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
         const dateMs = new Date(txDate + 'T12:00:00').getTime();
 
+        // 0-pre: if a bankValidated transfer already exists for this tx (same amount ±0.02, date ±1 day)
+        // show as already-validated to prevent duplicates when re-importing the same statement.
+        const isDuplTransfer = transfers.some(t =>
+            t.bankValidated &&
+            Math.abs(parseFloat(t.amount) - txAmt) < 0.02 &&
+            Math.abs(new Date(t.date + 'T12:00:00').getTime() - dateMs) <= 1 * 86400000
+        );
+        if (isDuplTransfer) {
+            suggestions.push({ tx, action: 'already-validated', matchId: null, matchDesc: 'Transferência já registada', category: 'transferencia', selected: false });
+            return;
+        }
+
         // 0 — description mapping: bank name was previously mapped to a clean app name
         const mapping = findBankMapping(tx.description);
         if (mapping) {
@@ -13183,13 +13196,18 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // matches the 10,25 entry even though the parent's total doesn't.
         if (isDebit) {
             let entryMatch = null;
+            let validatedEntryMatch = null;
             for (const e of expenses) {
                 if (matchedExpIds.has(e.id) || !e.isGrouped || !Array.isArray(e.entries)) continue;
                 const en = e.entries.find(en =>
                     Math.abs((en.amount || 0) - txAmt) < 0.02 &&
                     Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000
                 );
-                if (en) { entryMatch = { expense: e, entry: en }; break; }
+                if (en) {
+                    if (en.bankValidated) { validatedEntryMatch = { expense: e, entry: en }; }
+                    else { entryMatch = { expense: e, entry: en }; }
+                    break;
+                }
             }
             if (entryMatch) {
                 matchedExpIds.add(entryMatch.expense.id);
@@ -13197,6 +13215,14 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     matchId: entryMatch.expense.id, matchEid: entryMatch.entry.eid,
                     matchDesc: entryMatch.expense.description,
                     category: entryMatch.expense.category, selected: true });
+                return;
+            }
+            if (validatedEntryMatch) {
+                matchedExpIds.add(validatedEntryMatch.expense.id);
+                suggestions.push({ tx, action: 'already-validated',
+                    matchId: validatedEntryMatch.expense.id,
+                    matchDesc: validatedEntryMatch.expense.description,
+                    category: validatedEntryMatch.expense.category, selected: false });
                 return;
             }
         }
@@ -13557,7 +13583,9 @@ function renderBankReconciliation() {
             if (!s.transferTo   && toDefault)   s.transferTo   = toDefault;
             const makeAccOpts = (sel) => '<option value="">—</option>' + accounts.map(a =>
                 `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`).join('');
+            const transferDescVal = (s.suggestedDesc != null ? s.suggestedDesc : 'Transferência').replace(/"/g, '&quot;');
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                <input value="${transferDescVal}" oninput="bankImportSuggestions[${i}].suggestedDesc=this.value" placeholder="Descrição" style="font-size:0.68rem;padding:2px 6px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);min-width:80px;flex:1;max-width:130px">
                 <span style="font-size:0.6rem;color:#546E7A">De</span>
                 <select id="bank-row-tfrom-${i}" onchange="bankImportSuggestions[${i}].transferFrom=this.value" style="font-size:0.65rem;padding:2px 3px;border:1px solid var(--border);border-radius:6px;background:var(--surface);max-width:90px">${makeAccOpts(fromDefault)}</select>
                 <span style="font-size:0.6rem;color:#546E7A">Para</span>
@@ -13761,7 +13789,7 @@ async function applyBankImportSelections() {
         } else if (s.action === 'create-transfer') {
             const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || accountId;
             const toId = document.getElementById(`bank-row-tto-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferTo || null;
-            transfers.push({ id: generateId(), date: tx.date, amount: tx.amount, description: tx.description || 'Transferência', fromAccountId: fromId || null, toAccountId: toId || null, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            transfers.push({ id: generateId(), date: tx.date, amount: tx.amount, description: s.suggestedDesc || 'Transferência', fromAccountId: fromId || null, toAccountId: toId || null, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             count++;
         }
     });
