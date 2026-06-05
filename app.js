@@ -10778,6 +10778,7 @@ function saveExpense(event) {
     }
 
     saveData();
+    const _scrollY = window.scrollY;
     closeModal();
     pendingAttachment = null;
     // If this save came from approving a pending imported expense, drop it
@@ -10790,6 +10791,7 @@ function saveExpense(event) {
         renderPendingExpenses();
     }
     updateAll();
+    requestAnimationFrame(() => window.scrollTo(0, _scrollY));
     showToast(id ? 'Despesa atualizada!' : 'Despesa adicionada!');
 }
 
@@ -12839,7 +12841,7 @@ function getAccountBalance(accId) {
     fixedExpenses.forEach(fe => {
         if (fe.accountId !== accId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
-            const d = s.month + '-01';
+            const d = s.paidDate || (s.month + '-28');
             if (d > since) bal -= (s.amount || fe.amount || 0);
         });
     });
@@ -12904,7 +12906,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     fixedExpenses.forEach(fe => {
         if ((fe.accountId) !== accountId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
-            const d = s.month + '-01';
+            const d = s.paidDate || (s.month + '-28');
             if (d > fromDate && d <= toDate) paidExpense += (s.amount || fe.amount || 0);
         });
     });
@@ -14934,9 +14936,11 @@ function saveFixed(event) {
         showToast('Despesa fixa criada!');
     }
     saveData();
+    const _scrollYFixed = window.scrollY;
     closeFixedModal();
     renderFixedList();
     updateAll();
+    requestAnimationFrame(() => window.scrollTo(0, _scrollYFixed));
     // If this was promoted from a pending AI-detected expense, drop it from the pending list.
     if (window._pendingPromotedToFixed) {
         pendingExpenses = pendingExpenses.filter(x => x.id !== window._pendingPromotedToFixed);
