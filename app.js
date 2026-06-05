@@ -12938,8 +12938,48 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
     const suggestions = [];
     const matchedExpIds = new Set();
     const matchedIncIds = new Set();
+    const pairedTxIndices = new Set();
 
-    transactions.forEach(tx => {
+    // Pre-pass: find credit+debit pairs from the same source (e.g. Mbway received + Mbway sent)
+    // where the net (debit − credit) matches an existing app expense.
+    // Example: +341,93 received, −500 sent → net 158,07 ≈ expense recorded.
+    for (let ia = 0; ia < transactions.length; ia++) {
+        const txA = transactions[ia];
+        if (!txA.date || !txA.amount || txA.type !== 'credit') continue;
+        if (pairedTxIndices.has(ia)) continue;
+        const amtA = parseFloat(txA.amount) || 0;
+        const dateAMs = new Date(txA.date + 'T12:00:00').getTime();
+        for (let ib = 0; ib < transactions.length; ib++) {
+            if (ib === ia || pairedTxIndices.has(ib)) continue;
+            const txB = transactions[ib];
+            if (txB.type === 'credit' || !txB.date || !txB.amount) continue;
+            if (!bankDescWordOverlap(txA.description, txB.description)) continue;
+            const dateBMs = new Date(txB.date + 'T12:00:00').getTime();
+            if (Math.abs(dateAMs - dateBMs) > 7 * 86400000) continue;
+            const amtB = parseFloat(txB.amount) || 0;
+            const netAmt = Math.round((amtB - amtA) * 100) / 100;
+            if (netAmt < 0.50) continue;
+            const midDateMs = Math.min(dateAMs, dateBMs);
+            const netExp = expenses.find(e =>
+                !matchedExpIds.has(e.id) &&
+                Math.abs((e.amount || 0) - netAmt) < Math.min(3, netAmt * 0.10) &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 10 * 86400000
+            );
+            if (netExp) {
+                pairedTxIndices.add(ia);
+                pairedTxIndices.add(ib);
+                matchedExpIds.add(netExp.id);
+                suggestions.push({ tx: txB, txCredit: txA, action: 'net-pair',
+                    matchId: netExp.id, matchDesc: netExp.description,
+                    netAmt, creditAmt: amtA, debitAmt: amtB,
+                    category: netExp.category, selected: true });
+                break;
+            }
+        }
+    }
+
+    transactions.forEach((tx, _txIdx) => {
+        if (pairedTxIndices.has(_txIdx)) return;
         const txDate = tx.date || '';
         const txAmt = parseFloat(tx.amount) || 0;
         const isDebit = tx.type !== 'credit';
@@ -13064,6 +13104,16 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
         // 3 — match fixed income (credit, same amount, same month, not yet received)
         if (!isDebit && txMonth) {
+            // Check if already received — show as already-validated (not selected by default)
+            const alreadyReceived = fixedIncomes.find(fi => {
+                const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
+                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                return fixedIncomeStatus.some(s => s.fixedIncomeId === fi.id && s.month === txMonth && s.status === 'recebido');
+            });
+            if (alreadyReceived) {
+                suggestions.push({ tx, action: 'already-validated', matchId: alreadyReceived.id, matchDesc: alreadyReceived.description, category: alreadyReceived.category, selected: false });
+                return;
+            }
             const fixedIncMatch = fixedIncomes.find(fi => {
                 const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
                 if (Math.abs(effAmt - txAmt) >= 0.02) return false;
@@ -13104,9 +13154,9 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
-        // 4 — not found: suggest creating (use mapped clean name/category if known)
+        // 4 — not found: suggest creating (only use mapping for category, never for name to avoid stale suggestions)
         const cat = mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento');
-        const suggestedDesc = mapping?.cleanName || null;
+        const suggestedDesc = null;
         suggestions.push({ tx, action: isDebit ? 'create-expense' : 'create-income', category: cat, suggestedDesc, selected: true });
     });
 
@@ -13257,7 +13307,7 @@ function renderBankReconciliation() {
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
-    const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated'].includes(s.action));
+    const validGroup       = bankImportSuggestions.filter(s => ['validate','validate-split','validate-entry','mark-fixed-paid','mark-fixed-income-received','near-match','already-validated','net-pair'].includes(s.action));
     const createGroup      = bankImportSuggestions.filter(s => ['create-expense','create-income','create-transfer','ignore'].includes(s.action));
     const noMatchGroup     = bankImportSuggestions.filter(s => s.action === 'no-match');
     const selectedCount    = bankImportSuggestions.filter(s => s.selected).length;
@@ -13344,6 +13394,8 @@ function renderBankReconciliation() {
             const correctBtn = `<button onclick="event.stopPropagation();bankImportSuggestions[${i}].correctAmount=!bankImportSuggestions[${i}].correctAmount;renderBankReconciliation()" style="border:1px solid ${s.correctAmount?'#E65100':'#BDBDBD'};background:${s.correctAmount?'#FFF3E0':'transparent'};color:${s.correctAmount?'#E65100':'#9E9E9E'};cursor:pointer;font-size:0.6rem;padding:1px 4px;border-radius:4px;margin-left:2px">${s.correctAmount?'✓ corrige valor':'corrigir valor?'}</button>`;
             const createNewBtn = `<button onclick="event.stopPropagation();bankImportSuggestions[${i}].action='create-expense';bankImportSuggestions[${i}].suggestedDesc=null;renderBankReconciliation()" style="border:1px solid #B0BEC5;border-radius:4px;background:#ECEFF1;color:#546E7A;cursor:pointer;font-size:0.6rem;padding:1px 4px;margin-left:2px" title="Criar despesa nova em vez de corrigir a existente">+ nova</button>`;
             tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#FFF8E1;color:#E65100">⚠ "${(s.matchDesc||'').slice(0,14)}" · app ${appAmt} / ext ${bankAmt}</span>${correctBtn}${descBtn}${createNewBtn}`;
+        } else if (s.action === 'net-pair') {
+            tagHtml = `<span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8EAF6;color:#283593">⇄ par "${(s.matchDesc||'').slice(0,14)}" · +${formatCurrency(s.creditAmt)} −${formatCurrency(s.debitAmt)} = líq. ${formatCurrency(s.netAmt)}</span>`;
         } else if (s.action === 'no-match') {
             const cat = cats[s.category] || {};
             tagHtml = `<span style="font-size:0.65rem;padding:1px 6px;border-radius:8px;background:#F5F5F5;color:#757575">${cat.label || s.category || 'outros'}</span>`;
@@ -13466,6 +13518,16 @@ async function applyBankImportSelections() {
             const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString() };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
             count++;
+        } else if (s.action === 'net-pair') {
+            // Credit+debit pair from same source: net amount matches an existing expense
+            const expIdx = expenses.findIndex(e => e.id === s.matchId);
+            if (expIdx >= 0) {
+                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                    ...(accountId ? { accountId } : {}) };
+                if (s.tx?.description && s.matchDesc) recordBankMapping(s.tx.description, s.matchDesc, s.category);
+                if (s.txCredit?.description && s.matchDesc) recordBankMapping(s.txCredit.description, s.matchDesc, s.category);
+                count++;
+            }
         } else if (s.action === 'validate-split') {
             // Two expenses that together equal the bank tx amount (split purchase).
             (s.matchIds || []).forEach(id => {
