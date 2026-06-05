@@ -8204,6 +8204,7 @@ async function processVoiceExpense(audioBlob) {
                 groupBanner.style.display = 'none';
             }
         }
+        _updateQcAccountSel();
     } catch (e) {
         spinner.style.display = 'none';
         errEl.style.display   = 'block';
@@ -8294,6 +8295,7 @@ async function onQuickCaptureFile(input) {
                 groupBanner.style.display = 'none';
             }
         }
+        _updateQcAccountSel();
     } catch (e) {
         spinner.style.display = 'none';
         errEl.style.display = 'block';
@@ -8368,6 +8370,23 @@ function saveFromQuickConfirmToGroup() {
     showToast(`✓ +${formatCurrency(newEntry.amount)} adicionado a ${parent.description}`);
 }
 
+function _updateQcAccountSel() {
+    const row = document.getElementById('qc-account-row');
+    const sel = document.getElementById('qc-account-sel');
+    if (!row || !sel) return;
+    if (accounts.length <= 1) {
+        row.style.display = 'none';
+        return;
+    }
+    const cardLast4 = _quickCaptureObj?.cartaoUltimos4 ? String(_quickCaptureObj.cartaoUltimos4) : null;
+    const autoMatch = cardLast4 ? accounts.find(a => a.last4 && a.last4 === cardLast4) : null;
+    sel.innerHTML = '<option value="">— Sem conta —</option>' + accounts.map(a => {
+        const sel2 = autoMatch?.id === a.id ? ' selected' : '';
+        return `<option value="${a.id}"${sel2}>${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`;
+    }).join('');
+    row.style.display = 'block';
+}
+
 function closeQuickConfirm() {
     const overlay = document.getElementById('quick-confirm-overlay');
     if (overlay) overlay.style.display = 'none';
@@ -8377,6 +8396,8 @@ function closeQuickConfirm() {
 function saveFromQuickConfirm() {
     if (!_quickCaptureObj) return;
     const obj = _quickCaptureObj;
+    const qcAccId = document.getElementById('qc-account-sel')?.value ||
+        (accounts.length === 1 ? accounts[0].id : null);
     closeQuickConfirm();
     // Build and save the expense directly without opening the form
     const cats = getEffectiveCategories();
@@ -8393,6 +8414,7 @@ function saveFromQuickConfirm() {
         paidByFather: false,
         essential: !!obj.essencial,
         notes: obj.notas || null,
+        accountId: qcAccId || null,
         attachment: null,
         sellerNif:    cleanNif(obj.nifVendedor),
         buyerNif:     cleanNif(obj.nifCliente),

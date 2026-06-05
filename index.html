@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=231">
+    <link rel="stylesheet" href="styles.css?v=232">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -772,6 +772,13 @@
                             Adicionar à despesa agregada <strong id="qc-group-name"></strong>?
                         </div>
                         <button onclick="saveFromQuickConfirmToGroup()" class="btn" style="font-size:0.78rem;padding:4px 10px;background:#F9A825;color:white;border:none;border-radius:6px;flex-shrink:0">+ Agregar</button>
+                    </div>
+                    <div id="qc-account-row" style="display:none;margin-bottom:12px">
+                        <div style="display:flex;align-items:center;gap:8px;background:var(--bg);border-radius:10px;padding:8px 12px">
+                            <i class="fas fa-credit-card" style="color:var(--text-light);font-size:0.85rem;flex-shrink:0"></i>
+                            <span style="font-size:0.78rem;color:var(--text-light);flex-shrink:0">Conta</span>
+                            <select id="qc-account-sel" style="flex:1;border:none;background:transparent;font-size:0.88rem;color:var(--text);outline:none;cursor:pointer"></select>
+                        </div>
                     </div>
                     <div style="display:flex;gap:10px">
                         <button onclick="editFromQuickConfirm()" class="btn btn-block" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);flex:1"><i class="fas fa-pen"></i> Editar</button>
@@ -2351,7 +2358,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=231"></script>
+    <script src="app.js?v=232"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
