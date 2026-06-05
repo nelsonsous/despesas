@@ -73,6 +73,8 @@ const BANK_MAPPINGS_KEY = 'despesas_bank_mappings';
 let bankMappings = []; // { bankNorm, bankRaw, cleanName, category, lastUsed }
 const PENDING_BANK_TXS_KEY = 'despesas_pending_bank_txs';
 let pendingBankTxs = []; // { date, description, bankNorm, amount, type, accountId, savedAt }
+const BALANCE_SNAPSHOTS_KEY = 'despesas_balance_snapshots';
+let balanceSnapshots = []; // { id, accountId, date, amount, notes, createdAt }
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1865,6 +1867,8 @@ function loadData() {
     prepaidCards = prepaidData ? JSON.parse(prepaidData) : [];
     const accountsData = localStorage.getItem(ACCOUNTS_KEY);
     accounts = accountsData ? JSON.parse(accountsData) : [];
+    const balSnapsData = localStorage.getItem(BALANCE_SNAPSHOTS_KEY);
+    balanceSnapshots = balSnapsData ? JSON.parse(balSnapsData) : [];
     const transfersData = localStorage.getItem(TRANSFERS_KEY);
     transfers = transfersData ? JSON.parse(transfersData) : [];
     const cycleOverridesData = localStorage.getItem(CYCLE_OPENING_OVERRIDES_KEY);
@@ -1986,6 +1990,7 @@ function saveData() {
     localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
     localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    localStorage.setItem(BALANCE_SNAPSHOTS_KEY, JSON.stringify(balanceSnapshots));
     localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
     localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
     localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings));
@@ -2897,6 +2902,10 @@ function updateDashboard() {
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
+    // Balance snapshot buttons (show only when there are accounts)
+    const balSnapSec = document.getElementById('balance-snapshot-section');
+    if (balSnapSec) balSnapSec.style.display = accounts.length ? 'block' : 'none';
+    renderBalanceSnapshotButtons();
     renderThirdPartySplits();
     renderInsights();
     renderAiInsightsCard();
@@ -12726,6 +12735,218 @@ function getAccountBalance(accId) {
         if (t.toAccountId === accId) bal += t.amount || 0;
     });
     return bal;
+}
+
+// ===== BALANCE SNAPSHOTS & RECONCILIATION =====
+
+function addBalanceSnapshot(accountId, date, amount, notes) {
+    balanceSnapshots.push({ id: generateId(), accountId, date, amount: parseFloat(amount) || 0, notes: notes || '', createdAt: new Date().toISOString() });
+    balanceSnapshots.sort((a, b) => a.date.localeCompare(b.date));
+    saveData();
+}
+
+function deleteBalanceSnapshot(id) {
+    balanceSnapshots = balanceSnapshots.filter(s => s.id !== id);
+    saveData();
+}
+
+function reconcileAccount(accountId, fromSnap, toSnap) {
+    // Returns { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, pendingExpenses, pendingIncomes, debtOwed }
+    const fromDate = fromSnap.date;
+    const toDate = toSnap.date;
+
+    // Paid incomes in the account between the two dates (bankValidated regular + fixed received)
+    let paidIncome = 0;
+    incomes.forEach(i => {
+        if (i.accountId !== accountId) return;
+        if (!i.bankValidated || !i.date) return;
+        if (i.date > fromDate && i.date <= toDate) paidIncome += i.amount || 0;
+    });
+    fixedIncomes.forEach(fi => {
+        fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
+            if ((s.accountId || fi.accountId) !== accountId) return;
+            const d = s.month + '-01';
+            if (d > fromDate && d <= toDate) paidIncome += (s.amount || fi.amount || 0);
+        });
+    });
+
+    // Paid expenses in the account between the two dates (bankValidated)
+    let paidExpense = 0;
+    expenses.forEach(e => {
+        if (e.accountId !== accountId) return;
+        if (!e.bankValidated || !e.date || e.status === 'ignorado') return;
+        if (!expenseAffectsBalance(e)) return;
+        if (e.date > fromDate && e.date <= toDate) paidExpense += e.amount || 0;
+    });
+    fixedExpenses.forEach(fe => {
+        if ((fe.accountId) !== accountId) return;
+        fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
+            const d = s.month + '-01';
+            if (d > fromDate && d <= toDate) paidExpense += (s.amount || fe.amount || 0);
+        });
+    });
+
+    // Transfers involving this account
+    let paidTransfersNet = 0;
+    transfers.forEach(t => {
+        if (!t.date || t.date <= fromDate || t.date > toDate) return;
+        if (t.fromAccountId === accountId) paidTransfersNet -= t.amount || 0;
+        if (t.toAccountId === accountId) paidTransfersNet += t.amount || 0;
+    });
+
+    const calculated = fromSnap.amount + paidIncome - paidExpense + paidTransfersNet;
+    const actual = toSnap.amount;
+    const diff = actual - calculated;
+
+    // Pending (not yet bankValidated) expenses in the period
+    const pendingExpenses = expenses.filter(e =>
+        e.accountId === accountId && !e.bankValidated && e.date > fromDate && e.date <= toDate && e.status !== 'ignorado' && expenseAffectsBalance(e)
+    ).reduce((s, e) => s + (e.amount || 0), 0);
+
+    // Pending incomes not yet validated
+    const pendingIncomes = incomes.filter(i =>
+        i.accountId === accountId && !i.bankValidated && i.date > fromDate && i.date <= toDate
+    ).reduce((s, i) => s + (i.amount || 0), 0);
+
+    // Cumulative debt owed by co-parent (split amounts unpaid, all time up to toDate)
+    let debtOwed = 0;
+    expenses.forEach(e => {
+        if (!e.split || !e.date || e.date > toDate) return;
+        const child = children.find(c => c.id === e.type);
+        if (!child) return;
+        const splitPct = getEffectiveSplitPct(e, child);
+        debtOwed += (e.amount || 0) * (splitPct / 100);
+    });
+
+    return { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, pendingExpenses, pendingIncomes, debtOwed };
+}
+
+function applyBalanceAdjustment(accountId, date, amount, notes) {
+    if (Math.abs(amount) < 0.01) return;
+    const desc = notes || 'Ajuste de saldo';
+    if (amount > 0) {
+        incomes.push({ id: generateId(), date, amount, description: desc, category: 'outros', notes: '', accountId, bankValidated: true, createdAt: new Date().toISOString() });
+    } else {
+        expenses.push({ id: generateId(), date, amount: Math.abs(amount), description: desc, category: 'outros', type: 'personal', notes: '', accountId, bankValidated: true, createdAt: new Date().toISOString() });
+    }
+    saveData();
+    updateAll();
+    showToast('Ajuste de saldo criado');
+}
+
+let _balModalAccountId = null;
+
+function openBalanceSnapshotModal(accountId) {
+    _balModalAccountId = accountId;
+    const acc = accounts.find(a => a.id === accountId);
+    const modal = document.getElementById('balance-snapshot-modal');
+    if (!modal) return;
+    document.getElementById('bal-modal-title').textContent = acc ? `Saldos — ${acc.name}` : 'Saldos';
+    document.getElementById('bal-snap-date').value = toLocalDateStr(new Date());
+    document.getElementById('bal-snap-amount').value = '';
+    document.getElementById('bal-snap-notes').value = '';
+    renderBalanceSnapshotModal();
+    modal.style.display = 'flex';
+}
+
+function closeBalanceSnapshotModal() {
+    const modal = document.getElementById('balance-snapshot-modal');
+    if (modal) modal.style.display = 'none';
+    _balModalAccountId = null;
+}
+
+function saveBalanceSnapshot() {
+    const date = document.getElementById('bal-snap-date').value;
+    const amount = parseFloat(document.getElementById('bal-snap-amount').value);
+    const notes = document.getElementById('bal-snap-notes').value.trim();
+    if (!date || isNaN(amount)) { showToast('Insere data e saldo'); return; }
+    addBalanceSnapshot(_balModalAccountId, date, amount, notes);
+    document.getElementById('bal-snap-amount').value = '';
+    document.getElementById('bal-snap-notes').value = '';
+    renderBalanceSnapshotModal();
+}
+
+function renderBalanceSnapshotModal() {
+    const accId = _balModalAccountId;
+    const snaps = balanceSnapshots.filter(s => s.accountId === accId).slice().sort((a, b) => b.date.localeCompare(a.date));
+    const histEl = document.getElementById('bal-snap-history');
+    const recEl = document.getElementById('bal-snap-reconciliation');
+    if (!histEl || !recEl) return;
+
+    if (!snaps.length) {
+        histEl.innerHTML = '<div style="color:var(--text-light);font-size:0.8rem;text-align:center;padding:12px 0">Sem saldos registados</div>';
+        recEl.innerHTML = '';
+        return;
+    }
+
+    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fmt = d => { const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]} ${dt.getFullYear()}`; };
+
+    histEl.innerHTML = snaps.map(s => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1;min-width:0">
+                <div style="font-size:0.82rem;font-weight:600">${formatCurrency(s.amount)}</div>
+                <div style="font-size:0.7rem;color:var(--text-light)">${fmt(s.date)}${s.notes ? ' · ' + s.notes : ''}</div>
+            </div>
+            <button onclick="deleteBalanceSnapshot('${s.id}');renderBalanceSnapshotModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.75rem;padding:2px 6px"><i class="fas fa-trash"></i></button>
+        </div>`).join('');
+
+    // Reconciliation between last two snapshots
+    if (snaps.length < 2) {
+        recEl.innerHTML = '<div style="color:var(--text-light);font-size:0.78rem;padding:8px 0">Adiciona mais um saldo para ver a reconciliação.</div>';
+        return;
+    }
+
+    const toSnap = snaps[0];
+    const fromSnap = snaps[1];
+    const r = reconcileAccount(accId, fromSnap, toSnap);
+    const diffColor = Math.abs(r.diff) < 0.02 ? '#2E7D32' : (r.diff > 0 ? '#1565C0' : '#C62828');
+    const diffIcon = Math.abs(r.diff) < 0.02 ? '✓' : (r.diff > 0 ? '▲' : '▼');
+    const diffLabel = Math.abs(r.diff) < 0.02 ? 'Saldo bate certo' : (r.diff > 0 ? 'Sobra dinheiro não registado' : 'Faltam lançamentos');
+
+    const adjId = `bal-adj-desc-${accId}`;
+    recEl.innerHTML = `
+        <div style="background:var(--surface);border-radius:12px;padding:12px;margin-top:4px">
+            <div style="font-size:0.78rem;font-weight:700;color:var(--text-light);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.04em">Reconciliação ${fmt(fromSnap.date)} → ${fmt(toSnap.date)}</div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px"><span>Saldo inicial</span><span style="font-weight:600">${formatCurrency(fromSnap.amount)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#2E7D32"><span>+ Receitas validadas</span><span>${formatCurrency(r.paidIncome)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:var(--danger)"><span>− Despesas validadas</span><span>${formatCurrency(r.paidExpense)}</span></div>
+            ${Math.abs(r.paidTransfersNet) > 0.01 ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#6C5CE7"><span>${r.paidTransfersNet > 0 ? '+' : '−'} Transferências</span><span>${formatCurrency(Math.abs(r.paidTransfersNet))}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px;border-top:1px solid var(--border);padding-top:6px"><span>= Saldo calculado</span><span style="font-weight:600">${formatCurrency(r.calculated)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px"><span>Saldo real registado</span><span style="font-weight:700">${formatCurrency(r.actual)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem;font-weight:700;color:${diffColor};padding:6px 8px;background:${Math.abs(r.diff) < 0.02 ? '#E8F5E9' : '#FFF3E0'};border-radius:8px;margin-bottom:8px">
+                <span>${diffIcon} ${diffLabel}</span><span>${r.diff > 0 ? '+' : ''}${formatCurrency(r.diff)}</span>
+            </div>
+            ${r.pendingExpenses > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Despesas por validar</span><span>−${formatCurrency(r.pendingExpenses)}</span></div>` : ''}
+            ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por validar</span><span>+${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
+            ${r.debtOwed > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#1565C0;margin-bottom:2px" title="Total acumulado de valores em dívida do co-parente (split)"><span>💰 Dívida co-parente (acumulada)</span><span>+${formatCurrency(r.debtOwed)}</span></div>` : ''}
+            ${Math.abs(r.diff) >= 0.02 ? `
+            <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+                <div style="font-size:0.75rem;color:var(--text-light);margin-bottom:4px">Descrição do ajuste (opcional)</div>
+                <input id="${adjId}" type="text" placeholder="Ajuste de saldo" value="Ajuste de saldo" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:0.8rem;box-sizing:border-box;margin-bottom:6px">
+                <button onclick="applyBalanceAdjustment('${accId}','${toSnap.date}',${r.diff},document.getElementById('${adjId}')?.value);closeBalanceSnapshotModal()"
+                    style="width:100%;padding:8px;background:${r.diff > 0 ? '#2E7D32' : '#C62828'};color:#fff;border:none;border-radius:10px;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer">
+                    <i class="fas fa-magic"></i> Criar ajuste de ${r.diff > 0 ? 'receita' : 'despesa'} (${r.diff > 0 ? '+' : ''}${formatCurrency(r.diff)})
+                </button>
+            </div>` : ''}
+        </div>`;
+}
+
+function renderBalanceSnapshotButtons() {
+    const container = document.getElementById('balance-snapshot-btns');
+    if (!container) return;
+    if (!accounts.length) { container.innerHTML = ''; return; }
+    container.innerHTML = accounts.map(acc => {
+        const snaps = balanceSnapshots.filter(s => s.accountId === acc.id).sort((a, b) => b.date.localeCompare(a.date));
+        const latest = snaps[0];
+        const latestLabel = latest ? `${formatCurrency(latest.amount)}` : '—';
+        return `<button onclick="openBalanceSnapshotModal('${acc.id}')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card-bg);border:1.5px solid var(--border);border-radius:12px;font-family:var(--font);font-size:0.78rem;cursor:pointer;color:var(--text)">
+            <i class="fas fa-wallet" style="color:${acc.color || 'var(--primary)'};font-size:0.75rem"></i>
+            <span style="font-weight:600">${acc.name}</span>
+            <span style="color:var(--text-light)">${latestLabel}</span>
+            ${snaps.length >= 2 ? '<i class="fas fa-chart-line" style="color:var(--primary);font-size:0.65rem"></i>' : ''}
+        </button>`;
+    }).join('');
 }
 
 function renderTransfersList() {
