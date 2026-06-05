@@ -3679,6 +3679,12 @@ function renderCycleExpenses() {
     const swipeAttrs = (fn, id) =>
         `data-swipe-delete-fn="${fn}" data-swipe-delete-id="${id}" ontouchstart="_swipeStart(this,event)" ontouchmove="_swipeMove(this,event)" ontouchend="_swipeEnd(this,event)"`;
 
+    // Red delete strip revealed behind the row when swiped left.
+    const delStrip = `<div aria-hidden="true" style="position:absolute;right:0;top:0;bottom:0;width:72px;background:#EF5350;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:none"><i class="fas fa-trash" style="color:white;font-size:1rem"></i><span style="color:white;font-size:0.58rem;font-weight:600">Apagar</span></div>`;
+    // Wrap a swipeable row: outer container holds the red strip + the sliding inner row.
+    const swipeWrap = (inner, borderClass) =>
+        `<div style="position:relative;overflow:hidden;${borderClass || 'border-bottom:1px solid var(--border)'}">${delStrip}${inner}</div>`;
+
     // Group rows by date — bank-statement style with a date header per day.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
     const DOW_PT = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
@@ -3733,8 +3739,8 @@ function renderCycleExpenses() {
                 const fromName = fromAcc ? fromAcc.name : 'externa';
                 const toName   = toAcc   ? toAcc.name   : 'externa';
                 const validatedBadgeT = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
-                return `
-                    <div class="cycle-expense-row${futureClass}" ${swipeAttrs('deleteTransfer', r.id)} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                return swipeWrap(`
+                    <div class="cycle-expense-row${futureClass}" ${swipeAttrs('deleteTransfer', r.id)} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);position:relative;z-index:1">
                         <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">↔</div>
                         <div style="width:24px;height:24px;border-radius:6px;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-exchange-alt" style="font-size:0.7rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3748,7 +3754,7 @@ function renderCycleExpenses() {
                             <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.8rem">${formatCurrency(r.amount)}</span>
                         </div>
                         <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
-                    </div>`;
+                    </div>`);
             }
             if (r.kind === 'income') {
                 const incBadge = r.status === 'recebido'
@@ -3757,8 +3763,8 @@ function renderCycleExpenses() {
                 const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
                 const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
-                return `
-                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                const incInner = `
+                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;${!r.fixed ? 'background:var(--surface);position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'}">
                         <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
                         <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3773,6 +3779,7 @@ function renderCycleExpenses() {
                         </div>
                         <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                     </div>`;
+                return !r.fixed ? swipeWrap(incInner) : incInner;
             }
             const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
             const child = r.childId ? children.find(ch => ch.id === r.childId) : null;
@@ -3800,8 +3807,9 @@ function renderCycleExpenses() {
             const validatedBadge = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
             const rowAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
             const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
-            return `
-                <div class="cycle-expense-row${futureClass}" ${(!r.isGroupedEntry && r.kind !== 'fixed') ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+            const expSwipe = !r.isGroupedEntry && r.kind !== 'fixed';
+            const expInner = `
+                <div class="cycle-expense-row${futureClass}" ${expSwipe ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;${expSwipe ? 'background:var(--surface);position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'};opacity:${opacity}">
                     <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
                     <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3818,6 +3826,7 @@ function renderCycleExpenses() {
                     </div>
                     <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                 </div>`;
+            return expSwipe ? swipeWrap(expInner) : expInner;
         }).join('');
         return header + rowsHtml;
     }).join('') + openingRowHtml;
