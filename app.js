@@ -13265,14 +13265,18 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         }
 
         // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
-        const existingExp = isDebit ? expenses.find(e =>
+        // Prefer already-bankValidated entries so re-importing the same statement shows them
+        // as 'already-validated' even when a newer non-validated entry has the same amount/date.
+        const _expCands1 = isDebit ? expenses.filter(e =>
             !matchedExpIds.has(e.id) &&
             Math.abs((e.amount || 0) - txAmt) < 0.02 &&
-            Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
-        const existingInc = !isDebit ? incomes.find(i =>
+            Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : [];
+        const existingExp = _expCands1.find(e => e.bankValidated) || _expCands1[0] || null;
+        const _incCands1 = !isDebit ? incomes.filter(i =>
             !matchedIncIds.has(i.id) &&
             Math.abs((i.amount || 0) - txAmt) < 0.02 &&
-            Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : null;
+            Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : [];
+        const existingInc = _incCands1.find(i => i.bankValidated) || _incCands1[0] || null;
         if (existingExp || existingInc) {
             const m = existingExp || existingInc;
             if (existingExp) matchedExpIds.add(existingExp.id);
