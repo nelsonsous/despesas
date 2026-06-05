@@ -2195,6 +2195,10 @@ function toggleFixedPaidFromCycle(fixedId, dueDateStr, currentlyPaid) {
     markFixedPaid(fixedId, new Date(dueDateStr + 'T12:00:00'), !currentlyPaid);
 }
 
+function toggleFixedIncomeReceivedFromCycle(fixedIncomeId, dateStr, currentlyReceived) {
+    markFixedIncomePaid(fixedIncomeId, new Date(dateStr + 'T12:00:00'), !currentlyReceived);
+}
+
 function markFixedCoParentPaid(fixedId, date, paidByCoParent) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
@@ -3766,9 +3770,19 @@ function renderCycleExpenses() {
                     </div>`);
             }
             if (r.kind === 'income') {
-                const incBadge = r.status === 'recebido'
-                    ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
-                    : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
+                const incIsReceived = r.status === 'recebido';
+                let incBadge;
+                if (r.fixed) {
+                    const btnBg = incIsReceived ? '#E8F5E9' : '#FFF8E1';
+                    const btnColor = incIsReceived ? '#2E7D32' : '#E65100';
+                    const btnBorder = incIsReceived ? '#A5D6A7' : '#FFE082';
+                    const btnTitle = incIsReceived ? 'Marcar como pendente' : 'Marcar como recebido';
+                    incBadge = `<button onclick="toggleFixedIncomeReceivedFromCycle('${r.id}','${r.date}',${incIsReceived})" class="btn-icon" style="background:${btnBg};color:${btnColor};border:1px solid ${btnBorder};border-radius:8px;padding:2px;cursor:pointer;font-size:0.8rem;width:22px;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${btnTitle}">${incIsReceived ? '✅' : '⏳'}</button>`;
+                } else {
+                    incBadge = incIsReceived
+                        ? '<span title="Recebido" style="font-size:0.85rem">✅</span>'
+                        : '<span title="Por receber" style="font-size:0.85rem">⏳</span>';
+                }
                 const incAction = r.fixed ? `editFixedIncome('${r.id}')` : `editIncome('${r.id}')`;
                 const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
