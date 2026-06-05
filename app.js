@@ -13472,6 +13472,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         if (isDebit) {
             const splitCandidates = expenses.filter(e =>
                 !matchedExpIds.has(e.id) &&
+                !e.bankValidated &&
                 (e.amount || 0) > 0 &&
                 (e.amount || 0) < txAmt + 0.02 &&
                 Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 7 * 86400000
