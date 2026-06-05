@@ -71,6 +71,8 @@ const CYCLE_OPENING_OVERRIDES_KEY = 'despesas_cycle_opening_overrides';
 let cycleOpeningOverrides = {}; // { 'YYYY-MM-DD': amount } — manual override per cycle start date
 const BANK_MAPPINGS_KEY = 'despesas_bank_mappings';
 let bankMappings = []; // { bankNorm, bankRaw, cleanName, category, lastUsed }
+const PENDING_BANK_TXS_KEY = 'despesas_pending_bank_txs';
+let pendingBankTxs = []; // { date, description, bankNorm, amount, type, accountId, savedAt }
 const GOALS_KEY = 'despesas_savings_goals';
 const NETWORTH_KEY = 'despesas_net_worth';
 const BUDGETS_KEY = 'despesas_budgets';
@@ -1869,6 +1871,8 @@ function loadData() {
     cycleOpeningOverrides = cycleOverridesData ? JSON.parse(cycleOverridesData) : {};
     const bankMappingsData = localStorage.getItem(BANK_MAPPINGS_KEY);
     bankMappings = bankMappingsData ? JSON.parse(bankMappingsData) : [];
+    const pendingBankData = localStorage.getItem(PENDING_BANK_TXS_KEY);
+    pendingBankTxs = pendingBankData ? JSON.parse(pendingBankData) : [];
     const goalsData = localStorage.getItem(GOALS_KEY);
     savingsGoals = goalsData ? JSON.parse(goalsData) : [];
     // Migrate legacy savedSoFar (single number) to a transactions ledger so
@@ -1985,6 +1989,7 @@ function saveData() {
     localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
     localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
     localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings));
+    localStorage.setItem(PENDING_BANK_TXS_KEY, JSON.stringify(pendingBankTxs));
     localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
     localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
     // Best-effort: refresh the consumption profile after every save so AI
@@ -12915,6 +12920,27 @@ function recordBankMapping(bankRaw, cleanName, category) {
     if (idx >= 0) bankMappings[idx] = entry; else bankMappings.push(entry);
 }
 
+function savePendingBankTx(tx, accountId) {
+    if (!tx?.date || !tx?.amount) return;
+    // Expire entries older than 90 days
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = toLocalDateStr(cutoff);
+    pendingBankTxs = pendingBankTxs.filter(t => t.date >= cutoffStr);
+    const bankNorm = normalizeBankDesc(tx.description);
+    const amt = parseFloat(tx.amount) || 0;
+    const exists = pendingBankTxs.some(t =>
+        t.bankNorm === bankNorm && t.date === tx.date && Math.abs(t.amount - amt) < 0.02);
+    if (!exists) {
+        pendingBankTxs.push({ date: tx.date, description: tx.description, bankNorm,
+            amount: amt, type: tx.type, accountId: accountId || null,
+            savedAt: new Date().toISOString() });
+        saveData();
+        showToast('Guardado para cruzamento futuro');
+    } else {
+        showToast('Já guardado');
+    }
+}
+
 function findBankMapping(bankDesc) {
     if (!bankDesc || !bankMappings.length) return null;
     const norm = normalizeBankDesc(bankDesc);
@@ -12963,7 +12989,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             const netExp = expenses.find(e =>
                 !matchedExpIds.has(e.id) &&
                 Math.abs((e.amount || 0) - netAmt) < Math.min(3, netAmt * 0.10) &&
-                Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 10 * 86400000
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 45 * 86400000
             );
             if (netExp) {
                 pairedTxIndices.add(ia);
@@ -12975,6 +13001,49 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     category: netExp.category, selected: true });
                 break;
             }
+        }
+    }
+
+    // Cross-statement pre-pass: check current transactions against saved pendingBankTxs
+    // (transactions from previous imports of other accounts that weren't matched)
+    for (let ia = 0; ia < transactions.length; ia++) {
+        if (pairedTxIndices.has(ia)) continue;
+        const txA = transactions[ia];
+        if (!txA.date || !txA.amount) continue;
+        const isCredit = txA.type === 'credit';
+        const amtA = parseFloat(txA.amount) || 0;
+        const dateAMs = new Date(txA.date + 'T12:00:00').getTime();
+        let savedIdx = -1;
+        const savedMatch = pendingBankTxs.find((pt, pi) => {
+            if ((isCredit && pt.type === 'credit') || (!isCredit && pt.type !== 'credit')) return false;
+            if (!bankDescWordOverlap(txA.description, pt.description)) return false;
+            if (Math.abs(new Date(pt.date + 'T12:00:00').getTime() - dateAMs) > 14 * 86400000) return false;
+            savedIdx = pi;
+            return true;
+        });
+        if (!savedMatch || savedIdx < 0) continue;
+        const ptAmt = savedMatch.amount;
+        const [debitAmt, creditAmt] = isCredit ? [ptAmt, amtA] : [amtA, ptAmt];
+        const netAmt = Math.round((debitAmt - creditAmt) * 100) / 100;
+        if (netAmt < 0.50) continue;
+        const savedDateMs = new Date(savedMatch.date + 'T12:00:00').getTime();
+        const midDateMs = Math.min(dateAMs, savedDateMs);
+        const netExp = expenses.find(e =>
+            !matchedExpIds.has(e.id) &&
+            Math.abs((e.amount || 0) - netAmt) < Math.min(3, netAmt * 0.10) &&
+            Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 45 * 86400000
+        );
+        if (netExp) {
+            pairedTxIndices.add(ia);
+            matchedExpIds.add(netExp.id);
+            const fakeSaved = { ...savedMatch, amount: ptAmt };
+            suggestions.push({
+                tx: isCredit ? fakeSaved : txA,
+                txCredit: isCredit ? txA : fakeSaved,
+                action: 'net-pair', matchId: netExp.id, matchDesc: netExp.description,
+                netAmt, creditAmt, debitAmt, category: netExp.category, selected: true,
+                crossStatement: true, savedTxIdx: savedIdx
+            });
         }
     }
 
@@ -13091,10 +13160,10 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
         // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
+            const txMonthDateFE = new Date(txMonth + '-01T12:00:00');
             // Check if already paid — show as already-validated (not selected by default)
             const alreadyPaid = fixedExpenses.find(fe => {
-                const effAmt = getEffectiveFixedAmount(fe, new Date(txMonth + '-01T12:00:00'));
-                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                if (Math.abs(getEffectiveFixedAmount(fe, txMonthDateFE) - txAmt) >= 0.02) return false;
                 return fixedStatus.some(s => s.fixedId === fe.id && s.month === txMonth && s.status === 'pago');
             });
             if (alreadyPaid) {
@@ -13102,8 +13171,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 return;
             }
             const fixedMatch = fixedExpenses.find(fe => {
-                const effAmt = getEffectiveFixedAmount(fe, new Date(txMonth + '-01T12:00:00'));
-                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
+                if (Math.abs(getEffectiveFixedAmount(fe, txMonthDateFE) - txAmt) >= 0.02) return false;
                 return !fixedStatus.some(s => s.fixedId === fe.id && s.month === txMonth && s.status === 'pago');
             });
             if (fixedMatch) {
@@ -13114,20 +13182,21 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
 
         // 3 — match fixed income (credit, same amount, same month, not yet received)
         if (!isDebit && txMonth) {
+            const txMonthDateFI = new Date(txMonth + '-01T12:00:00');
             // Check if already received — show as already-validated (not selected by default)
             const alreadyReceived = fixedIncomes.find(fi => {
-                const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
-                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
-                return fixedIncomeStatus.some(s => s.fixedIncomeId === fi.id && s.month === txMonth && s.status === 'recebido');
+                if (Math.abs(getEffectiveFixedIncomeAmount(fi, txMonthDateFI) - txAmt) >= 0.02) return false;
+                const st = getFixedIncomeStatusForMonth(fi.id, txMonthDateFI);
+                return st?.status === 'recebido';
             });
             if (alreadyReceived) {
                 suggestions.push({ tx, action: 'already-validated', matchId: alreadyReceived.id, matchDesc: alreadyReceived.description, category: alreadyReceived.category, selected: false });
                 return;
             }
             const fixedIncMatch = fixedIncomes.find(fi => {
-                const effAmt = (fixedIncomeStatus.find(s => s.fixedIncomeId === fi.id && s.month === txMonth)?.amount) || fi.amount || 0;
-                if (Math.abs(effAmt - txAmt) >= 0.02) return false;
-                return !fixedIncomeStatus.some(s => s.fixedIncomeId === fi.id && s.month === txMonth && s.status === 'recebido');
+                if (Math.abs(getEffectiveFixedIncomeAmount(fi, txMonthDateFI) - txAmt) >= 0.02) return false;
+                const st = getFixedIncomeStatusForMonth(fi.id, txMonthDateFI);
+                return !st || st.status !== 'recebido';
             });
             if (fixedIncMatch) {
                 suggestions.push({ tx, action: 'mark-fixed-income-received', matchId: fixedIncMatch.id, matchDesc: fixedIncMatch.description, category: fixedIncMatch.category, selected: true });
@@ -13369,12 +13438,14 @@ function renderBankReconciliation() {
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                 <select id="bank-row-cat-${i}" onchange="bankImportSuggestions[${i}].category=this.value" style="font-size:0.68rem;padding:2px 4px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:var(--surface);max-width:110px">${catOpts}</select>
                 <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transf.</button>
+                <button onclick="event.stopPropagation();savePendingBankTx(bankImportSuggestions[${i}].tx,document.getElementById('bank-import-account-sel')?.value)" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Guardar para cruzar com outro extrato">💾</button>
                 <button onclick="bankImportSuggestions[${i}].action='ignore';bankImportSuggestions[${i}].selected=false;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #FFCDD2;border-radius:6px;background:#FFEBEE;color:#C62828;cursor:pointer">🚫</button>
             </div>`;
         } else if (s.action === 'create-income') {
             tagHtml = `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                 <span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:8px;background:#E8F5E9;color:#2E7D32">Nova receita</span>
                 <button onclick="bankImportSuggestions[${i}].action='create-transfer';renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer">↔ Transf.</button>
+                <button onclick="event.stopPropagation();savePendingBankTx(bankImportSuggestions[${i}].tx,document.getElementById('bank-import-account-sel')?.value)" style="font-size:0.6rem;padding:1px 5px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Guardar para cruzar com outro extrato">💾</button>
                 <button onclick="bankImportSuggestions[${i}].action='ignore';bankImportSuggestions[${i}].selected=false;renderBankReconciliation()" style="font-size:0.6rem;padding:1px 5px;border:1px solid #FFCDD2;border-radius:6px;background:#FFEBEE;color:#C62828;cursor:pointer">🚫</button>
             </div>`;
         } else if (s.action === 'create-transfer') {
@@ -13536,6 +13607,10 @@ async function applyBankImportSelections() {
                     ...(accountId ? { accountId } : {}) };
                 if (s.tx?.description && s.matchDesc) recordBankMapping(s.tx.description, s.matchDesc, s.category);
                 if (s.txCredit?.description && s.matchDesc) recordBankMapping(s.txCredit.description, s.matchDesc, s.category);
+                // Remove saved cross-statement tx from pending list
+                if (s.crossStatement && s.savedTxIdx >= 0) {
+                    pendingBankTxs.splice(s.savedTxIdx, 1);
+                }
                 count++;
             }
         } else if (s.action === 'validate-split') {
