@@ -3690,32 +3690,33 @@ function renderCycleExpenses() {
                 untaggedDelta += r.delta;
             }
         });
-        const chips = accounts.map(a => {
+        const rowStyle = (isActive, color) => `display:flex;align-items:center;padding:4px 0;cursor:pointer;border-radius:6px;margin:0 -4px;padding-left:4px;padding-right:4px;background:${isActive ? color + '18' : 'transparent'};border:none;width:100%;font-family:var(--font);text-align:left`;
+        const rows = accounts.map(a => {
             const bal = getAccountBalance(a.id);
             const color = a.color || '#9E9E9E';
             const isActive = _cycleAccFilter === a.id;
-            return `<button onclick="setCycleAccountFilter('${a.id}')" title="${a.name}" style="display:flex;flex-direction:column;padding:4px 9px;border-radius:10px;background:${isActive ? color + '28' : color + '10'};border:1.5px solid ${isActive ? color : color + '30'};cursor:pointer;flex-shrink:0;text-align:left;font-family:var(--font);min-width:0">
-                <span style="display:flex;align-items:center;gap:3px">
-                    ${a.isSavings ? `<span style="font-size:0.6rem">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.55rem;color:${color}"></i>`}
-                    <span style="font-size:0.6rem;color:${color};font-weight:700;white-space:nowrap;max-width:72px;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
-                </span>
-                <span style="font-size:0.75rem;font-weight:700;color:var(--text);white-space:nowrap">${formatCurrency(bal)}</span>
+            return `<button onclick="setCycleAccountFilter('${a.id}')" style="${rowStyle(isActive, color)}">
+                ${a.isSavings ? `<span style="font-size:0.7rem;width:16px;text-align:center">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.65rem;color:${color};width:16px;text-align:center"></i>`}
+                <span style="font-size:0.8rem;color:${isActive ? color : 'var(--text)'};font-weight:${isActive ? '700' : '500'};flex:1;margin-left:6px">${a.name}</span>
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">${formatCurrency(bal)}</span>
             </button>`;
         }).join('');
         const isNoneActive = _cycleAccFilter === '__none__';
-        const untaggedChip = untaggedDelta !== 0 ? `<button onclick="setCycleAccountFilter('__none__')" title="Sem conta" style="display:flex;flex-direction:column;padding:4px 9px;border-radius:10px;background:${isNoneActive ? '#9E9E9E28' : '#9E9E9E0D'};border:1.5px ${isNoneActive ? 'solid #9E9E9E' : 'dashed #9E9E9E55'};cursor:pointer;flex-shrink:0;text-align:left;font-family:var(--font)">
-            <span style="font-size:0.6rem;color:#757575;font-weight:700;white-space:nowrap">Sem conta</span>
-            <span style="font-size:0.75rem;font-weight:700;color:var(--text);white-space:nowrap">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
+        const untaggedRow = untaggedDelta !== 0 ? `<button onclick="setCycleAccountFilter('__none__')" style="${rowStyle(isNoneActive, '#9E9E9E')}">
+            <i class="fas fa-question-circle" style="font-size:0.65rem;color:#9E9E9E;width:16px;text-align:center"></i>
+            <span style="font-size:0.8rem;color:${isNoneActive ? '#757575' : 'var(--text)'};font-weight:${isNoneActive ? '700' : '500'};flex:1;margin-left:6px">Sem conta</span>
+            <span style="font-size:0.8rem;font-weight:700;color:var(--text)">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</span>
         </button>` : '';
         const totalAccBal = accounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
         const cycleBalDiff = totalAccBal - closingBalance;
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
-        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓ bate certo' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
-        return `<div style="padding:6px 0 8px;border-bottom:1px solid var(--border)">
-            <div style="display:flex;gap:5px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;-webkit-overflow-scrolling:touch">${chips}${untaggedChip}</div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
-                <span style="font-size:0.72rem;font-weight:700;color:${diffColor}">${formatCurrency(totalAccBal)} <span style="font-weight:400;font-size:0.65rem">${diffLabel}</span></span>
-                <span style="display:flex;gap:5px">
+        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
+        return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
+            ${rows}${untaggedRow}
+            <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total <span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span></span>
+                <span style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(totalAccBal)}</span>
                     <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
                     <button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
                 </span>
