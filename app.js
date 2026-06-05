@@ -12953,12 +12953,28 @@ function renderBalanceSnapshotButtons() {
     container.innerHTML = accounts.map(acc => {
         const snaps = balanceSnapshots.filter(s => s.accountId === acc.id).sort((a, b) => b.date.localeCompare(a.date));
         const latest = snaps[0];
-        const latestLabel = latest ? `${formatCurrency(latest.amount)}` : '—';
-        return `<button onclick="openBalanceSnapshotModal('${acc.id}')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card-bg);border:1.5px solid var(--border);border-radius:12px;font-family:var(--font);font-size:0.78rem;cursor:pointer;color:var(--text)">
+        const calc = getAccountBalance(acc.id);
+        let diffChip = '';
+        let borderColor = 'var(--border)';
+        if (latest) {
+            const diff = latest.amount - calc;
+            const absDiff = Math.abs(diff);
+            if (absDiff < 0.02) {
+                borderColor = '#A5D6A7';
+                diffChip = `<span style="font-size:0.6rem;color:#2E7D32;font-weight:700">✓</span>`;
+            } else {
+                const sign = diff > 0 ? '+' : '−';
+                const color = diff > 0 ? '#2E7D32' : '#C62828';
+                borderColor = diff > 0 ? '#A5D6A7' : '#EF9A9A';
+                diffChip = `<span style="font-size:0.6rem;color:${color};font-weight:700">${sign}${formatCurrency(absDiff)}</span>`;
+            }
+        }
+        const calcLabel = `<span style="color:var(--text-light);font-size:0.72rem">${formatCurrency(calc)}</span>`;
+        const snapLabel = latest ? `<span style="font-size:0.65rem;color:var(--text-light)">· banco: ${formatCurrency(latest.amount)}</span>` : '';
+        return `<button onclick="openBalanceSnapshotModal('${acc.id}')" style="display:flex;align-items:center;gap:5px;padding:6px 12px;background:var(--card-bg);border:1.5px solid ${borderColor};border-radius:12px;font-family:var(--font);font-size:0.78rem;cursor:pointer;color:var(--text)">
             <i class="fas fa-wallet" style="color:${acc.color || 'var(--primary)'};font-size:0.75rem"></i>
             <span style="font-weight:600">${acc.name}</span>
-            <span style="color:var(--text-light)">${latestLabel}</span>
-            ${snaps.length >= 2 ? '<i class="fas fa-chart-line" style="color:var(--primary);font-size:0.65rem"></i>' : ''}
+            ${calcLabel}${snapLabel}${diffChip}
         </button>`;
     }).join('');
 }
