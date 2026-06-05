@@ -3673,8 +3673,7 @@ function renderCycleExpenses() {
     }
 
     // Small "saldo após" line shown under each movement's amount.
-    const balLine = (r) => r.balanceAfter == null ? '' :
-        `<div style="font-size:0.6rem;color:var(--text-light);text-align:right;margin-top:1px">saldo ${formatCurrency(r.balanceAfter)}</div>`;
+    const balLine = () => '';
 
     // Group rows by date — bank-statement style with a date header per day.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
