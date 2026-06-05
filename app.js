@@ -3686,7 +3686,7 @@ function renderCycleExpenses() {
                 const sinceDelta = accForDelta?.initialBalanceDate || '';
                 if (sinceDelta && r.date <= sinceDelta) return;
                 cycleAccDelta[r.accountId] += r.delta;
-            } else if (!r.accountId) {
+            } else if (!r.accountId && r.kind !== 'transfer') {
                 untaggedDelta += r.delta;
             }
         });
@@ -3778,7 +3778,11 @@ function renderCycleExpenses() {
         const header = date ? dayHeader(date) : '';
         const isFutureDate = cycleContainsToday && date > todayStrCycle;
         const visibleRows = _cycleAccFilter
-            ? rows.filter(r => _cycleAccFilter === '__none__' ? !r.accountId : r.accountId === _cycleAccFilter)
+            ? rows.filter(r => {
+                if (_cycleAccFilter === '__none__') return !r.accountId && r.kind !== 'transfer';
+                if (r.kind === 'transfer') return r.fromAccountId === _cycleAccFilter || r.toAccountId === _cycleAccFilter;
+                return r.accountId === _cycleAccFilter;
+            })
             : rows;
         if (!visibleRows.length) return '';
         const rowsHtml = visibleRows.map(r => {
