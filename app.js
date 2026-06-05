@@ -13278,10 +13278,17 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 suggestions.push({ tx, action: alreadyDone0 ? 'already-validated' : 'validate', matchId: m.id, matchKind: mappedExp ? 'expense' : 'income', matchDesc: m.description, category: m.category, selected: !alreadyDone0, mappedFrom: mapping.bankRaw });
                 return;
             }
-            // Mapping name points to a fixed income/expense (not a regular transaction)
+            // Mapping name points to a fixed income/expense (not a regular transaction).
+            // Require amount to match within tolerance — prevents a wrong bankMapping from
+            // consuming a bank tx that belongs to a different (correctly-named) expense.
             if (!isDebit && txMonth) {
                 const txMD0 = new Date(txMonth + '-01T12:00:00');
-                const mFI = fixedIncomes.find(fi => fi.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim());
+                const mFI = fixedIncomes.find(fi => {
+                    if (fi.description.toLowerCase().trim() !== mapping.cleanName.toLowerCase().trim()) return false;
+                    const effAmt = getEffectiveFixedIncomeAmount(fi, txMD0);
+                    const tol = fi.isVariable ? Math.min(20, (effAmt || fi.amount || 0) * 0.15) : 0.02;
+                    return Math.abs(effAmt - txAmt) < tol || Math.abs((fi.amount || 0) - txAmt) < tol;
+                });
                 if (mFI) {
                     const effSt0 = getEffectiveFixedIncomeStatus(mFI, txMD0);
                     suggestions.push({ tx, action: effSt0.status === 'recebido' ? 'already-validated' : 'mark-fixed-income-received', matchId: mFI.id, matchDesc: mFI.description, category: mFI.category, selected: effSt0.status !== 'recebido', mappedFrom: mapping.bankRaw });
@@ -13290,7 +13297,12 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
             if (isDebit && txMonth) {
                 const txMD0 = new Date(txMonth + '-01T12:00:00');
-                const mFE = fixedExpenses.find(fe => fe.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim());
+                const mFE = fixedExpenses.find(fe => {
+                    if (fe.description.toLowerCase().trim() !== mapping.cleanName.toLowerCase().trim()) return false;
+                    const effAmt = getEffectiveFixedAmount(fe, txMD0);
+                    const tol = fe.isVariable ? Math.min(20, (effAmt || fe.amount || 0) * 0.15) : 0.02;
+                    return Math.abs(effAmt - txAmt) < tol || Math.abs((fe.amount || 0) - txAmt) < tol;
+                });
                 if (mFE) {
                     const isPaid0 = fixedStatus.some(s => s.fixedId === mFE.id && s.month === txMonth && s.status === 'pago');
                     suggestions.push({ tx, action: isPaid0 ? 'already-validated' : 'mark-fixed-paid', matchId: mFE.id, matchDesc: mFE.description, category: mFE.category, selected: !isPaid0, mappedFrom: mapping.bankRaw });
