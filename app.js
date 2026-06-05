@@ -13486,6 +13486,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 e.entries.forEach(en => {
                     if (matchedExpIds.has(e.id)) return;
                     if (en.bankValidated) return;
+                    if (accountId && e.accountId && e.accountId !== accountId) return;
                     if (!en.date || en.date < extStartStr || en.date > extEndStr) return;
                     suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: en.amount, date: en.date, selected: false });
                 });
@@ -13493,6 +13494,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
             if (matchedExpIds.has(e.id)) return;
             if (e.bankValidated) return;
+            if (accountId && e.accountId && e.accountId !== accountId) return;
             if (!e.date || e.date < extStartStr || e.date > extEndStr) return;
             suggestions.push({ tx: null, action: 'no-match', matchId: e.id, matchKind: 'expense', matchDesc: e.description, category: e.category, amount: e.amount, date: e.date, selected: false });
         });
@@ -13500,6 +13502,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         incomes.forEach(i => {
             if (matchedIncIds.has(i.id)) return;
             if (i.bankValidated) return;
+            if (accountId && i.accountId && i.accountId !== accountId) return;
             if (!i.date || i.date < extStartStr || i.date > extEndStr) return;
             suggestions.push({ tx: null, action: 'no-match', matchId: i.id, matchKind: 'income', matchDesc: i.description, category: i.category, amount: i.amount, date: i.date, selected: false });
         });
