@@ -13297,6 +13297,38 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     return;
                 }
             }
+            // 0-near: mapping found but amount differs slightly — near-match fallback.
+            // Income near-match: correctAmount defaults true (bank amount is authoritative for reimbursements).
+            if (!isDebit) {
+                const nearMappedInc = incomes.find(i =>
+                    !matchedIncIds.has(i.id) &&
+                    Math.abs((i.amount || 0) - txAmt) >= 0.02 &&
+                    Math.abs((i.amount || 0) - txAmt) < Math.min(10, txAmt * 0.15) &&
+                    i.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
+                    Math.abs(new Date(i.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000);
+                if (nearMappedInc) {
+                    matchedIncIds.add(nearMappedInc.id);
+                    suggestions.push({ tx, action: 'near-match', matchId: nearMappedInc.id, matchKind: 'income',
+                        matchDesc: nearMappedInc.description, matchAmount: nearMappedInc.amount,
+                        category: nearMappedInc.category, selected: true, correctAmount: true, mappedFrom: mapping.bankRaw });
+                    return;
+                }
+            }
+            if (isDebit) {
+                const nearMappedExp = expenses.find(e =>
+                    !matchedExpIds.has(e.id) &&
+                    Math.abs((e.amount || 0) - txAmt) >= 0.02 &&
+                    Math.abs((e.amount || 0) - txAmt) < Math.min(5, txAmt * 0.10) &&
+                    e.description.toLowerCase().trim() === mapping.cleanName.toLowerCase().trim() &&
+                    Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 5 * 86400000);
+                if (nearMappedExp) {
+                    matchedExpIds.add(nearMappedExp.id);
+                    suggestions.push({ tx, action: 'near-match', matchId: nearMappedExp.id,
+                        matchDesc: nearMappedExp.description, matchAmount: nearMappedExp.amount,
+                        category: nearMappedExp.category, selected: true, correctAmount: false, mappedFrom: mapping.bankRaw });
+                    return;
+                }
+            }
         }
 
         // 1 — match against existing variable expense/income (amount ±0.02, date ±3 days)
@@ -13365,7 +13397,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 matchedIncIds.add(nearInc.id);
                 suggestions.push({ tx, action: 'near-match', matchId: nearInc.id, matchKind: 'income',
                     matchDesc: nearInc.description, matchAmount: nearInc.amount,
-                    category: nearInc.category, selected: true, correctAmount: false });
+                    category: nearInc.category, selected: true, correctAmount: true });
                 return;
             }
         }
