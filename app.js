@@ -3675,6 +3675,10 @@ function renderCycleExpenses() {
     // Small "saldo após" line shown under each movement's amount.
     const balLine = () => '';
 
+    // Helper to build swipe-to-delete attributes for a row div.
+    const swipeAttrs = (fn, id) =>
+        `data-swipe-delete-fn="${fn}" data-swipe-delete-id="${id}" ontouchstart="_swipeStart(this,event)" ontouchmove="_swipeMove(this,event)" ontouchend="_swipeEnd(this,event)"`;
+
     // Group rows by date — bank-statement style with a date header per day.
     const cycleContainsToday = today >= cycle.start && today <= cycle.end;
     const DOW_PT = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
@@ -3730,7 +3734,7 @@ function renderCycleExpenses() {
                 const toName   = toAcc   ? toAcc.name   : 'externa';
                 const validatedBadgeT = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
                 return `
-                    <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                    <div class="cycle-expense-row${futureClass}" ${swipeAttrs('deleteTransfer', r.id)} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                         <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">↔</div>
                         <div style="width:24px;height:24px;border-radius:6px;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-exchange-alt" style="font-size:0.7rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3744,7 +3748,6 @@ function renderCycleExpenses() {
                             <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.8rem">${formatCurrency(r.amount)}</span>
                         </div>
                         <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
-                        <button onclick="deleteTransfer('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0"><i class="fas fa-trash"></i></button>
                     </div>`;
             }
             if (r.kind === 'income') {
@@ -3755,7 +3758,7 @@ function renderCycleExpenses() {
                 const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
                 return `
-                    <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                         <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
                         <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3767,10 +3770,8 @@ function renderCycleExpenses() {
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                             <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
-                            ${balLine(r)}
                         </div>
                         <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
-                        ${!r.fixed ? `<button onclick="event.stopPropagation();confirmDeleteIncome('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
                     </div>`;
             }
             const c = cats[r.category] || cats.outros || { color: '#9E9E9E', icon: 'fa-circle', label: r.category || 'outros' };
@@ -3800,7 +3801,7 @@ function renderCycleExpenses() {
             const rowAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
             const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
             return `
-                <div class="cycle-expense-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
+                <div class="cycle-expense-row${futureClass}" ${(!r.isGroupedEntry && r.kind !== 'fixed') ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:${opacity}">
                     <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
                     <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
@@ -3814,10 +3815,8 @@ function renderCycleExpenses() {
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                         <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
-                        ${balLine(r)}
                     </div>
                     <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
-                    ${!r.isGroupedEntry && r.kind !== 'fixed' ? `<button onclick="event.stopPropagation();confirmDelete('${r.id}')" class="btn-icon" style="color:#EF5350;padding:4px 6px;flex-shrink:0" title="Apagar"><i class="fas fa-trash"></i></button>` : ''}
                 </div>`;
         }).join('');
         return header + rowsHtml;
@@ -13008,6 +13007,45 @@ function findBankMapping(bankDesc) {
     return bestLen >= 4 ? best : null; // ignore trivially short matches
 }
 
+// ===== SWIPE-TO-DELETE (cycle Resumo rows) =====
+let _swipeRow = null, _swipeX0 = 0, _swipeY0 = 0, _swipeDir = null;
+function _swipeStart(el, e) {
+    if (_swipeRow && _swipeRow !== el) {
+        _swipeRow.style.transition = 'transform 0.2s';
+        _swipeRow.style.transform = '';
+    }
+    _swipeRow = el;
+    _swipeX0 = e.touches[0].clientX;
+    _swipeY0 = e.touches[0].clientY;
+    _swipeDir = null;
+    el.style.transition = '';
+}
+function _swipeMove(el, e) {
+    if (_swipeRow !== el) return;
+    const dx = e.touches[0].clientX - _swipeX0;
+    const dy = e.touches[0].clientY - _swipeY0;
+    if (!_swipeDir && (Math.abs(dx) > 6 || Math.abs(dy) > 6))
+        _swipeDir = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (_swipeDir !== 'x' || dx >= 0) return;
+    e.preventDefault();
+    el.style.transform = `translateX(${Math.max(-72, dx)}px)`;
+}
+function _swipeEnd(el) {
+    if (_swipeRow !== el) return;
+    const tx = parseFloat((el.style.transform.match(/-?\d+(\.\d+)?/) || [0])[0]) || 0;
+    _swipeRow = null;
+    el.style.transition = 'transform 0.2s';
+    el.style.transform = '';
+    setTimeout(() => { if (el) el.style.transition = ''; }, 200);
+    if (tx < -40) {
+        const fn = el.dataset.swipeDeleteFn;
+        const id = el.dataset.swipeDeleteId;
+        if (fn === 'confirmDelete') confirmDelete(id);
+        else if (fn === 'confirmDeleteIncome') confirmDeleteIncome(id);
+        else if (fn === 'deleteTransfer') deleteTransfer(id);
+    }
+}
+
 function buildBankReconciliationSuggestions(transactions, accountId) {
     const suggestions = [];
     const matchedExpIds = new Set();
@@ -13031,6 +13069,13 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             const dateBMs = new Date(txB.date + 'T12:00:00').getTime();
             if (Math.abs(dateAMs - dateBMs) > 7 * 86400000) continue;
             const amtB = parseFloat(txB.amount) || 0;
+            // If the debit already has an exact match in expenses, let step 1
+            // validate it individually rather than absorbing it into a net-pair.
+            const debitHasExact = expenses.some(e =>
+                Math.abs((e.amount || 0) - amtB) < 0.02 &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateBMs) <= 3 * 86400000
+            );
+            if (debitHasExact) continue;
             const netAmt = Math.round((amtB - amtA) * 100) / 100;
             if (netAmt < 0.50) continue;
             const midDateMs = Math.min(dateAMs, dateBMs);
