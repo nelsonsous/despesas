@@ -12876,14 +12876,26 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
         i.accountId === accountId && !i.bankValidated && i.date > fromDate && i.date <= toDate
     ).reduce((s, i) => s + (i.amount || 0), 0);
 
-    // Cumulative debt owed by co-parent (split amounts unpaid, all time up to toDate)
+    // Unpaid co-parent debt: split expenses where paidByFather is not set, up to toDate.
     let debtOwed = 0;
     expenses.forEach(e => {
-        if (!e.split || !e.date || e.date > toDate) return;
+        if (!e.split || !e.date || e.date > toDate || e.paidByFather) return;
         const child = children.find(c => c.id === e.type);
         if (!child) return;
         const splitPct = getEffectiveSplitPct(e, child);
         debtOwed += (e.amount || 0) * (splitPct / 100);
+    });
+    // Also include unpaid fixed expense splits (check fixedStatus.paidByFather per month)
+    fixedExpenses.forEach(fe => {
+        if (!fe.split) return;
+        const child = children.find(c => c.id === (fe.childId || fe.type));
+        if (!child) return;
+        fixedStatus.filter(s => s.fixedId === fe.id && !s.paidByFather).forEach(s => {
+            const d = s.month + '-01';
+            if (d > toDate) return;
+            const splitPct = (child.splitPct || 50);
+            debtOwed += ((s.amount || fe.amount || 0) * splitPct / 100);
+        });
     });
 
     return { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, pendingExpenses, pendingIncomes, debtOwed };
@@ -12998,7 +13010,7 @@ function renderBalanceSnapshotModal() {
             </div>
             ${r.pendingExpenses > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Despesas por validar</span><span>−${formatCurrency(r.pendingExpenses)}</span></div>` : ''}
             ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por validar</span><span>+${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
-            ${r.debtOwed > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#1565C0;margin-bottom:2px" title="Total acumulado de valores em dívida do co-parente (split)"><span>💰 Dívida co-parente (acumulada)</span><span>+${formatCurrency(r.debtOwed)}</span></div>` : ''}
+            ${r.debtOwed > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#1565C0;margin-bottom:2px" title="Valor que o co-parente ainda não pagou (despesas partilhadas não marcadas como pagas)"><span>💰 A receber do co-parente</span><span>+${formatCurrency(r.debtOwed)}</span></div>` : ''}
             ${Math.abs(r.diff) >= 0.02 ? `
             <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
                 <div style="font-size:0.75rem;color:var(--text-light);margin-bottom:4px">Descrição do ajuste (opcional)</div>
