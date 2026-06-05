@@ -14845,15 +14845,23 @@ function saveFixed(event) {
         const prevDate = new Date(splitRef); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
         const prevMonthKey = getFixedMonthKey(prevDate);
         const existing = idx >= 0 ? fixedExpenses[idx] : null;
-        if (existing && existing.startDate < currentMonthKey) {
-            // Has past data: end the old record and create a new version from the split month
+        const materialChangeExp = existing && (
+            existing.amount !== fixed.amount ||
+            existing.description !== fixed.description ||
+            existing.dayOfMonth !== fixed.dayOfMonth ||
+            existing.paymentMode !== fixed.paymentMode ||
+            existing.isVariable !== fixed.isVariable ||
+            (existing.frequency || 1) !== (fixed.frequency || 1)
+        );
+        if (existing && existing.startDate < currentMonthKey && materialChangeExp) {
+            // Material change with past history: end old and create new version
             fixedExpenses[idx].endDate = prevMonthKey;
             const newFixed = { ...fixed, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
             fixedExpenses.push(newFixed);
             showToast('Nova versao criada a partir deste mes');
         } else {
-            // No past history: edit in place
-            if (idx >= 0) { fixed.createdAt = fixedExpenses[idx].createdAt; fixedExpenses[idx] = fixed; }
+            // Non-material change (account, notes, category, type) or no past history: edit in place
+            if (idx >= 0) { fixed.createdAt = fixedExpenses[idx].createdAt; fixed.startDate = fixedExpenses[idx].startDate; fixedExpenses[idx] = fixed; }
             showToast('Despesa fixa atualizada!');
         }
     } else {
@@ -15135,15 +15143,23 @@ function saveFixedIncome(event) {
         const prevDate = new Date(); prevDate.setDate(1); prevDate.setMonth(prevDate.getMonth() - 1);
         const prevMonthKey = getFixedMonthKey(prevDate);
         const existing = idx >= 0 ? fixedIncomes[idx] : null;
-        if (existing && existing.startDate < currentMonthKey) {
-            // Has past data: end the old record and create a new version from current month
+        const materialChange = existing && (
+            existing.amount !== fi.amount ||
+            existing.description !== fi.description ||
+            existing.dayOfMonth !== fi.dayOfMonth ||
+            existing.paymentMode !== fi.paymentMode ||
+            existing.isVariable !== fi.isVariable ||
+            existing.onlyOnDay !== fi.onlyOnDay
+        );
+        if (existing && existing.startDate < currentMonthKey && materialChange) {
+            // Material change with past history: end old and create new version
             fixedIncomes[idx].endDate = prevMonthKey;
             const newFi = { ...fi, id: generateId(), startDate: currentMonthKey, createdAt: new Date().toISOString() };
             fixedIncomes.push(newFi);
             showToast('Nova versao criada a partir deste mes');
         } else {
-            // No past history: edit in place
-            if (idx >= 0) { fi.createdAt = fixedIncomes[idx].createdAt; fixedIncomes[idx] = fi; }
+            // Non-material change (account, notes, category) or no past history: edit in place
+            if (idx >= 0) { fi.createdAt = fixedIncomes[idx].createdAt; fi.startDate = fixedIncomes[idx].startDate; fixedIncomes[idx] = fi; }
             showToast('Receita fixa atualizada!');
         }
     } else {
