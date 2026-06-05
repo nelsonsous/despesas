@@ -3556,10 +3556,32 @@ function renderCycleExpenses() {
         (a.date || '').localeCompare(b.date || '') ||
         ((a.flow === 'in' ? 0 : 1) - (b.flow === 'in' ? 0 : 1)) ||
         b._i - a._i);
+    // Per-account opening: current balance minus realized cycle delta for that account.
+    const accCycleDelta = {};
+    accounts.forEach(a => { accCycleDelta[a.id] = 0; });
+    all.forEach(r => {
+        if (r.realized && r.accountId && accCycleDelta[r.accountId] !== undefined) {
+            const acc2 = accounts.find(a => a.id === r.accountId);
+            if (!acc2?.initialBalanceDate || r.date > acc2.initialBalanceDate) {
+                accCycleDelta[r.accountId] += r.delta;
+            }
+        }
+    });
+    const accRun = {};
+    accounts.forEach(a => { accRun[a.id] = getAccountBalance(a.id) - (accCycleDelta[a.id] || 0); });
     let run = opening;
     ascending.forEach(r => {
-        if (r.realized) { run += r.delta; r.balanceAfter = run; }
-        else { r.balanceAfter = null; }
+        if (r.realized) {
+            run += r.delta;
+            r.balanceAfter = run;
+            if (r.accountId && accRun[r.accountId] !== undefined) {
+                const acc2 = accounts.find(a => a.id === r.accountId);
+                if (!acc2?.initialBalanceDate || r.date > acc2.initialBalanceDate) {
+                    accRun[r.accountId] += r.delta;
+                }
+                r.accBalanceAfter = accRun[r.accountId];
+            }
+        } else { r.balanceAfter = null; }
     });
     const closingBalance = run;
 
@@ -3666,17 +3688,24 @@ function renderCycleExpenses() {
             const bal = getAccountBalance(a.id);
             const cd = cycleAccDelta[a.id];
             const color = a.color || '#9E9E9E';
-            const cdStr = cd !== 0 ? ` <span style="opacity:0.75;font-size:0.62rem">${cd >= 0 ? '+' : ''}${formatCurrency(cd)}</span>` : '';
-            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:${color}18;color:${color};font-size:0.7rem;font-weight:600;white-space:nowrap">
-                ${a.isSavings ? '🐷' : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem"></i>`} ${a.name} ${formatCurrency(bal)}${cdStr}
-            </span>`;
+            const cdColor = cd > 0 ? '#2E7D32' : cd < 0 ? '#C62828' : 'var(--text-light)';
+            const cdStr = cd !== 0 ? `<div style="font-size:0.6rem;color:${cdColor};margin-top:1px">${cd >= 0 ? '+' : ''}${formatCurrency(cd)} ciclo</div>` : '';
+            return `<div style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:${color}10;border:1px solid ${color}28;min-width:70px;flex:1;max-width:140px">
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:2px">
+                    ${a.isSavings ? `<span style="font-size:0.65rem">🐷</span>` : `<i class="fas ${a.icon || 'fa-university'}" style="font-size:0.6rem;color:${color}"></i>`}
+                    <span style="font-size:0.65rem;color:${color};font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
+                </div>
+                <div style="font-size:0.8rem;font-weight:700;color:var(--text)">${formatCurrency(bal)}</div>
+                ${cdStr}
+            </div>`;
         }).join('');
-        const untaggedChip = untaggedDelta !== 0 ? `<span title="Movimentos realizados neste ciclo sem conta atribuída" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:#9E9E9E15;color:#757575;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px dashed #9E9E9E55">
-            <i class="fas fa-question-circle" style="font-size:0.6rem"></i> sem conta ${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}
-        </span>` : '';
-        const importBtn = `<button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
-        const transferBtn = `<button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)">${chips}${untaggedChip}${transferBtn}${importBtn}</div>`;
+        const untaggedChip = untaggedDelta !== 0 ? `<div title="Movimentos sem conta" style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:#9E9E9E10;border:1px dashed #9E9E9E55;min-width:70px">
+            <div style="font-size:0.65rem;color:#757575;font-weight:700">sem conta</div>
+            <div style="font-size:0.8rem;font-weight:700;color:var(--text)">${untaggedDelta >= 0 ? '+' : ''}${formatCurrency(untaggedDelta)}</div>
+        </div>` : '';
+        const importBtn = `<button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;align-self:flex-end"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
+        const transferBtn = `<button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;align-self:flex-end"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border);align-items:flex-start">${chips}${untaggedChip}<div style="display:flex;flex-direction:column;gap:4px;margin-left:auto">${transferBtn}${importBtn}</div></div>`;
     })() : `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
 
     if (isGrouped) {
@@ -3686,7 +3715,17 @@ function renderCycleExpenses() {
     }
 
     // Small "saldo após" line shown under each movement's amount.
-    const balLine = () => '';
+    const balLine = (r) => {
+        if (r.balanceAfter === null || r.balanceAfter === undefined) return '';
+        const globalPart = `<span style="color:var(--text-light)">= ${formatCurrency(r.balanceAfter)}</span>`;
+        if (r.accBalanceAfter !== undefined && r.accountId) {
+            const acc2 = accounts.find(a => a.id === r.accountId);
+            const accColor = acc2?.color || 'var(--text-light)';
+            const accPart = `<span style="color:${accColor};font-weight:600">${acc2?.name || ''} ${formatCurrency(r.accBalanceAfter)}</span>`;
+            return `<div style="font-size:0.6rem;margin-top:1px;display:flex;gap:4px;flex-wrap:wrap">${accPart} <span style="color:var(--text-light)">·</span> ${globalPart}</div>`;
+        }
+        return `<div style="font-size:0.6rem;margin-top:1px">${globalPart}</div>`;
+    };
 
     // Helper to build swipe-to-delete attributes for a row div.
     const swipeAttrs = (fn, id) =>
@@ -3799,6 +3838,7 @@ function renderCycleExpenses() {
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                             <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
+                            ${balLine(r)}
                         </div>
                         <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                     </div>`;
@@ -3846,6 +3886,7 @@ function renderCycleExpenses() {
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                         <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
+                        ${balLine(r)}
                     </div>
                     <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                 </div>`;
