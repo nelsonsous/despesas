@@ -13326,19 +13326,26 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // A grouped expense (e.g. Roupa total 23,10) can have entries of 12,85 and
         // 10,25; a bank debit of 10,25 (e.g. transfer to Sílvia for Carolina's share)
         // matches the 10,25 entry even though the parent's total doesn't.
+        // Prefer entries with bankValidated:true so re-importing shows them as already-validated.
         if (isDebit) {
             let entryMatch = null;
             let validatedEntryMatch = null;
             for (const e of expenses) {
                 if (matchedExpIds.has(e.id) || !e.isGrouped || !Array.isArray(e.entries)) continue;
-                const en = e.entries.find(en =>
+                // First look for a validated entry within this group
+                const validEn = e.entries.find(en =>
+                    en.bankValidated &&
                     Math.abs((en.amount || 0) - txAmt) < 0.02 &&
                     Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000
                 );
-                if (en) {
-                    if (en.bankValidated) { validatedEntryMatch = { expense: e, entry: en }; }
-                    else { entryMatch = { expense: e, entry: en }; }
-                    break;
+                if (validEn) { validatedEntryMatch = { expense: e, entry: validEn }; break; }
+                // Fallback: keep the first non-validated entry found across all groups
+                if (!entryMatch) {
+                    const en = e.entries.find(en =>
+                        Math.abs((en.amount || 0) - txAmt) < 0.02 &&
+                        Math.abs(new Date((en.date || e.date) + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000
+                    );
+                    if (en) entryMatch = { expense: e, entry: en };
                 }
             }
             if (entryMatch) {
@@ -13928,7 +13935,12 @@ async function applyBankImportSelections() {
             // One entry inside a grouped expense matched the bank tx.
             const expIdx = expenses.findIndex(e => e.id === s.matchId);
             if (expIdx >= 0) {
-                expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
+                const exp = expenses[expIdx];
+                // Mark the specific entry as bankValidated so re-import recognises it
+                const updatedEntries = Array.isArray(exp.entries) ? exp.entries.map(en =>
+                    en.eid === s.matchEid ? { ...en, bankValidated: true } : en
+                ) : exp.entries;
+                expenses[expIdx] = { ...exp, entries: updatedEntries, bankValidated: true,
                     ...(accountId ? { accountId } : {}) };
                 if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             }
