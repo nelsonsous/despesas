@@ -3714,7 +3714,15 @@ function renderCycleExpenses() {
         </div>` : '';
         const importBtn = `<button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;align-self:flex-end"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>`;
         const transferBtn = `<button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;align-self:flex-end"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border);align-items:flex-start">${chips}${untaggedChip}<div style="display:flex;flex-direction:column;gap:4px;margin-left:auto">${transferBtn}${importBtn}</div></div>`;
+        const totalAccBal = accounts.reduce((s, a) => s + getAccountBalance(a.id), 0);
+        const cycleBalDiff = totalAccBal - closingBalance;
+        const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
+        const totalChip = `<div style="display:flex;flex-direction:column;padding:5px 10px;border-radius:10px;background:#f0f0f0;border:1.5px solid ${Math.abs(cycleBalDiff) < 1 ? '#A5D6A7' : '#E0E0E0'};flex-shrink:0" title="Total de todas as contas vs saldo do ciclo">
+            <div style="font-size:0.65rem;color:var(--text-light);font-weight:700;white-space:nowrap">Total contas</div>
+            <div style="font-size:0.78rem;font-weight:700;color:var(--text);white-space:nowrap">${formatCurrency(totalAccBal)}</div>
+            <div style="font-size:0.6rem;color:${diffColor};margin-top:1px;white-space:nowrap">${Math.abs(cycleBalDiff) < 1 ? '✓ bate certo' : (cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo'}</div>
+        </div>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border);align-items:flex-start">${chips}${untaggedChip}${totalChip}<div style="display:flex;flex-direction:column;gap:4px;margin-left:auto">${transferBtn}${importBtn}</div></div>`;
     })() : `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:6px 2px 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
 
     if (isGrouped) {
@@ -13008,7 +13016,13 @@ function renderBalanceSnapshotModal() {
             <div style="display:flex;justify-content:space-between;font-size:0.85rem;font-weight:700;color:${diffColor};padding:6px 8px;background:${Math.abs(r.diff) < 0.02 ? '#E8F5E9' : '#FFF3E0'};border-radius:8px;margin-bottom:8px">
                 <span>${diffIcon} ${diffLabel}</span><span>${r.diff > 0 ? '+' : ''}${formatCurrency(r.diff)}</span>
             </div>
-            ${r.pendingExpenses > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Despesas por validar</span><span>−${formatCurrency(r.pendingExpenses)}</span></div>` : ''}
+            ${r.pendingExpenses > 0 ? `<div style="display:flex;align-items:center;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px">
+                <span>⏳ Despesas por validar</span>
+                <span style="display:flex;align-items:center;gap:6px">
+                    <span>−${formatCurrency(r.pendingExpenses)}</span>
+                    <button onclick="closeBalanceSnapshotModal();openBankImportModal('${accId}')" style="font-size:0.65rem;padding:2px 7px;border-radius:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;cursor:pointer;white-space:nowrap"><i class="fas fa-file-import" style="font-size:0.55rem"></i> Validar extrato</button>
+                </span>
+            </div>` : ''}
             ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por validar</span><span>+${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
             ${r.debtOwed > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#1565C0;margin-bottom:2px" title="Valor que o co-parente ainda não pagou (despesas partilhadas não marcadas como pagas)"><span>💰 A receber do co-parente</span><span>+${formatCurrency(r.debtOwed)}</span></div>` : ''}
             ${Math.abs(r.diff) >= 0.02 ? `
@@ -13945,7 +13959,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
     return suggestions;
 }
 
-function openBankImportModal() {
+function openBankImportModal(preSelectAccountId) {
     bankImportSuggestions = [];
     const modal = document.getElementById('modal-bank-import');
     if (!modal) return;
@@ -13962,9 +13976,12 @@ function openBankImportModal() {
     if (sel) {
         sel.innerHTML = '<option value="">— Sem conta —</option>' + accounts.map(a =>
             `<option value="${a.id}">${a.name}${a.last4 ? ` (*${a.last4})` : ''}</option>`).join('');
-        // Pre-select if only one non-savings account
-        const nonSavings = accounts.filter(a => !a.isSavings);
-        if (nonSavings.length === 1) sel.value = nonSavings[0].id;
+        if (preSelectAccountId) {
+            sel.value = preSelectAccountId;
+        } else {
+            const nonSavings = accounts.filter(a => !a.isSavings);
+            if (nonSavings.length === 1) sel.value = nonSavings[0].id;
+        }
     }
     modal.classList.add('active');
 }
