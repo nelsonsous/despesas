@@ -11907,23 +11907,32 @@ function submitSavingsGoal() {
 
 function addToGoal(id)    { openGoalTxModal(id, 'add'); }
 function removeFromGoal(id) { openGoalTxModal(id, 'remove'); }
+function editGoalTx(goalId, txId) {
+    const g = savingsGoals.find(x => x.id === goalId);
+    const tx = g && (g.transactions || []).find(t => t.id === txId);
+    if (tx) openGoalTxModal(goalId, tx.type, txId);
+}
 
-function openGoalTxModal(goalId, type) {
+function openGoalTxModal(goalId, type, editTxId) {
     const g = savingsGoals.find(x => x.id === goalId);
     const modal = document.getElementById('modal-goal-tx');
     if (!g || !modal) return;
+    const editing = editTxId ? (g.transactions || []).find(t => t.id === editTxId) : null;
     const balance = getGoalBalance(g);
     const isAdd = type === 'add';
-    document.getElementById('goal-tx-title').innerHTML = isAdd
-        ? '<i class="fas fa-plus" style="color:var(--success)"></i> Adicionar à poupança'
-        : '<i class="fas fa-minus" style="color:#E65100"></i> Retirar da poupança';
+    document.getElementById('goal-tx-title').innerHTML = editing
+        ? `<i class="fas fa-pen" style="color:var(--primary)"></i> Editar ${isAdd ? 'adição' : 'retirada'}`
+        : isAdd
+            ? '<i class="fas fa-plus" style="color:var(--success)"></i> Adicionar à poupança'
+            : '<i class="fas fa-minus" style="color:#E65100"></i> Retirar da poupança';
     document.getElementById('goal-tx-info').innerHTML =
         `<strong>${g.name}</strong> · saldo atual ${formatCurrency(balance)} / ${formatCurrency(g.target)}`;
     document.getElementById('goal-tx-goal-id').value = goalId;
     document.getElementById('goal-tx-type').value = type;
-    document.getElementById('goal-tx-amount').value = '';
-    document.getElementById('goal-tx-date').value = toLocalDateStr(new Date());
-    document.getElementById('goal-tx-note').value = '';
+    document.getElementById('goal-tx-edit-id').value = editTxId || '';
+    document.getElementById('goal-tx-amount').value = editing ? editing.amount : '';
+    document.getElementById('goal-tx-date').value = editing ? editing.date : toLocalDateStr(new Date());
+    document.getElementById('goal-tx-note').value = editing ? (editing.note || '') : '';
     const accGroup = document.getElementById('goal-tx-account-group');
     const accSel = document.getElementById('goal-tx-account');
     const accLabel = document.getElementById('goal-tx-account-label');
@@ -11936,9 +11945,11 @@ function openGoalTxModal(goalId, type) {
         if (accLabel) accLabel.textContent = isRemove ? 'Conta destino (para onde vai o dinheiro)' : 'Conta de origem (de onde sai o dinheiro)';
         accSel.innerHTML = '<option value="">— Sem conta —</option>' +
             selectable.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-        // Pre-select: withdrawals use the goal's default withdraw account; deposits
-        // default to the first non-savings account so it's a real transfer by default.
-        accSel.value = isRemove ? (g.withdrawAccountId || '') : (g.depositAccountId || (selectable[0]?.id || ''));
+        // Pre-select: editing → the tx's own account; else withdrawals use the goal's
+        // default withdraw account, deposits default to the first non-savings account.
+        accSel.value = editing ? (editing.accountId || '')
+            : isRemove ? (g.withdrawAccountId || '')
+            : (g.depositAccountId || (selectable[0]?.id || ''));
     }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
@@ -11961,12 +11972,21 @@ function submitGoalTx() {
         if (!confirm(`Vais retirar ${formatCurrency(amt)} mas só tens ${formatCurrency(balance)}. Continuar (saldo fica negativo)?`)) return;
     }
     g.transactions = g.transactions || [];
-    const tx = { id: generateId(), type, amount: amt, date, note };
+    const editId = document.getElementById('goal-tx-edit-id')?.value || '';
     // getAccountBalance moves the money against this account directly (source debit
     // for add, destination credit for remove) — a real transfer, neutral to net worth
     // and to the cycle budget. No separate transfer record needed.
-    if (accountId) tx.accountId = accountId;
-    g.transactions.push(tx);
+    if (editId) {
+        const existing = g.transactions.find(t => t.id === editId);
+        if (existing) {
+            existing.amount = amt; existing.date = date; existing.note = note;
+            if (accountId) existing.accountId = accountId; else delete existing.accountId;
+        }
+    } else {
+        const tx = { id: generateId(), type, amount: amt, date, note };
+        if (accountId) tx.accountId = accountId;
+        g.transactions.push(tx);
+    }
     // Remember the chosen account as the per-direction default for next time.
     if (accountId) { if (type === 'remove') g.withdrawAccountId = accountId; else g.depositAccountId = accountId; }
     saveData();
@@ -11975,6 +11995,8 @@ function submitGoalTx() {
     // saldo projetado all reflect the change immediately. Without this the
     // user only saw the goal card update.
     updateAll();
+    // If the history modal is open behind this one, refresh its list in place.
+    if (document.getElementById('modal-goal-history')?.classList.contains('active')) showGoalHistory(goalId);
     if (type === 'add' && getGoalBalance(g) >= g.target) {
         showToast(`🎉 Objetivo "${g.name}" atingido!`);
     } else {
@@ -12023,16 +12045,19 @@ function showGoalHistory(id) {
             const isAdd = t.type === 'add';
             const sign = isAdd ? '+' : '-';
             const color = isAdd ? 'var(--success)' : 'var(--danger)';
+            const acc = t.accountId ? accounts.find(a => a.id === t.accountId) : null;
+            const accChip = acc ? `<span style="font-size:0.62rem;color:var(--text-light)">${isAdd ? 'de' : 'para'} ${acc.name}</span>` : '';
             return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
                 <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
                     <i class="fas fa-${isAdd ? 'arrow-up' : 'arrow-down'}" style="color:${color};font-size:0.85rem"></i>
                     <div style="min-width:0">
                         <div style="font-size:0.85rem;font-weight:600">${formatDate(t.date)}</div>
-                        ${t.note ? `<div style="font-size:0.72rem;color:var(--text-light);overflow:hidden;text-overflow:ellipsis">${t.note}</div>` : ''}
+                        <div style="display:flex;gap:6px;align-items:center">${accChip}${t.note ? `<span style="font-size:0.72rem;color:var(--text-light);overflow:hidden;text-overflow:ellipsis">${t.note}</span>` : ''}</div>
                     </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px">
+                <div style="display:flex;align-items:center;gap:6px">
                     <div style="font-weight:700;color:${color};white-space:nowrap">${sign}${formatCurrency(t.amount)}</div>
+                    <button onclick="editGoalTx('${g.id}','${t.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;padding:2px 4px;font-size:0.8rem" title="Editar"><i class="fas fa-pen"></i></button>
                     <button onclick="deleteGoalTx('${g.id}','${t.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:2px 4px;font-size:0.8rem" title="Apagar"><i class="fas fa-trash"></i></button>
                 </div>
             </div>`;

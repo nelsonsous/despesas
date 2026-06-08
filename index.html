@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=287">
+    <link rel="stylesheet" href="styles.css?v=288">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1847,6 +1847,7 @@
                 <div id="goal-tx-info" style="background:#F3EFFF;border-radius:10px;padding:10px;margin-bottom:12px;font-size:0.85rem"></div>
                 <input type="hidden" id="goal-tx-goal-id">
                 <input type="hidden" id="goal-tx-type">
+                <input type="hidden" id="goal-tx-edit-id">
                 <div class="form-group">
                     <label>Valor (EUR)</label>
                     <input type="number" step="0.01" id="goal-tx-amount" placeholder="0,00" autofocus>
@@ -2404,7 +2405,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=287"></script>
+    <script src="app.js?v=288"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
