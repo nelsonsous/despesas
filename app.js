@@ -30,9 +30,9 @@ let customCategories = [];
 let customIncCategories = [];
 // Forecast tuning: which variable categories should be projected from their
 // historical per-cycle average instead of the naive daily-rate extrapolation.
-// aiOverrides maps cycleKey -> { remainingVar, breakdown, note, timestamp }
-// from the last AI call. Cleared or overwritten on each new prediction.
-let forecastCfg = { categories: [], months: 3, aiOverrides: {} };
+// aiOverrides maps cycleKey -> { remainingVar, varPaidAtTime, breakdown, note, timestamp }
+// aiAutoAttempted maps cycleKey -> true when an auto-run was already triggered this cycle.
+let forecastCfg = { categories: [], months: 3, aiOverrides: {}, aiAutoAttempted: {} };
 let children = [];           // { id, name, coParentName, splitPct }
 let activeChildId = null;
 let currentDate = new Date();
@@ -1526,6 +1526,18 @@ function renderSalaryCycle() {
         }
     }
 
+    // Auto-run the AI forecast once per cycle when a key is configured, historical
+    // data exists, and no prediction has been made yet for this cycle.
+    const cycleKeyForAuto = toLocalDateStr(cycleStart);
+    if (cycleContainsToday && daysLeft > 0 && fc.average.hasData && !fc.ai.present
+            && hasAnyAiKey()
+            && !(forecastCfg.aiAutoAttempted && forecastCfg.aiAutoAttempted[cycleKeyForAuto])) {
+        if (!forecastCfg.aiAutoAttempted) forecastCfg.aiAutoAttempted = {};
+        forecastCfg.aiAutoAttempted[cycleKeyForAuto] = true;
+        saveData();
+        setTimeout(() => runAiForecastPredict(), 1200);
+    }
+
     const tuneRow = document.getElementById('forecast-tune-row');
     if (tuneRow) {
         if (!cycleContainsToday || !hasAnyAiKey()) { tuneRow.style.display = 'none'; }
@@ -1925,7 +1937,7 @@ function loadData() {
     const fiSt = localStorage.getItem(FIXED_INCOME_STATUS_KEY);
     fixedIncomeStatus = fiSt ? JSON.parse(fiSt) : [];
     const fcData = localStorage.getItem(FORECAST_CFG_KEY);
-    if (fcData) { try { const fc = JSON.parse(fcData); forecastCfg = { categories: fc.categories || [], months: fc.months || 3, aiOverrides: fc.aiOverrides || {} }; } catch {} }
+    if (fcData) { try { const fc = JSON.parse(fcData); forecastCfg = { categories: fc.categories || [], months: fc.months || 3, aiOverrides: fc.aiOverrides || {}, aiAutoAttempted: fc.aiAutoAttempted || {} }; } catch {} }
     const tplData = localStorage.getItem(TEMPLATES_KEY);
     expenseTemplates = tplData ? JSON.parse(tplData) : [];
     const budData = localStorage.getItem(BUDGETS_KEY);
@@ -9172,16 +9184,23 @@ function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStar
     const avgDailyRate = daysTotal > 0 ? avgTotalVar / daysTotal : 0;
     const avgRem = avgDailyRate * daysLeft;
 
-    // 3) AI — cached remaining estimate (already day-aware; the model was told days left).
+    // 3) AI — cached remaining estimate, self-adjusted as spending happens.
+    // varPaidAtTime records how much was already paid when the AI ran; anything
+    // spent since then is subtracted from the remaining, so the card stays live.
     const cycleKey = toLocalDateStr(cycleStart);
     const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
     const hasAi = ov && ov.remainingVar !== undefined;
+    let aiRemVar = 0;
+    if (hasAi) {
+        const spentSinceAi = Math.max(0, b.expPaidVariable - (ov.varPaidAtTime || 0));
+        aiRemVar = Math.max(0, ov.remainingVar - spentSinceAi);
+    }
 
     return {
         current: { remainingVar: curRem, endBalance: endBal(curRem) },
         average: { remainingVar: avgRem, endBalance: endBal(avgRem), hasData: cyclesUsed > 0, cyclesUsed, avgTotalVar },
         ai: hasAi
-            ? { present: true, remainingVar: ov.remainingVar, endBalance: endBal(ov.remainingVar), note: ov.note || '', breakdown: ov.breakdown || {}, timestamp: ov.timestamp }
+            ? { present: true, remainingVar: aiRemVar, endBalance: endBal(aiRemVar), note: ov.note || '', breakdown: ov.breakdown || {}, timestamp: ov.timestamp }
             : { present: false }
     };
 }
@@ -9423,6 +9442,7 @@ Devolve APENAS JSON válido, sem markdown:
         if (!forecastCfg.aiOverrides) forecastCfg.aiOverrides = {};
         forecastCfg.aiOverrides[cycleKey] = {
             remainingVar: Math.round(remainingVar * 100) / 100,
+            varPaidAtTime: Math.round(bCur.expPaidVariable * 100) / 100,
             breakdown, note: (obj.nota || '').slice(0, 140),
             timestamp: Date.now()
         };
@@ -9446,6 +9466,7 @@ function clearForecastAiPrediction() {
     if (!cycle) return;
     const key = toLocalDateStr(cycle.start);
     if (forecastCfg.aiOverrides) delete forecastCfg.aiOverrides[key];
+    if (forecastCfg.aiAutoAttempted) delete forecastCfg.aiAutoAttempted[key];
     saveData();
     renderSalaryCycle();
     showToast('Previsão IA removida');
