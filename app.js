@@ -1975,6 +1975,24 @@ function loadData() {
             delete g.savedSoFar;
         }
     });
+    // One-shot: v284/v285 created standalone "Levantamento poupança" transfers
+    // for withdrawals. The destination is now credited directly from the goal
+    // transaction's accountId, so drop those transfers and the stale transferId
+    // links to avoid double-counting the destination account balance.
+    if (!localStorage.getItem('despesas_migrated_savwd_v2')) {
+        const strayIds = new Set(
+            (transfers || [])
+                .filter(t => typeof t.description === 'string' && t.description.startsWith('Levantamento poupança'))
+                .map(t => t.id)
+        );
+        if (strayIds.size) transfers = transfers.filter(t => !strayIds.has(t.id));
+        savingsGoals.forEach(g => (g.transactions || []).forEach(t => { if (t.transferId) delete t.transferId; }));
+        // Persist only the two keys we touched — other globals aren't loaded yet,
+        // so a full saveData() here would clobber them with defaults.
+        localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
+        localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
+        localStorage.setItem('despesas_migrated_savwd_v2', '1');
+    }
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
     // Backfill missing top-up expenses. Cards created on older versions
@@ -9214,31 +9232,32 @@ function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStar
     }
 
     return {
-        current: { remainingVar: curRem, endBalance: endBal(curRem) },
-        average: { remainingVar: avgRem, endBalance: endBal(avgRem), hasData: cyclesUsed > 0, cyclesUsed, avgTotalVar },
+        current: { remainingVar: curRem, endBalance: endBal(curRem), spent: curVarFiltered, daysElapsed, dailyRate: dailyVarRate },
+        average: { remainingVar: avgRem, endBalance: endBal(avgRem), hasData: cyclesUsed > 0, cyclesUsed, avgTotalVar, dailyRate: avgDailyRate },
         ai: hasAi
             ? { present: true, remainingVar: aiRemVar, endBalance: endBal(aiRemVar), note: ov.note || '', breakdown: ov.breakdown || {}, timestamp: ov.timestamp }
-            : { present: false }
+            : { present: false },
+        selCats: selCats
     };
 }
 
 // Render the three-forecast comparison panel HTML.
 // history: array from buildForecastHistory (may be empty); hasAiKey: bool.
 function renderForecastCompareHTML(sc, daysLeft, primary, history, hasAiKey) {
-    const card = (label, end, rem, isPrimary, sub) => {
+    const card = (label, end, rem, isPrimary, sub, key) => {
         const sign = end >= 0 ? '+' : '';
         const col = end >= 0 ? '#69f0ae' : '#ff9f9f';
-        return `<div style="flex:1;min-width:0;text-align:center;background:${isPrimary ? 'rgba(124,77,255,0.28)' : 'rgba(255,255,255,0.05)'};border:1px solid ${isPrimary ? 'rgba(149,117,255,0.55)' : 'rgba(255,255,255,0.08)'};border-radius:9px;padding:7px 4px">
-            <div style="font-size:0.6rem;opacity:0.7;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+        return `<div onclick="toggleForecastDetail('${key}')" style="flex:1;min-width:0;text-align:center;background:${isPrimary ? 'rgba(124,77,255,0.28)' : 'rgba(255,255,255,0.05)'};border:1px solid ${isPrimary ? 'rgba(149,117,255,0.55)' : 'rgba(255,255,255,0.08)'};border-radius:9px;padding:7px 4px;cursor:pointer">
+            <div style="font-size:0.6rem;opacity:0.7;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label} <i class="fas fa-circle-info" style="font-size:0.5rem;opacity:0.6"></i></div>
             <div style="font-size:0.9rem;font-weight:800;color:${col}">${sign}${formatCurrency(end)}</div>
             <div style="font-size:0.58rem;opacity:0.55;margin-top:2px">${sub}</div>
         </div>`;
     };
     const cards = [];
-    cards.push(card('Ritmo atual', sc.current.endBalance, sc.current.remainingVar, primary === 'current', `falta ${formatCurrency(sc.current.remainingVar)}`));
-    if (sc.average.hasData) cards.push(card('Pela média', sc.average.endBalance, sc.average.remainingVar, primary === 'average', `falta ${formatCurrency(sc.average.remainingVar)}`));
+    cards.push(card('Ritmo atual', sc.current.endBalance, sc.current.remainingVar, primary === 'current', `falta ${formatCurrency(sc.current.remainingVar)}`, 'current'));
+    if (sc.average.hasData) cards.push(card('Pela média', sc.average.endBalance, sc.average.remainingVar, primary === 'average', `falta ${formatCurrency(sc.average.remainingVar)}`, 'average'));
     if (sc.ai.present) {
-        cards.push(card('IA', sc.ai.endBalance, sc.ai.remainingVar, primary === 'ai', `falta ${formatCurrency(sc.ai.remainingVar)}`));
+        cards.push(card('IA', sc.ai.endBalance, sc.ai.remainingVar, primary === 'ai', `falta ${formatCurrency(sc.ai.remainingVar)}`, 'ai'));
     } else if (hasAiKey) {
         cards.push(`<div style="flex:1;min-width:0;text-align:center;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:9px;padding:7px 4px">
             <div style="font-size:0.6rem;opacity:0.5;margin-bottom:5px">IA</div>
@@ -9246,12 +9265,58 @@ function renderForecastCompareHTML(sc, daysLeft, primary, history, hasAiKey) {
             <div style="font-size:0.55rem;opacity:0.35;margin-top:3px">a calcular</div>
         </div>`);
     }
+    const detailHTML = _renderForecastDetailHTML(sc, daysLeft);
     const histHTML = _renderForecastHistoryHTML(history);
     return `<div style="margin-top:8px;background:rgba(255,255,255,0.06);border-radius:12px;padding:8px 8px 9px">
-        <div style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.5px;opacity:0.6;margin:0 2px 6px">Saldo previsto fim do ciclo · faltam ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}</div>
+        <div style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.5px;opacity:0.6;margin:0 2px 6px">Saldo previsto fim do ciclo · faltam ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'} · toca num cartão para ver o cálculo</div>
         <div style="display:flex;gap:6px">${cards.join('')}</div>
+        ${detailHTML}
         ${histHTML}
     </div>`;
+}
+
+// Per-scenario explanation, hidden until a card is tapped. Shows the math and
+// which categories feed each forecast so the numbers aren't a black box.
+function _renderForecastDetailHTML(sc, daysLeft) {
+    const cats = getEffectiveCategories();
+    const catLabels = sc.selCats && sc.selCats.length
+        ? sc.selCats.map(k => (cats[k]?.label || k)).join(', ')
+        : 'todas as categorias variáveis';
+    const catLine = `<div style="font-size:0.6rem;opacity:0.7;margin-bottom:5px"><i class="fas fa-tags" style="opacity:0.6"></i> Categorias consideradas: <b>${catLabels}</b></div>`;
+
+    const cur = `<div id="fcd-current" class="fcd-box" style="display:none">
+        ${catLine}
+        <div style="font-size:0.66rem;line-height:1.5">Gastaste <b>${formatCurrency(sc.current.spent)}</b> em ${sc.current.daysElapsed} ${sc.current.daysElapsed === 1 ? 'dia' : 'dias'} → <b>${formatCurrency(sc.current.dailyRate)}/dia</b>.<br>Para os ${daysLeft} dias que faltam: ${formatCurrency(sc.current.dailyRate)} × ${daysLeft} = <b>${formatCurrency(sc.current.remainingVar)}</b> ainda por gastar.</div>
+    </div>`;
+
+    let avg = '';
+    if (sc.average.hasData) {
+        avg = `<div id="fcd-average" class="fcd-box" style="display:none">
+            ${catLine}
+            <div style="font-size:0.66rem;line-height:1.5">Média de <b>${sc.average.cyclesUsed}</b> ${sc.average.cyclesUsed === 1 ? 'ciclo anterior' : 'ciclos anteriores'}: gasto variável típico de <b>${formatCurrency(sc.average.avgTotalVar)}</b> por ciclo → <b>${formatCurrency(sc.average.dailyRate)}/dia</b>.<br>Para os ${daysLeft} dias que faltam: <b>${formatCurrency(sc.average.remainingVar)}</b>. <span style="opacity:0.6">(abre "ver ciclos anteriores" para o detalhe por categoria)</span></div>
+        </div>`;
+    }
+
+    let ai = '';
+    if (sc.ai.present) {
+        const bd = Object.entries(sc.ai.breakdown || {})
+            .sort((a, b) => (b[1].amount || 0) - (a[1].amount || 0))
+            .map(([k, v]) => `<span style="font-size:0.58rem;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,0.09);white-space:nowrap">${cats[k]?.label || v.label || k} ${formatCurrency(v.amount)}</span>`)
+            .join('');
+        ai = `<div id="fcd-ai" class="fcd-box" style="display:none">
+            <div style="font-size:0.66rem;line-height:1.5;margin-bottom:4px">${sc.ai.note || 'Estimativa da IA com base no histórico, ajustada ao que já gastaste.'}<br>Falta previsto: <b>${formatCurrency(sc.ai.remainingVar)}</b>.</div>
+            ${bd ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${bd}</div>` : ''}
+        </div>`;
+    }
+    return `<div style="margin-top:6px">${cur}${avg}${ai}</div>`;
+}
+
+function toggleForecastDetail(key) {
+    const target = document.getElementById('fcd-' + key);
+    if (!target) return;
+    const isOpen = target.style.display !== 'none';
+    document.querySelectorAll('.fcd-box').forEach(el => { el.style.display = 'none'; });
+    target.style.display = isOpen ? 'none' : 'block';
 }
 
 function _renderForecastHistoryHTML(history) {
@@ -11882,24 +11947,9 @@ function submitGoalTx() {
     }
     g.transactions = g.transactions || [];
     const tx = { id: generateId(), type, amount: amt, date, note };
+    // For withdrawals, accountId = destination account the money lands in.
+    // getAccountBalance credits this account directly (no separate transfer record needed).
     if (accountId) tx.accountId = accountId;
-    // Withdrawal to a destination account: create a transfer so the destination balance updates.
-    // Use g.accountId if set, otherwise fall back to the single isSavings account.
-    const savAccId = g.accountId || accounts.find(a => a.isSavings)?.id;
-    if (type === 'remove' && accountId && savAccId && savAccId !== accountId) {
-        const transferId = generateId();
-        transfers.push({
-            id: transferId,
-            fromAccountId: savAccId,
-            toAccountId: accountId,
-            amount: amt,
-            date,
-            description: `Levantamento poupança: ${g.name}`,
-            notes: note || '',
-            createdAt: new Date().toISOString()
-        });
-        tx.transferId = transferId;
-    }
     g.transactions.push(tx);
     saveData();
     document.getElementById('modal-goal-tx').classList.remove('active');
@@ -13501,11 +13551,19 @@ function getAccountBalance(accId) {
             (g.transactions || []).forEach(t => {
                 if (!t.date || t.date < since) return;
                 if (t.type === 'add') bal += t.amount || 0;
-                // Withdrawals with a transferId are handled by the transfers block below
-                else if (t.type === 'remove' && !t.transferId) bal -= t.amount || 0;
+                else if (t.type === 'remove') bal -= t.amount || 0;
             });
         });
     }
+    // Savings withdrawals tagged with a destination account credit that account
+    (savingsGoals || []).forEach(g => {
+        (g.transactions || []).forEach(t => {
+            if (t.type === 'remove' && t.accountId === accId && !acc.isSavings) {
+                if (!t.date || t.date < since) return;
+                bal += t.amount || 0;
+            }
+        });
+    });
     (transfers || []).forEach(t => {
         if (!t.date || t.date < since) return;
         if (t.fromAccountId === accId) bal -= t.amount || 0;
