@@ -3549,7 +3549,9 @@ function renderCycleExpenses() {
         amount: f.amount,
         flowType: f.type,
         childId: null,
-        accountId: f.goalAccountId || null,
+        // For withdrawals, prefer the per-transaction destination account; for
+        // deposits, use the goal's own account (where the money is "held").
+        accountId: (f.type === 'remove' && f.accountId) ? f.accountId : (f.goalAccountId || null),
         status: f.type === 'add' ? 'pago' : 'recebido'
     }));
 
@@ -3925,6 +3927,8 @@ function renderCycleExpenses() {
                 const sign = r.flowType === 'add' ? '−' : '+';
                 const amountColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
                 const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
+                const savAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
+                const savAccChip = savAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${savAcc.color || '#9E9E9E'}20;color:${savAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${savAcc.name}</span>` : '';
                 return `
                     <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
                         <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
@@ -3934,7 +3938,7 @@ function renderCycleExpenses() {
                                 <span class="cycle-row-tag" style="background:#FFE0EC;color:#B8336B"><i class="fas fa-piggy-bank"></i> POUPANÇA</span>
                                 <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
                             </div>
-                            <div style="font-size:0.62rem;color:var(--text-light)">${dirLabel}</div>
+                            <div style="display:flex;align-items:center;gap:5px;font-size:0.62rem;color:var(--text-light)">${dirLabel}${savAccChip}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
                             <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
@@ -11841,6 +11845,14 @@ function openGoalTxModal(goalId, type) {
     document.getElementById('goal-tx-amount').value = '';
     document.getElementById('goal-tx-date').value = toLocalDateStr(new Date());
     document.getElementById('goal-tx-note').value = '';
+    const accGroup = document.getElementById('goal-tx-account-group');
+    const accSel = document.getElementById('goal-tx-account');
+    if (accGroup && accSel) {
+        accGroup.style.display = type === 'remove' ? '' : 'none';
+        accSel.innerHTML = '<option value="">— Sem conta associada —</option>' +
+            accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        accSel.value = '';
+    }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
 }
@@ -11854,12 +11866,15 @@ function submitGoalTx() {
     if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
     const date = document.getElementById('goal-tx-date').value || toLocalDateStr(new Date());
     const note = (document.getElementById('goal-tx-note').value || '').trim();
+    const accountId = type === 'remove' ? (document.getElementById('goal-tx-account')?.value || '') : '';
     const balance = getGoalBalance(g);
     if (type === 'remove' && amt > balance) {
         if (!confirm(`Vais retirar ${formatCurrency(amt)} mas só tens ${formatCurrency(balance)}. Continuar (saldo fica negativo)?`)) return;
     }
     g.transactions = g.transactions || [];
-    g.transactions.push({ id: generateId(), type, amount: amt, date, note });
+    const tx = { id: generateId(), type, amount: amt, date, note };
+    if (accountId) tx.accountId = accountId;
+    g.transactions.push(tx);
     saveData();
     document.getElementById('modal-goal-tx').classList.remove('active');
     // Full re-render so the dashboard pill, the patrimonio total and the

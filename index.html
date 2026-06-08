@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=279">
+    <link rel="stylesheet" href="styles.css?v=280">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1855,6 +1855,12 @@
                     <label>Data</label>
                     <input type="date" id="goal-tx-date">
                 </div>
+                <div class="form-group" id="goal-tx-account-group" style="display:none">
+                    <label>Conta destino (opcional)</label>
+                    <select id="goal-tx-account">
+                        <option value="">— Sem conta associada —</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label>Nota (opcional)</label>
                     <input type="text" id="goal-tx-note" placeholder="Ex: Transferência mensal, levantei para férias">
@@ -2394,7 +2400,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=279"></script>
+    <script src="app.js?v=280"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
