@@ -1513,12 +1513,14 @@ function renderSalaryCycle() {
     if (aiScenarioRow) aiScenarioRow.style.display = (hasAnyAiKey() && cycleContainsToday) ? 'block' : 'none';
 
     // Three-forecast comparison (current pace / historical average / AI), all
-    // day-adjusted to the remaining days so the end-of-cycle figure shrinks as
-    // the cycle closes. Shown only when a lens beyond bare current-pace exists.
+    // Comparison panel: show whenever the cycle is active and at least one extra
+    // lens is available (average, AI, or a configured AI key about to produce one).
     const compareRow = document.getElementById('forecast-compare-row');
+    const aiKeyAvail = hasAnyAiKey();
     if (compareRow) {
-        if (cycleContainsToday && daysLeft > 0 && (fc.average.hasData || fc.ai.present)) {
-            compareRow.innerHTML = renderForecastCompareHTML(fc, daysLeft, usedAI ? 'ai' : 'current');
+        if (cycleContainsToday && daysLeft > 0 && (fc.average.hasData || fc.ai.present || aiKeyAvail)) {
+            const hist = buildForecastHistory(forecastCfg.months || 3, cycleStart);
+            compareRow.innerHTML = renderForecastCompareHTML(fc, daysLeft, usedAI ? 'ai' : 'current', hist, aiKeyAvail);
             compareRow.style.display = 'block';
         } else {
             compareRow.style.display = 'none';
@@ -9141,7 +9143,9 @@ ${userProfilePromptBlock()}`;
 
 // Compute per-category average variable spend over the last `months` completed cycles.
 // Returns { avg: { catKey: avgAmount }, cyclesUsed: N, avgTotalVar: meanVariablePerCycle }
-function getCategoryAverages(months, beforeCycleStart) {
+// onlyCats: optional array of category keys to include; omit/null for all.
+function getCategoryAverages(months, beforeCycleStart, onlyCats) {
+    const filter = onlyCats && onlyCats.length > 0;
     const sums = {}, counts = {};
     let totalSum = 0;
     let cursor = new Date(beforeCycleStart);
@@ -9152,11 +9156,14 @@ function getCategoryAverages(months, beforeCycleStart) {
         if (!c) break;
         const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
         if (b.totalInc === 0 && b.totalExp === 0) break;
+        let cycleFiltered = 0;
         Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => {
+            if (filter && !onlyCats.includes(k)) return;
             sums[k] = (sums[k] || 0) + v;
             counts[k] = (counts[k] || 0) + 1;
+            cycleFiltered += v;
         });
-        totalSum += b.expPaidVariable;
+        totalSum += filter ? cycleFiltered : b.expPaidVariable;
         used++;
         cursor = new Date(c.start);
         cursor.setDate(cursor.getDate() - 1);
@@ -9175,12 +9182,18 @@ function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStar
     const incTotal = b.incReceived + b.incPending;
     const endBal = (remVar) => incTotal - (b.expPaid + b.expPending + remVar + cycleSavings);
 
+    // Apply selected-category filter to both lenses so the same scope drives all 3 cards.
+    const selCats = forecastCfg.categories && forecastCfg.categories.length > 0 ? forecastCfg.categories : null;
+    const curVarFiltered = selCats
+        ? Object.entries(b.expByCategoryVar || {}).filter(([k]) => selCats.includes(k)).reduce((s, [, v]) => s + v, 0)
+        : b.expPaidVariable;
+
     // 1) Current pace — this cycle's own daily variable rate projected forward.
-    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
+    const dailyVarRate = daysElapsed > 0 ? curVarFiltered / daysElapsed : 0;
     const curRem = dailyVarRate * daysLeft;
 
     // 2) Historical average — typical variable spend/day from past cycles × days left.
-    const { avgTotalVar, cyclesUsed } = getCategoryAverages(forecastCfg.months || 3, cycleStart);
+    const { avgTotalVar, cyclesUsed } = getCategoryAverages(forecastCfg.months || 3, cycleStart, selCats);
     const avgDailyRate = daysTotal > 0 ? avgTotalVar / daysTotal : 0;
     const avgRem = avgDailyRate * daysLeft;
 
@@ -9205,9 +9218,9 @@ function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStar
     };
 }
 
-// Render the three-forecast comparison panel HTML. `primary` is which lens drives
-// the headline (the AI when present, else current pace) so it can be highlighted.
-function renderForecastCompareHTML(sc, daysLeft, primary) {
+// Render the three-forecast comparison panel HTML.
+// history: array from buildForecastHistory (may be empty); hasAiKey: bool.
+function renderForecastCompareHTML(sc, daysLeft, primary, history, hasAiKey) {
     const card = (label, end, rem, isPrimary, sub) => {
         const sign = end >= 0 ? '+' : '';
         const col = end >= 0 ? '#69f0ae' : '#ff9f9f';
@@ -9220,11 +9233,55 @@ function renderForecastCompareHTML(sc, daysLeft, primary) {
     const cards = [];
     cards.push(card('Ritmo atual', sc.current.endBalance, sc.current.remainingVar, primary === 'current', `falta ${formatCurrency(sc.current.remainingVar)}`));
     if (sc.average.hasData) cards.push(card('Pela média', sc.average.endBalance, sc.average.remainingVar, primary === 'average', `falta ${formatCurrency(sc.average.remainingVar)}`));
-    if (sc.ai.present) cards.push(card('IA', sc.ai.endBalance, sc.ai.remainingVar, primary === 'ai', `falta ${formatCurrency(sc.ai.remainingVar)}`));
+    if (sc.ai.present) {
+        cards.push(card('IA', sc.ai.endBalance, sc.ai.remainingVar, primary === 'ai', `falta ${formatCurrency(sc.ai.remainingVar)}`));
+    } else if (hasAiKey) {
+        cards.push(`<div style="flex:1;min-width:0;text-align:center;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:9px;padding:7px 4px">
+            <div style="font-size:0.6rem;opacity:0.5;margin-bottom:5px">IA</div>
+            <div style="font-size:0.72rem;opacity:0.35"><i class="fas fa-spinner fa-spin"></i></div>
+            <div style="font-size:0.55rem;opacity:0.35;margin-top:3px">a calcular</div>
+        </div>`);
+    }
+    const histHTML = _renderForecastHistoryHTML(history);
     return `<div style="margin-top:8px;background:rgba(255,255,255,0.06);border-radius:12px;padding:8px 8px 9px">
         <div style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.5px;opacity:0.6;margin:0 2px 6px">Saldo previsto fim do ciclo · faltam ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}</div>
         <div style="display:flex;gap:6px">${cards.join('')}</div>
+        ${histHTML}
     </div>`;
+}
+
+function _renderForecastHistoryHTML(history) {
+    if (!history || !history.length) return '';
+    const rows = history.map(h => {
+        const sobColor = h.sobrou >= 0 ? '#69f0ae' : '#ff9f9f';
+        const cats = Object.entries(h.variavel_por_categoria || {})
+            .sort((a, b) => b[1] - a[1])
+            .map(([lbl, amt]) => `<span style="font-size:0.58rem;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,0.09);white-space:nowrap">${lbl} ${formatCurrency(amt)}</span>`)
+            .join('');
+        return `<div style="padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.06)">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">
+                <span style="font-size:0.67rem;font-weight:600;white-space:nowrap">${h.periodo}</span>
+                <span style="font-size:0.65rem;opacity:0.75">var. ${formatCurrency(h.variavel_total)}</span>
+                <span style="font-size:0.67rem;font-weight:700;color:${sobColor};white-space:nowrap">sobrou ${formatCurrency(h.sobrou)}</span>
+            </div>
+            ${cats ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${cats}</div>` : ''}
+        </div>`;
+    }).join('');
+    return `<div style="margin-top:6px">
+        <button onclick="toggleForecastHistory()" id="forecast-hist-toggle" style="width:100%;background:none;border:none;color:rgba(255,255,255,0.4);font-size:0.6rem;cursor:pointer;padding:2px 0;text-align:center">
+            <i class="fas fa-chevron-down" style="font-size:0.5rem"></i> ver ciclos anteriores
+        </button>
+        <div id="forecast-hist-detail" style="display:none;margin-top:4px">${rows}</div>
+    </div>`;
+}
+
+function toggleForecastHistory() {
+    const el = document.getElementById('forecast-hist-detail');
+    const btn = document.getElementById('forecast-hist-toggle');
+    if (!el) return;
+    const open = el.style.display === 'none';
+    el.style.display = open ? 'block' : 'none';
+    if (btn) btn.innerHTML = `<i class="fas fa-chevron-${open ? 'up' : 'down'}" style="font-size:0.5rem"></i> ${open ? 'ocultar' : 'ver'} ciclos anteriores`;
 }
 
 // Gather historical cycle data for the AI. Returns last `maxCycles` completed
@@ -9274,6 +9331,13 @@ function openForecastConfigModal() {
     const cycleKey = toLocalDateStr(cycle.start);
     const marked = forecastCfg.categories || [];
 
+    // Auto-populate with all categories that have average data on first open.
+    const allAvgKeys = Object.keys(avg).filter(k => (avg[k] || 0) > 0);
+    if ((!forecastCfg.categories || forecastCfg.categories.length === 0) && allAvgKeys.length > 0) {
+        forecastCfg.categories = allAvgKeys;
+        saveData();
+    }
+
     const keys = new Set([...Object.keys(avg), ...marked, ...Object.keys(curVar)]);
     const rows = [...keys]
         .filter(k => (avg[k] || 0) > 0 || marked.includes(k) || (curVar[k] || 0) > 0)
@@ -9289,7 +9353,7 @@ function openForecastConfigModal() {
                 <div style="width:26px;height:26px;border-radius:6px;background:${cat.color}22;color:${cat.color};display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ${cat.icon}" style="font-size:0.72rem"></i></div>
                 <div style="flex:1;min-width:0">
                     <div style="font-size:0.82rem;font-weight:600">${cat.label}</div>
-                    <div style="font-size:0.68rem;color:var(--text-light)">Média ${formatCurrency(avgAmt)}/ciclo · já ${formatCurrency(already)}${on && rem > 0 ? ` · falta ~${formatCurrency(rem)}` : ''}</div>
+                    <div style="font-size:0.68rem;color:var(--text-light)">Média ${formatCurrency(avgAmt)}/ciclo · já ${formatCurrency(already)}${rem > 0 ? ` · falta ~${formatCurrency(rem)}` : ''}</div>
                 </div>
             </div>`;
         }).join('');
@@ -9299,19 +9363,25 @@ function openForecastConfigModal() {
     const hasAI = hasAnyAiKey();
     const aiOv = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
 
+    const selCount = marked.length;
+    const totalCount = [...keys].filter(k => (avg[k] || 0) > 0 || (curVar[k] || 0) > 0).length;
+
     el.innerHTML = `<div class="modal-content" style="max-height:88vh;overflow-y:auto">
         <div class="modal-header">
             <h2 style="font-size:1rem"><i class="fas fa-chart-line" style="color:var(--primary)"></i> Afinar previsão</h2>
             <button onclick="closeForecastConfigModal()" class="btn-icon"><i class="fas fa-times"></i></button>
         </div>
         <p style="font-size:0.76rem;color:var(--text-light);margin:0 0 12px;line-height:1.45">
-            Marca as categorias que se repetem (supermercado, combustível…). A previsão usa a média histórica. Com IA, o modelo analisa os teus fluxos reais, o que sobrou em cada ciclo, e a época do ano para afinar a estimativa.
+            Seleciona as categorias a incluir nos 3 cenários. A seleção aplica-se ao ritmo atual, à média e à análise da IA.
         </p>
         <div style="font-size:0.7rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Histórico (nº de ciclos)</div>
         <div style="display:flex;gap:6px;margin-bottom:14px">${monthBtn(1)}${monthBtn(3)}${monthBtn(6)}</div>
-        <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px">${cyclesUsed > 0 ? `Baseado em ${cyclesUsed} ${cyclesUsed === 1 ? 'ciclo' : 'ciclos'} com histórico` : 'Sem histórico suficiente ainda'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:0.7rem;color:var(--text-light)">${cyclesUsed > 0 ? `Baseado em ${cyclesUsed} ${cyclesUsed === 1 ? 'ciclo' : 'ciclos'}` : 'Sem histórico'} · ${selCount}/${totalCount} categorias</span>
+            <span style="font-size:0.68rem;color:var(--primary);cursor:pointer" onclick="resetForecastCategories()">${selCount < totalCount ? 'Selecionar todas' : 'Limpar seleção'}</span>
+        </div>
         ${rows || '<p style="font-size:0.82rem;color:var(--text-light);padding:12px 0">Sem categorias com gastos registados.</p>'}
-        ${hasAI ? `<button id="forecast-ai-btn" onclick="runAiForecastPredict()" class="btn btn-block" style="margin-top:14px;background:linear-gradient(135deg,#7C4DFF,#5A3BD8);color:#fff;border:none"><i class="fas fa-wand-magic-sparkles"></i> Prever com IA${marked.length ? '' : ' (opcional — sem seleção usa tudo)'}</button>
+        ${hasAI ? `<button id="forecast-ai-btn" onclick="runAiForecastPredict()" class="btn btn-block" style="margin-top:14px;background:linear-gradient(135deg,#7C4DFF,#5A3BD8);color:#fff;border:none"><i class="fas fa-wand-magic-sparkles"></i> Atualizar previsão IA</button>
         ${aiOv ? `<button onclick="clearForecastAiPrediction();closeForecastConfigModal();" class="btn btn-block" style="margin-top:8px;background:transparent;color:var(--text-light);border:1px solid var(--border)"><i class="fas fa-rotate-left"></i> Limpar previsão IA (voltar à média)</button>` : ''}` : '<p style="font-size:0.72rem;color:var(--text-light);margin-top:12px">Configura uma chave de IA nas Definições para previsões dinâmicas.</p>'}
         <button onclick="closeForecastConfigModal()" class="btn btn-primary btn-block" style="margin-top:10px">Concluído</button>
     </div>`;
@@ -9335,6 +9405,18 @@ function toggleForecastCategory(catKey) {
 
 function setForecastMonths(n) {
     forecastCfg.months = n;
+    saveData();
+    renderSalaryCycle();
+    openForecastConfigModal();
+}
+
+function resetForecastCategories() {
+    const cycle = getSalaryCycleAt(new Date());
+    if (!cycle) return;
+    const { avg } = getCategoryAverages(forecastCfg.months || 3, cycle.start);
+    const allKeys = Object.keys(avg).filter(k => (avg[k] || 0) > 0);
+    const allSelected = forecastCfg.categories && forecastCfg.categories.length >= allKeys.length;
+    forecastCfg.categories = allSelected ? [] : allKeys;
     saveData();
     renderSalaryCycle();
     openForecastConfigModal();
