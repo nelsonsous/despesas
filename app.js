@@ -1300,10 +1300,10 @@ function renderSalaryCycle() {
     const cycleFixed = b.expPending;
     const salaryIncome = b.incReceived;
 
-    // Money committed to savings goals during this cycle. Treated as
-    // already-spent for the cycle balance + projection (same accounting
-    // as expense outflows). Range is the cycle, not the calendar month,
-    // because cycles often span two months.
+    // Net moved to savings goals during this cycle — shown for information only.
+    // Savings is moving your own money (between accounts or into the BIG balance),
+    // not an expense, so it is NEUTRAL to the cycle's spending budget: it never
+    // reduces "Disponível" nor the end-of-cycle projection. Range is the cycle.
     const cycleSavings = Math.max(0, getGoalsContributionInRange(cycleStart, cycleEnd));
 
     // Opening balance carried in from previous cycles. Shown as a separate
@@ -1311,8 +1311,8 @@ function renderSalaryCycle() {
     const cycleOpening = getCycleOpeningBalance(cycleStart);
 
     const totalBudget = salaryIncome || b.incPending || (spentSinceSalary + cycleFixed);
-    const available = totalBudget - spentSinceSalary - cycleFixed - cycleSavings;
-    const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed + cycleSavings) / totalBudget) * 100) : 0;
+    const available = totalBudget - spentSinceSalary - cycleFixed;
+    const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed) / totalBudget) * 100) : 0;
 
     // Variable-only rate compared against available/daysLeft (same as "Podes gastar").
     // A separate row shows the total including fixed paid when relevant.
@@ -1321,7 +1321,7 @@ function renderSalaryCycle() {
     // Single source of truth for the three day-adjusted forecasts. The footer
     // headline uses the primary lens (AI when present, else current pace); the
     // comparison panel below reuses the same object — no recomputation.
-    const fc = computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings);
+    const fc = computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart);
     const usedAI = fc.ai.present;
     const projectedVar = usedAI ? fc.ai.remainingVar : fc.current.remainingVar;
     const projectedEndBalance = usedAI ? fc.ai.endBalance : fc.current.endBalance;
@@ -1477,8 +1477,8 @@ function renderSalaryCycle() {
             // variable by ±band (AI tighter than naive extrapolation).
             const incTotal = b.incReceived + b.incPending;
             const fixedTotal = b.expPaid + b.expPending;
-            const optimistic = incTotal - fixedTotal - projectedVarOpt - cycleSavings;
-            const pessimistic = incTotal - fixedTotal - projectedVarPess - cycleSavings;
+            const optimistic = incTotal - fixedTotal - projectedVarOpt;
+            const pessimistic = incTotal - fixedTotal - projectedVarPess;
             projEl.innerHTML = `<span style="font-weight:700">${sign}${formatCurrency(projectedEndBalance)}</span><span style="font-size:0.7em;opacity:0.85;margin-left:4px">(${formatCurrency(pessimistic)}…${formatCurrency(optimistic)})</span>`;
             projEl.style.color = color;
         }
@@ -7766,7 +7766,8 @@ async function generateAiMonthNarrative(date) {
         const { daysTotal, daysElapsed, daysLeft } = getCycleDayInfo(cycle.start, cycle.end, today);
         const cycleSavingsAI = Math.max(0, getGoalsContributionInRange(cycle.start, cycle.end));
         const totalBudget = b.incReceived || (b.expPaid + b.expPending);
-        const available = totalBudget - b.expPaid - b.expPending - cycleSavingsAI;
+        // Savings is neutral to the cycle budget (a transfer of own money).
+        const available = totalBudget - b.expPaid - b.expPending;
         const dailyRate = b.expPaidVariable > 0 ? b.expPaidVariable / daysElapsed : 0;
         const dailyBudget = daysLeft > 0 && available > 0 ? available / daysLeft : 0;
         const months = MONTHS_PT;
@@ -9178,7 +9179,14 @@ function getCategoryAverages(months, beforeCycleStart, onlyCats) {
         const c = getSalaryCycleAt(cursor);
         if (!c) break;
         const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
-        if (b.totalInc === 0 && b.totalExp === 0) break;
+        // Advance the cursor first so `continue` can skip a cycle without looping.
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+        if (b.totalInc === 0 && b.totalExp === 0) break; // nothing older — stop
+        // The forecast is about VARIABLE spend. A cycle with no variable movement
+        // (e.g. before the app was used, only carrying phantom fixed expenses)
+        // isn't a representative sample — skip it instead of dragging the average.
+        if ((b.expPaidVariable || 0) <= 0.01) continue;
         let cycleFiltered = 0;
         Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => {
             if (filter && !onlyCats.includes(k)) return;
@@ -9188,8 +9196,6 @@ function getCategoryAverages(months, beforeCycleStart, onlyCats) {
         });
         totalSum += filter ? cycleFiltered : b.expPaidVariable;
         used++;
-        cursor = new Date(c.start);
-        cursor.setDate(cursor.getDate() - 1);
     }
     const avg = {};
     Object.keys(sums).forEach(k => { avg[k] = sums[k] / (counts[k] || 1); });
@@ -9201,9 +9207,11 @@ function getCategoryAverages(months, beforeCycleStart, onlyCats) {
 // left — so a cycle with 1 day to go yields a far smaller remainder than day 1.
 // This is the single source of truth for the cycle end-balance projection;
 // renderSalaryCycle's footer headline and the comparison panel both read it.
-function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings) {
+function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart) {
     const incTotal = b.incReceived + b.incPending;
-    const endBal = (remVar) => incTotal - (b.expPaid + b.expPending + remVar + cycleSavings);
+    // Savings is a transfer of your own money, neutral to the cycle — the end
+    // balance is purely income minus expenses.
+    const endBal = (remVar) => incTotal - (b.expPaid + b.expPending + remVar);
 
     // Apply selected-category filter to both lenses so the same scope drives all 3 cards.
     const selCats = forecastCfg.categories && forecastCfg.categories.length > 0 ? forecastCfg.categories : null;
@@ -9366,7 +9374,12 @@ function buildForecastHistory(maxCycles, beforeCycleStart) {
         const c = getSalaryCycleAt(cursor);
         if (!c) break;
         const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
-        if (b.totalInc === 0 && b.totalExp === 0) break;
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+        if (b.totalInc === 0 && b.totalExp === 0) break; // nothing older — stop
+        // Skip cycles with no variable spend (app not yet in use / phantom fixed
+        // only) so they don't appear as misleading "sobrou −X" rows.
+        if ((b.expPaidVariable || 0) <= 0.01) continue;
         const varByCat = {};
         Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => {
             if (v > 0.01) varByCat[cats[k]?.label || k] = Math.round(v * 100) / 100;
@@ -9382,8 +9395,6 @@ function buildForecastHistory(maxCycles, beforeCycleStart) {
             variavel_total: Math.round(b.expPaidVariable * 100) / 100,
             sobrou: surplus
         });
-        cursor = new Date(c.start);
-        cursor.setDate(cursor.getDate() - 1);
     }
     return result.reverse();
 }
