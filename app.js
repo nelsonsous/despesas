@@ -11883,6 +11883,21 @@ function submitGoalTx() {
     g.transactions = g.transactions || [];
     const tx = { id: generateId(), type, amount: amt, date, note };
     if (accountId) tx.accountId = accountId;
+    // Withdrawal to a destination account: create a transfer so the destination balance updates
+    if (type === 'remove' && accountId && g.accountId && g.accountId !== accountId) {
+        const transferId = generateId();
+        transfers.push({
+            id: transferId,
+            fromAccountId: g.accountId,
+            toAccountId: accountId,
+            amount: amt,
+            date,
+            description: `Levantamento poupança: ${g.name}`,
+            notes: note || '',
+            createdAt: new Date().toISOString()
+        });
+        tx.transferId = transferId;
+    }
     g.transactions.push(tx);
     saveData();
     document.getElementById('modal-goal-tx').classList.remove('active');
@@ -11904,6 +11919,18 @@ function deleteGoal(id) {
     savingsGoals = savingsGoals.filter(x => x.id !== id);
     saveData();
     updateAll();
+}
+
+function deleteGoalTx(goalId, txId) {
+    const g = savingsGoals.find(x => x.id === goalId);
+    if (!g) return;
+    if (!confirm('Apagar este movimento?')) return;
+    const tx = (g.transactions || []).find(t => t.id === txId);
+    if (tx?.transferId) transfers = transfers.filter(t => t.id !== tx.transferId);
+    g.transactions = (g.transactions || []).filter(t => t.id !== txId);
+    saveData();
+    updateAll();
+    showGoalHistory(goalId);
 }
 
 function showGoalHistory(id) {
@@ -11934,7 +11961,10 @@ function showGoalHistory(id) {
                         ${t.note ? `<div style="font-size:0.72rem;color:var(--text-light);overflow:hidden;text-overflow:ellipsis">${t.note}</div>` : ''}
                     </div>
                 </div>
-                <div style="font-weight:700;color:${color};white-space:nowrap">${sign}${formatCurrency(t.amount)}</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div style="font-weight:700;color:${color};white-space:nowrap">${sign}${formatCurrency(t.amount)}</div>
+                    <button onclick="deleteGoalTx('${g.id}','${t.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:2px 4px;font-size:0.8rem" title="Apagar"><i class="fas fa-trash"></i></button>
+                </div>
             </div>`;
         }).join('');
     }
@@ -13469,7 +13499,8 @@ function getAccountBalance(accId) {
             (g.transactions || []).forEach(t => {
                 if (!t.date || t.date < since) return;
                 if (t.type === 'add') bal += t.amount || 0;
-                else if (t.type === 'remove') bal -= t.amount || 0;
+                // Withdrawals with a transferId are handled by the transfers block below
+                else if (t.type === 'remove' && !t.transferId) bal -= t.amount || 0;
             });
         });
     }
