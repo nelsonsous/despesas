@@ -11883,12 +11883,14 @@ function submitGoalTx() {
     g.transactions = g.transactions || [];
     const tx = { id: generateId(), type, amount: amt, date, note };
     if (accountId) tx.accountId = accountId;
-    // Withdrawal to a destination account: create a transfer so the destination balance updates
-    if (type === 'remove' && accountId && g.accountId && g.accountId !== accountId) {
+    // Withdrawal to a destination account: create a transfer so the destination balance updates.
+    // Use g.accountId if set, otherwise fall back to the single isSavings account.
+    const savAccId = g.accountId || accounts.find(a => a.isSavings)?.id;
+    if (type === 'remove' && accountId && savAccId && savAccId !== accountId) {
         const transferId = generateId();
         transfers.push({
             id: transferId,
-            fromAccountId: g.accountId,
+            fromAccountId: savAccId,
             toAccountId: accountId,
             amount: amt,
             date,
