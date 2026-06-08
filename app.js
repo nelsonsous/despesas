@@ -3549,9 +3549,9 @@ function renderCycleExpenses() {
         amount: f.amount,
         flowType: f.type,
         childId: null,
-        // For withdrawals, prefer the per-transaction destination account; for
-        // deposits, use the goal's own account (where the money is "held").
-        accountId: (f.type === 'remove' && f.accountId) ? f.accountId : (f.goalAccountId || null),
+        // Deposits show the goal's storage account; withdrawals show ONLY their
+        // own per-transaction destination (never inheriting the storage account).
+        accountId: f.type === 'remove' ? (f.accountId || null) : (f.goalAccountId || null),
         status: f.type === 'add' ? 'pago' : 'recebido'
     }));
 
@@ -11776,6 +11776,12 @@ function openGoalModal(id) {
             accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
         accSel.value = g?.accountId || '';
     }
+    const wdSel = document.getElementById('goal-form-withdraw-account');
+    if (wdSel) {
+        wdSel.innerHTML = '<option value="">— Perguntar sempre —</option>' +
+            accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        wdSel.value = g?.withdrawAccountId || '';
+    }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-form-name')?.focus(), 100);
 }
@@ -11790,6 +11796,7 @@ function submitSavingsGoal() {
     const monthlyVal = parseFloat((document.getElementById('goal-form-monthly').value || '').replace(',', '.'));
     const monthlyTarget = isFinite(monthlyVal) && monthlyVal > 0 ? monthlyVal : null;
     const accountId = document.getElementById('goal-form-account')?.value || null;
+    const withdrawAccountId = document.getElementById('goal-form-withdraw-account')?.value || null;
     if (id) {
         const g = savingsGoals.find(x => x.id === id);
         if (!g) return;
@@ -11798,6 +11805,7 @@ function submitSavingsGoal() {
         g.deadline = deadline;
         g.monthlyTarget = monthlyTarget;
         g.accountId = accountId || null;
+        g.withdrawAccountId = withdrawAccountId || null;
     } else {
         const initial = parseFloat((document.getElementById('goal-form-initial').value || '').replace(',', '.'));
         const goal = {
@@ -11807,6 +11815,7 @@ function submitSavingsGoal() {
             deadline,
             monthlyTarget,
             accountId: accountId || null,
+            withdrawAccountId: withdrawAccountId || null,
             transactions: [],
             color: '#5A3BD8',
             createdAt: new Date().toISOString()
@@ -11851,7 +11860,7 @@ function openGoalTxModal(goalId, type) {
         accGroup.style.display = type === 'remove' ? '' : 'none';
         accSel.innerHTML = '<option value="">— Sem conta associada —</option>' +
             accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-        accSel.value = '';
+        accSel.value = g.withdrawAccountId || '';
     }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
