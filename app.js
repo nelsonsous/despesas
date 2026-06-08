@@ -3567,9 +3567,9 @@ function renderCycleExpenses() {
         amount: f.amount,
         flowType: f.type,
         childId: null,
-        // Deposits show the goal's storage account; withdrawals show ONLY their
-        // own per-transaction destination (never inheriting the storage account).
-        accountId: f.type === 'remove' ? (f.accountId || null) : (f.goalAccountId || null),
+        // Both directions carry their own real account now: 'add' → source it came
+        // from, 'remove' → destination it went to. Show that per-transaction account.
+        accountId: f.accountId || null,
         status: f.type === 'add' ? 'pago' : 'recebido'
     }));
 
@@ -3944,7 +3944,8 @@ function renderCycleExpenses() {
             if (r.kind === 'savings') {
                 const sign = r.flowType === 'add' ? '−' : '+';
                 const amountColor = r.flowType === 'add' ? '#B8336B' : '#00B894';
-                const dirLabel = r.flowType === 'add' ? 'para poupança' : 'da poupança';
+                // add: money came FROM the source account; remove: went TO the destination
+                const dirLabel = r.flowType === 'add' ? 'da conta' : 'para conta';
                 const savAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const savAccChip = savAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${savAcc.color || '#9E9E9E'}20;color:${savAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${savAcc.name}</span>` : '';
                 return `
@@ -11746,6 +11747,10 @@ function getGoalsContributionInRange(start, end) {
     let total = 0;
     savingsGoals.forEach(g => (g.transactions || []).forEach(t => {
         if (!t.date) return;
+        // Movements tied to a real account are transfers (account ↔ savings), so
+        // they're neutral to the cycle spending budget. Only untagged "set aside
+        // from income" movements reduce/restore what's available to spend.
+        if (t.accountId) return;
         const d = new Date(t.date);
         if (d >= start && d <= end) total += (t.type === 'add' ? t.amount : -t.amount);
     }));
@@ -11921,11 +11926,19 @@ function openGoalTxModal(goalId, type) {
     document.getElementById('goal-tx-note').value = '';
     const accGroup = document.getElementById('goal-tx-account-group');
     const accSel = document.getElementById('goal-tx-account');
+    const accLabel = document.getElementById('goal-tx-account-label');
     if (accGroup && accSel) {
-        accGroup.style.display = type === 'remove' ? '' : 'none';
-        accSel.innerHTML = '<option value="">— Sem conta associada —</option>' +
-            accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-        accSel.value = g.withdrawAccountId || '';
+        accGroup.style.display = '';
+        // Only non-savings accounts are valid source/destination (the savings
+        // account is the goal's own storage, handled separately).
+        const selectable = accounts.filter(a => !a.isSavings);
+        const isRemove = type === 'remove';
+        if (accLabel) accLabel.textContent = isRemove ? 'Conta destino (para onde vai o dinheiro)' : 'Conta de origem (de onde sai o dinheiro)';
+        accSel.innerHTML = '<option value="">— Sem conta —</option>' +
+            selectable.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        // Pre-select: withdrawals use the goal's default withdraw account; deposits
+        // default to the first non-savings account so it's a real transfer by default.
+        accSel.value = isRemove ? (g.withdrawAccountId || '') : (g.depositAccountId || (selectable[0]?.id || ''));
     }
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
@@ -11940,17 +11953,22 @@ function submitGoalTx() {
     if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
     const date = document.getElementById('goal-tx-date').value || toLocalDateStr(new Date());
     const note = (document.getElementById('goal-tx-note').value || '').trim();
-    const accountId = type === 'remove' ? (document.getElementById('goal-tx-account')?.value || '') : '';
+    // accountId = the real account involved. For 'add' it's the SOURCE (money
+    // leaves it into savings); for 'remove' it's the DESTINATION (money lands there).
+    const accountId = document.getElementById('goal-tx-account')?.value || '';
     const balance = getGoalBalance(g);
     if (type === 'remove' && amt > balance) {
         if (!confirm(`Vais retirar ${formatCurrency(amt)} mas só tens ${formatCurrency(balance)}. Continuar (saldo fica negativo)?`)) return;
     }
     g.transactions = g.transactions || [];
     const tx = { id: generateId(), type, amount: amt, date, note };
-    // For withdrawals, accountId = destination account the money lands in.
-    // getAccountBalance credits this account directly (no separate transfer record needed).
+    // getAccountBalance moves the money against this account directly (source debit
+    // for add, destination credit for remove) — a real transfer, neutral to net worth
+    // and to the cycle budget. No separate transfer record needed.
     if (accountId) tx.accountId = accountId;
     g.transactions.push(tx);
+    // Remember the chosen account as the per-direction default for next time.
+    if (accountId) { if (type === 'remove') g.withdrawAccountId = accountId; else g.depositAccountId = accountId; }
     saveData();
     document.getElementById('modal-goal-tx').classList.remove('active');
     // Full re-render so the dashboard pill, the patrimonio total and the
@@ -13555,15 +13573,20 @@ function getAccountBalance(accId) {
             });
         });
     }
-    // Savings withdrawals tagged with a destination account credit that account
-    (savingsGoals || []).forEach(g => {
-        (g.transactions || []).forEach(t => {
-            if (t.type === 'remove' && t.accountId === accId && !acc.isSavings) {
+    // Savings movements tagged with a real account move money against it directly:
+    //   remove → destination account is credited (money lands there)
+    //   add    → source account is debited (money leaves it into savings)
+    // This makes every tagged movement a neutral transfer to/from the savings account.
+    if (!acc.isSavings) {
+        (savingsGoals || []).forEach(g => {
+            (g.transactions || []).forEach(t => {
+                if (t.accountId !== accId) return;
                 if (!t.date || t.date < since) return;
-                bal += t.amount || 0;
-            }
+                if (t.type === 'remove') bal += t.amount || 0;
+                else if (t.type === 'add') bal -= t.amount || 0;
+            });
         });
-    });
+    }
     (transfers || []).forEach(t => {
         if (!t.date || t.date < since) return;
         if (t.fromAccountId === accId) bal -= t.amount || 0;
