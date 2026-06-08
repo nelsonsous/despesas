@@ -1509,6 +1509,28 @@ function renderSalaryCycle() {
     }
     const aiScenarioRow = document.getElementById('ai-scenario-row');
     if (aiScenarioRow) aiScenarioRow.style.display = (hasAnyAiKey() && cycleContainsToday) ? 'block' : 'none';
+
+    // Three-forecast comparison (current pace / historical average / AI), all
+    // day-adjusted to the remaining days so the end-of-cycle figure shrinks as
+    // the cycle closes. Shown only when a lens beyond bare current-pace exists.
+    const compareRow = document.getElementById('forecast-compare-row');
+    if (compareRow) {
+        if (cycleContainsToday && daysLeft > 0) {
+            const sc = computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings);
+            if (sc.average.hasData || sc.ai.present) {
+                const primary = sc.ai.present ? 'ai' : 'current';
+                compareRow.innerHTML = renderForecastCompareHTML(sc, daysLeft, primary);
+                compareRow.style.display = 'block';
+            } else {
+                compareRow.style.display = 'none';
+                compareRow.innerHTML = '';
+            }
+        } else {
+            compareRow.style.display = 'none';
+            compareRow.innerHTML = '';
+        }
+    }
+
     const tuneRow = document.getElementById('forecast-tune-row');
     if (tuneRow) {
         if (!cycleContainsToday || !hasAnyAiKey()) { tuneRow.style.display = 'none'; }
@@ -9096,9 +9118,10 @@ ${userProfilePromptBlock()}`;
 // ===== FORECAST — AVERAGES + AI REFINEMENT =====
 
 // Compute per-category average variable spend over the last `months` completed cycles.
-// Returns { avg: { catKey: avgAmount }, cyclesUsed: N }
+// Returns { avg: { catKey: avgAmount }, cyclesUsed: N, avgTotalVar: meanVariablePerCycle }
 function getCategoryAverages(months, beforeCycleStart) {
     const sums = {}, counts = {};
+    let totalSum = 0;
     let cursor = new Date(beforeCycleStart);
     cursor.setDate(cursor.getDate() - 1);
     let used = 0, guard = 0;
@@ -9111,13 +9134,67 @@ function getCategoryAverages(months, beforeCycleStart) {
             sums[k] = (sums[k] || 0) + v;
             counts[k] = (counts[k] || 0) + 1;
         });
+        totalSum += b.expPaidVariable;
         used++;
         cursor = new Date(c.start);
         cursor.setDate(cursor.getDate() - 1);
     }
     const avg = {};
     Object.keys(sums).forEach(k => { avg[k] = sums[k] / (counts[k] || 1); });
-    return { avg, cyclesUsed: used };
+    return { avg, cyclesUsed: used, avgTotalVar: used > 0 ? totalSum / used : 0 };
+}
+
+// Build the three day-adjusted forecasts (current pace, historical average, AI)
+// for a cycle. Each projects only the REMAINING variable spend across the days
+// left — so a cycle with 1 day to go yields a far smaller remainder than day 1.
+// endBalance mirrors the canonical formula used in renderSalaryCycle.
+function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings) {
+    const incTotal = b.incReceived + b.incPending;
+    const endBal = (remVar) => incTotal - (b.expPaid + b.expPending + remVar + cycleSavings);
+
+    // 1) Current pace — this cycle's own daily variable rate projected forward.
+    const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
+    const curRem = dailyVarRate * daysLeft;
+
+    // 2) Historical average — typical variable spend/day from past cycles × days left.
+    const { avgTotalVar, cyclesUsed } = getCategoryAverages(forecastCfg.months || 3, cycleStart);
+    const avgDailyRate = daysTotal > 0 ? avgTotalVar / daysTotal : 0;
+    const avgRem = avgDailyRate * daysLeft;
+
+    // 3) AI — cached remaining estimate (already day-aware; the model was told days left).
+    const cycleKey = toLocalDateStr(cycleStart);
+    const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
+    const hasAi = ov && ov.remainingVar !== undefined;
+
+    return {
+        current: { remainingVar: curRem, endBalance: endBal(curRem) },
+        average: { remainingVar: avgRem, endBalance: endBal(avgRem), hasData: cyclesUsed > 0, cyclesUsed, avgTotalVar },
+        ai: hasAi
+            ? { present: true, remainingVar: ov.remainingVar, endBalance: endBal(ov.remainingVar), note: ov.note || '', breakdown: ov.breakdown || {}, timestamp: ov.timestamp }
+            : { present: false }
+    };
+}
+
+// Render the three-forecast comparison panel HTML. `primary` is which lens drives
+// the headline (the AI when present, else current pace) so it can be highlighted.
+function renderForecastCompareHTML(sc, daysLeft, primary) {
+    const card = (label, end, rem, isPrimary, sub) => {
+        const sign = end >= 0 ? '+' : '';
+        const col = end >= 0 ? '#69f0ae' : '#ff9f9f';
+        return `<div style="flex:1;min-width:0;text-align:center;background:${isPrimary ? 'rgba(124,77,255,0.28)' : 'rgba(255,255,255,0.05)'};border:1px solid ${isPrimary ? 'rgba(149,117,255,0.55)' : 'rgba(255,255,255,0.08)'};border-radius:9px;padding:7px 4px">
+            <div style="font-size:0.6rem;opacity:0.7;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+            <div style="font-size:0.9rem;font-weight:800;color:${col}">${sign}${formatCurrency(end)}</div>
+            <div style="font-size:0.58rem;opacity:0.55;margin-top:2px">${sub}</div>
+        </div>`;
+    };
+    const cards = [];
+    cards.push(card('Ritmo atual', sc.current.endBalance, sc.current.remainingVar, primary === 'current', `falta ${formatCurrency(sc.current.remainingVar)}`));
+    if (sc.average.hasData) cards.push(card('Pela média', sc.average.endBalance, sc.average.remainingVar, primary === 'average', `falta ${formatCurrency(sc.average.remainingVar)}`));
+    if (sc.ai.present) cards.push(card('IA', sc.ai.endBalance, sc.ai.remainingVar, primary === 'ai', `falta ${formatCurrency(sc.ai.remainingVar)}`));
+    return `<div style="margin-top:8px;background:rgba(255,255,255,0.06);border-radius:12px;padding:8px 8px 9px">
+        <div style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.5px;opacity:0.6;margin:0 2px 6px">Saldo previsto fim do ciclo · faltam ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}</div>
+        <div style="display:flex;gap:6px">${cards.join('')}</div>
+    </div>`;
 }
 
 // Gather historical cycle data for the AI. Returns last `maxCycles` completed
