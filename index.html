@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=251">
+    <link rel="stylesheet" href="styles.css?v=274">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -142,9 +142,7 @@
                             <span id="salary-topcat">—</span>
                         </div>
                     </div>
-                    <div id="forecast-tune-row" style="margin-top:8px;text-align:center;display:none">
-                        <button onclick="openForecastConfigModal()" class="btn btn-sm" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.22);font-size:0.78rem"><i class="fas fa-sliders"></i> Afinar previsão</button>
-                    </div>
+                    <div id="forecast-tune-row" style="margin-top:4px;display:none"></div>
                     <div id="ai-scenario-row" style="margin-top:10px;text-align:center;display:none">
                         <button onclick="runAiSalaryScenario()" class="btn btn-sm" style="background:rgba(255,255,255,0.18);color:#fff;border:1px solid rgba(255,255,255,0.25)"><i class="fas fa-sparkles"></i> Cenários de poupança</button>
                         <div id="ai-scenario-answer" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.95);color:#2A1F4F;border-radius:10px;text-align:left;font-size:0.82rem"></div>
@@ -2395,7 +2393,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=251"></script>
+    <script src="app.js?v=274"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

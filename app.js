@@ -24,8 +24,8 @@ let customCategories = [];
 let customIncCategories = [];
 // Forecast tuning: which variable categories should be projected from their
 // historical per-cycle average instead of the naive daily-rate extrapolation.
-// aiOverrides maps catKey -> { amount, cycleKey } predicted by AI for the
-// current cycle (cleared when the cycle changes).
+// aiOverrides maps cycleKey -> { remainingVar, breakdown, note, timestamp }
+// from the last AI call. Cleared or overwritten on each new prediction.
 let forecastCfg = { categories: [], months: 3, aiOverrides: {} };
 let children = [];           // { id, name, coParentName, splitPct }
 let activeChildId = null;
@@ -1320,12 +1320,7 @@ function renderSalaryCycle() {
     // Variable-only rate compared against available/daysLeft (same as "Podes gastar").
     // A separate row shows the total including fixed paid when relevant.
     const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
-    // Smarter projection: recurring variable categories the user marked are
-    // projected from their historical per-cycle average; everything else keeps
-    // the naive daily-rate extrapolation. With no categories marked this
-    // collapses to the original behaviour (projectedVar = dailyVarRate × daysLeft).
-    const _avgData = getCategoryAverages(forecastCfg.months || 3, cycleStart);
-    const _smart = getSmartProjectedVar(b, _avgData.avg, daysElapsed, daysLeft, cycleStart);
+    const _smart = getSmartProjectedVar(b, daysElapsed, daysLeft, cycleStart);
     const projectedVar = _smart.projectedVar;
     const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
 
@@ -1469,7 +1464,7 @@ function renderSalaryCycle() {
     const cycleIsFuture = today < cycleStart;
     let showProjection = false;
     if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
-        if (projLabelEl) projLabelEl.textContent = _smart.usedAverages ? 'Previsão (médias)' : 'Ao ritmo atual';
+        if (projLabelEl) projLabelEl.textContent = _smart.usedAI ? 'Previsão IA' : 'Ao ritmo atual';
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
             const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
@@ -1515,7 +1510,45 @@ function renderSalaryCycle() {
     const aiScenarioRow = document.getElementById('ai-scenario-row');
     if (aiScenarioRow) aiScenarioRow.style.display = (hasAnyAiKey() && cycleContainsToday) ? 'block' : 'none';
     const tuneRow = document.getElementById('forecast-tune-row');
-    if (tuneRow) tuneRow.style.display = cycleContainsToday ? 'block' : 'none';
+    if (tuneRow) {
+        if (!cycleContainsToday || !hasAnyAiKey()) { tuneRow.style.display = 'none'; }
+        else {
+            tuneRow.style.display = 'block';
+            const cycleKey = toLocalDateStr(cycleStart);
+            const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
+            if (ov) {
+                const cats = getEffectiveCategories();
+                const ageMin = Math.round((Date.now() - (ov.timestamp || 0)) / 60000);
+                const ageStr = ageMin < 1 ? 'agora mesmo' : ageMin < 60 ? `há ${ageMin} min` : `há ${Math.round(ageMin / 60)} h`;
+                const breakdown = Object.entries(ov.breakdown || {})
+                    .sort((a, b) => b[1].amount - a[1].amount)
+                    .slice(0, 6)
+                    .map(([k, v]) => {
+                        const cat = cats[k] || {};
+                        return `<span style="font-size:0.7rem;padding:2px 7px;border-radius:8px;background:rgba(255,255,255,0.12);white-space:nowrap">${cat.label || v.label || k} ${formatCurrency(v.amount)}</span>`;
+                    }).join('');
+                tuneRow.innerHTML = `<div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:0.78rem;color:rgba(255,255,255,0.9)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-weight:700;font-size:0.8rem"><i class="fas fa-wand-magic-sparkles" style="font-size:0.7rem;margin-right:4px"></i>Previsão IA</span>
+                        <span style="font-size:0.68rem;opacity:0.65">${ageStr}</span>
+                    </div>
+                    ${ov.note ? `<div style="font-size:0.73rem;opacity:0.85;margin-bottom:6px;line-height:1.35">${ov.note}</div>` : ''}
+                    ${breakdown ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px">${breakdown}</div>` : ''}
+                    <div style="display:flex;gap:6px">
+                        <button onclick="openForecastConfigModal()" style="padding:5px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.1);color:#fff;font-family:var(--font);font-size:0.72rem;cursor:pointer"><i class="fas fa-sliders"></i></button>
+                        <button onclick="runAiForecastPredict()" style="flex:1;padding:5px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.1);color:#fff;font-family:var(--font);font-size:0.72rem;cursor:pointer"><i class="fas fa-rotate"></i> Atualizar IA</button>
+                        <button onclick="clearForecastAiPrediction()" style="padding:5px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-family:var(--font);font-size:0.72rem;cursor:pointer"><i class="fas fa-xmark"></i></button>
+                    </div>
+                </div>`;
+            } else {
+                const hasMarked = (forecastCfg.categories || []).length > 0;
+                tuneRow.innerHTML = `<div style="display:flex;gap:6px;margin-top:4px">
+                    <button onclick="openForecastConfigModal()" style="flex:1;padding:5px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.1);color:#fff;font-family:var(--font);font-size:0.72rem;cursor:pointer"><i class="fas fa-sliders"></i> Afinar previsão${hasMarked ? ' ✓' : ''}</button>
+                    <button onclick="runAiForecastPredict()" style="flex:1;padding:5px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:rgba(255,255,255,0.1);color:#fff;font-family:var(--font);font-size:0.72rem;cursor:pointer"><i class="fas fa-wand-magic-sparkles"></i> IA</button>
+                </div>`;
+            }
+        }
+    }
 }
 
 // ===== APP LOCK (biometric + PIN) =====
@@ -1875,7 +1908,7 @@ function loadData() {
     const fiSt = localStorage.getItem(FIXED_INCOME_STATUS_KEY);
     fixedIncomeStatus = fiSt ? JSON.parse(fiSt) : [];
     const fcData = localStorage.getItem(FORECAST_CFG_KEY);
-    if (fcData) { try { forecastCfg = { categories: [], months: 3, aiOverrides: {}, ...JSON.parse(fcData) }; } catch {} }
+    if (fcData) { try { const fc = JSON.parse(fcData); forecastCfg = { categories: fc.categories || [], months: fc.months || 3, aiOverrides: fc.aiOverrides || {} }; } catch {} }
     const tplData = localStorage.getItem(TEMPLATES_KEY);
     expenseTemplates = tplData ? JSON.parse(tplData) : [];
     const budData = localStorage.getItem(BUDGETS_KEY);
@@ -6382,65 +6415,6 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 }
 
 // ===== FORECAST AVERAGING =====
-// Average variable spend per category over the `monthsBack` completed cycles
-// immediately before `beforeCycleStart`. Powers the smarter projection that
-// treats recurring variable costs (groceries, fuel…) as expected baselines
-// instead of naively extrapolating the current cycle's daily rate.
-function getCategoryAverages(monthsBack, beforeCycleStart) {
-    const totals = {};
-    let cursor = new Date(beforeCycleStart);
-    cursor.setDate(cursor.getDate() - 1); // step into the previous cycle
-    let n = 0, guard = 0;
-    while (n < monthsBack && guard++ < 60) {
-        const c = getSalaryCycleAt(cursor);
-        if (!c) break;
-        const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
-        if (b.totalInc === 0 && b.totalExp === 0) break; // reached start of history
-        Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => { totals[k] = (totals[k] || 0) + v; });
-        n++;
-        cursor = new Date(c.start);
-        cursor.setDate(cursor.getDate() - 1);
-    }
-    const avg = {};
-    if (n > 0) Object.keys(totals).forEach(k => { avg[k] = totals[k] / n; });
-    return { avg, cyclesUsed: n };
-}
-
-// Computes the projected remaining variable spend for the rest of the cycle.
-// For categories the user marked as "average-based" (forecastCfg.categories),
-// the remaining is max(0, expectedTotal − alreadySpent) where expectedTotal is
-// the AI override (if set for this cycle) or the historical average. All other
-// variable spend keeps the linear daily-rate extrapolation. Returns central,
-// optimistic and pessimistic figures plus a per-category detail for the UI.
-function getSmartProjectedVar(b, avg, daysElapsed, daysLeft, cycleStart) {
-    const curVar = b.expByCategoryVar || {};
-    const cycleKey = toLocalDateStr(cycleStart);
-    const marked = forecastCfg.categories || [];
-    let markedRemaining = 0, markedAlready = 0, usedAverages = false;
-    const detail = [];
-    marked.forEach(cat => {
-        const already = curVar[cat] || 0;
-        const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cat];
-        const aiActive = !!(ov && ov.cycleKey === cycleKey);
-        const expected = aiActive ? ov.amount : (avg[cat] || 0);
-        if (expected <= 0 && already <= 0) return;
-        usedAverages = true;
-        markedAlready += already;
-        const rem = Math.max(0, expected - already);
-        markedRemaining += rem;
-        detail.push({ cat, already, expected, rem, ai: aiActive });
-    });
-    const otherSpent = Math.max(0, b.expPaidVariable - markedAlready);
-    const otherRate = daysElapsed > 0 ? otherSpent / daysElapsed : 0;
-    const otherProj = otherRate * daysLeft;
-    return {
-        projectedVar: markedRemaining + otherProj,
-        projectedVarOpt: markedRemaining + otherProj * 0.7,
-        projectedVarPess: markedRemaining + otherProj * 1.3,
-        usedAverages, detail
-    };
-}
-
 // Returns up to 3 most-recent previous cycles' contributions for display.
 // Stops (and shows the override as a synthetic entry) when a cycle with a
 // manual opening override is encountered, mirroring getCycleOpeningBalance.
@@ -9119,11 +9093,87 @@ ${userProfilePromptBlock()}`;
     }
 }
 
-// ===== FORECAST TUNING MODAL =====
-// Lets the user mark variable categories whose recurring spend (groceries,
-// fuel…) should be projected from their historical average instead of the
-// naive daily-rate extrapolation, and optionally ask the AI to predict the
-// full-cycle total per category from the trend.
+// ===== FORECAST — AVERAGES + AI REFINEMENT =====
+
+// Compute per-category average variable spend over the last `months` completed cycles.
+// Returns { avg: { catKey: avgAmount }, cyclesUsed: N }
+function getCategoryAverages(months, beforeCycleStart) {
+    const sums = {}, counts = {};
+    let cursor = new Date(beforeCycleStart);
+    cursor.setDate(cursor.getDate() - 1);
+    let used = 0, guard = 0;
+    while (used < months && guard++ < 60) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
+        if (b.totalInc === 0 && b.totalExp === 0) break;
+        Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => {
+            sums[k] = (sums[k] || 0) + v;
+            counts[k] = (counts[k] || 0) + 1;
+        });
+        used++;
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+    const avg = {};
+    Object.keys(sums).forEach(k => { avg[k] = sums[k] / (counts[k] || 1); });
+    return { avg, cyclesUsed: used };
+}
+
+// Gather historical cycle data for the AI. Returns last `maxCycles` completed
+// cycles before `beforeCycleStart`, oldest → newest.
+function buildForecastHistory(maxCycles, beforeCycleStart) {
+    const cats = getEffectiveCategories();
+    const result = [];
+    let cursor = new Date(beforeCycleStart);
+    cursor.setDate(cursor.getDate() - 1);
+    let guard = 0;
+    while (result.length < maxCycles && guard++ < 60) {
+        const c = getSalaryCycleAt(cursor);
+        if (!c) break;
+        const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
+        if (b.totalInc === 0 && b.totalExp === 0) break;
+        const varByCat = {};
+        Object.entries(b.expByCategoryVar || {}).forEach(([k, v]) => {
+            if (v > 0.01) varByCat[cats[k]?.label || k] = Math.round(v * 100) / 100;
+        });
+        // Surplus = income received minus all expenses (positive = saved, negative = overspent)
+        const surplus = Math.round((b.incReceived - b.expPaidFixed - b.expPaidVariable) * 100) / 100;
+        result.push({
+            mes: c.start.getMonth() + 1,
+            periodo: `${c.start.getDate()}/${c.start.getMonth() + 1} → ${c.end.getDate()}/${c.end.getMonth() + 1}`,
+            rendimento_recebido: Math.round(b.incReceived * 100) / 100,
+            fixo_pago: Math.round(b.expPaidFixed * 100) / 100,
+            variavel_por_categoria: varByCat,
+            variavel_total: Math.round(b.expPaidVariable * 100) / 100,
+            sobrou: surplus
+        });
+        cursor = new Date(c.start);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+    return result.reverse();
+}
+
+// Returns AI-projected remaining variable spend if cached, else naive daily-rate fallback.
+function getSmartProjectedVar(b, daysElapsed, daysLeft, cycleStart) {
+    const cycleKey = toLocalDateStr(cycleStart);
+    const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
+    if (ov && ov.remainingVar !== undefined) {
+        return {
+            projectedVar: ov.remainingVar,
+            projectedVarOpt: ov.remainingVar * 0.88,
+            projectedVarPess: ov.remainingVar * 1.12,
+            usedAI: true, breakdown: ov.breakdown || {}, note: ov.note || ''
+        };
+    }
+    const rate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
+    const pv = rate * daysLeft;
+    return {
+        projectedVar: pv, projectedVarOpt: pv * 0.7, projectedVarPess: pv * 1.3,
+        usedAI: false, breakdown: {}, note: ''
+    };
+}
+
 function openForecastConfigModal() {
     const el = document.getElementById('modal-confirm');
     if (!el) return;
@@ -9137,7 +9187,6 @@ function openForecastConfigModal() {
     const cycleKey = toLocalDateStr(cycle.start);
     const marked = forecastCfg.categories || [];
 
-    // Show every category that has history or is already marked, sorted by avg.
     const keys = new Set([...Object.keys(avg), ...marked, ...Object.keys(curVar)]);
     const rows = [...keys]
         .filter(k => (avg[k] || 0) > 0 || marked.includes(k) || (curVar[k] || 0) > 0)
@@ -9145,23 +9194,23 @@ function openForecastConfigModal() {
         .map(k => {
             const cat = cats[k] || { label: k, icon: 'fa-circle', color: '#888' };
             const on = marked.includes(k);
-            const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[k];
-            const aiActive = !!(ov && ov.cycleKey === cycleKey);
-            const expected = aiActive ? ov.amount : (avg[k] || 0);
             const already = curVar[k] || 0;
-            const rem = Math.max(0, expected - already);
+            const avgAmt = avg[k] || 0;
+            const rem = Math.max(0, avgAmt - already);
             return `<div onclick="toggleForecastCategory('${k}')" style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--border);cursor:pointer">
                 <div style="width:20px;height:20px;border-radius:5px;border:2px solid ${on ? 'var(--primary)' : 'var(--border)'};background:${on ? 'var(--primary)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0">${on ? '<i class="fas fa-check" style="color:#fff;font-size:0.6rem"></i>' : ''}</div>
                 <div style="width:26px;height:26px;border-radius:6px;background:${cat.color}22;color:${cat.color};display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ${cat.icon}" style="font-size:0.72rem"></i></div>
                 <div style="flex:1;min-width:0">
                     <div style="font-size:0.82rem;font-weight:600">${cat.label}</div>
-                    <div style="font-size:0.68rem;color:var(--text-light)">Média ${formatCurrency(avg[k] || 0)}/ciclo · já ${formatCurrency(already)}${on && rem > 0 ? ` · falta ~${formatCurrency(rem)}` : ''}</div>
+                    <div style="font-size:0.68rem;color:var(--text-light)">Média ${formatCurrency(avgAmt)}/ciclo · já ${formatCurrency(already)}${on && rem > 0 ? ` · falta ~${formatCurrency(rem)}` : ''}</div>
                 </div>
-                ${aiActive ? `<span style="font-size:0.6rem;background:#EDE7F6;color:#5A3BD8;padding:2px 6px;border-radius:6px;font-weight:700">IA ${formatCurrency(ov.amount)}</span>` : ''}
             </div>`;
         }).join('');
 
     const monthBtn = (n) => `<button onclick="setForecastMonths(${n})" style="flex:1;padding:6px;border-radius:8px;border:1.5px solid ${months === n ? 'var(--primary)' : 'var(--border)'};background:${months === n ? 'var(--primary)' : 'transparent'};color:${months === n ? '#fff' : 'var(--text)'};font-family:var(--font);font-size:0.78rem;font-weight:600;cursor:pointer">${n} ${n === 1 ? 'ciclo' : 'ciclos'}</button>`;
+
+    const hasAI = hasAnyAiKey();
+    const aiOv = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
 
     el.innerHTML = `<div class="modal-content" style="max-height:88vh;overflow-y:auto">
         <div class="modal-header">
@@ -9169,14 +9218,14 @@ function openForecastConfigModal() {
             <button onclick="closeForecastConfigModal()" class="btn-icon"><i class="fas fa-times"></i></button>
         </div>
         <p style="font-size:0.76rem;color:var(--text-light);margin:0 0 12px;line-height:1.45">
-            Marca categorias que se repetem todos os meses (ex.: supermercado, combustível). A previsão passa a contar com a média histórica delas em vez de extrapolar só o ritmo diário.
+            Marca as categorias que se repetem (supermercado, combustível…). A previsão usa a média histórica. Com IA, o modelo analisa os teus fluxos reais, o que sobrou em cada ciclo, e a época do ano para afinar a estimativa.
         </p>
-        <div style="font-size:0.7rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Média sobre</div>
+        <div style="font-size:0.7rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Histórico (nº de ciclos)</div>
         <div style="display:flex;gap:6px;margin-bottom:14px">${monthBtn(1)}${monthBtn(3)}${monthBtn(6)}</div>
         <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:4px">${cyclesUsed > 0 ? `Baseado em ${cyclesUsed} ${cyclesUsed === 1 ? 'ciclo' : 'ciclos'} com histórico` : 'Sem histórico suficiente ainda'}</div>
         ${rows || '<p style="font-size:0.82rem;color:var(--text-light);padding:12px 0">Sem categorias com gastos registados.</p>'}
-        ${hasAnyAiKey() ? `<button id="forecast-ai-btn" onclick="runAiForecastPredict()" class="btn btn-block" style="margin-top:14px;background:linear-gradient(135deg,#7C4DFF,#5A3BD8);color:#fff;border:none"><i class="fas fa-wand-magic-sparkles"></i> Prever com IA${marked.length ? '' : ' (marca categorias primeiro)'}</button>
-        ${(forecastCfg.aiOverrides && Object.values(forecastCfg.aiOverrides).some(o => o.cycleKey === cycleKey)) ? `<button onclick="clearForecastAiOverrides()" class="btn btn-block" style="margin-top:8px;background:transparent;color:var(--text-light);border:1px solid var(--border)"><i class="fas fa-rotate-left"></i> Limpar previsão IA (voltar à média)</button>` : ''}` : '<p style="font-size:0.72rem;color:var(--text-light);margin-top:12px">Configura uma chave de IA nas Definições para previsões dinâmicas.</p>'}
+        ${hasAI ? `<button id="forecast-ai-btn" onclick="runAiForecastPredict()" class="btn btn-block" style="margin-top:14px;background:linear-gradient(135deg,#7C4DFF,#5A3BD8);color:#fff;border:none"><i class="fas fa-wand-magic-sparkles"></i> Prever com IA${marked.length ? '' : ' (opcional — sem seleção usa tudo)'}</button>
+        ${aiOv ? `<button onclick="clearForecastAiPrediction();closeForecastConfigModal();" class="btn btn-block" style="margin-top:8px;background:transparent;color:var(--text-light);border:1px solid var(--border)"><i class="fas fa-rotate-left"></i> Limpar previsão IA (voltar à média)</button>` : ''}` : '<p style="font-size:0.72rem;color:var(--text-light);margin-top:12px">Configura uma chave de IA nas Definições para previsões dinâmicas.</p>'}
         <button onclick="closeForecastConfigModal()" class="btn btn-primary btn-block" style="margin-top:10px">Concluído</button>
     </div>`;
     el.classList.add('active');
@@ -9194,7 +9243,7 @@ function toggleForecastCategory(catKey) {
     else forecastCfg.categories.push(catKey);
     saveData();
     renderSalaryCycle();
-    openForecastConfigModal(); // re-render the modal in place
+    openForecastConfigModal();
 }
 
 function setForecastMonths(n) {
@@ -9204,76 +9253,136 @@ function setForecastMonths(n) {
     openForecastConfigModal();
 }
 
-function clearForecastAiOverrides() {
-    forecastCfg.aiOverrides = {};
-    saveData();
-    renderSalaryCycle();
-    openForecastConfigModal();
-    showToast('Previsão IA limpa');
-}
-
+// Calls AI with full historical data: per-category averages, cycle surplus/deficit
+// history, current cycle state, and seasonality — producing a smart remaining-spend estimate.
 async function runAiForecastPredict() {
-    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
-    const marked = forecastCfg.categories || [];
-    if (!marked.length) { showToast('Marca categorias primeiro'); return; }
+    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA nas Definições'); return; }
     const cycle = getSalaryCycleAt(new Date());
-    if (!cycle) return;
+    if (!cycle) { showToast('Configura o ciclo salarial primeiro'); return; }
+    const cycleKey = toLocalDateStr(cycle.start);
+
     const btn = document.getElementById('forecast-ai-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A prever…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A analisar…'; }
+    const tuneRow = document.getElementById('forecast-tune-row');
+    if (tuneRow && !document.getElementById('modal-confirm')?.classList.contains('active')) {
+        tuneRow.innerHTML = _forecastLoadingHTML();
+    }
+
     try {
         const cats = getEffectiveCategories();
-        // Collect up to 6 prior cycles of variable spend per marked category.
-        const series = [];
-        let cursor = new Date(cycle.start); cursor.setDate(cursor.getDate() - 1);
-        let guard = 0;
-        while (series.length < 6 && guard++ < 30) {
-            const c = getSalaryCycleAt(cursor);
-            if (!c) break;
-            const b = getSalaryCycleBreakdown(c.start, c.end, c.end);
-            if (b.totalInc === 0 && b.totalExp === 0) break;
-            series.unshift(b.expByCategoryVar || {});
-            cursor = new Date(c.start); cursor.setDate(cursor.getDate() - 1);
-        }
-        // Map by label so the AI gets readable keys; remember label→key.
-        const labelToKey = {};
-        const hist = {};
-        marked.forEach(k => {
-            const label = cats[k]?.label || k;
-            labelToKey[label] = k;
-            hist[label] = series.map(s => Math.round((s[k] || 0) * 100) / 100);
-        });
         const today = new Date();
-        const bCur = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
-        const curVar = bCur.expByCategoryVar || {};
-        const partial = {};
-        marked.forEach(k => { partial[cats[k]?.label || k] = Math.round((curVar[k] || 0) * 100) / 100; });
         const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
         const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
-        const prompt = `És um assistente financeiro pessoal. Para cada categoria, prevê o TOTAL que será gasto neste ciclo COMPLETO (em EUR), com base na tendência dos ciclos anteriores e no que já foi gasto. O ciclo tem ${daysTotal} dias e já passaram ${daysElapsed}. Considera sazonalidade e o ritmo atual. Devolve APENAS um objeto JSON {"NomeCategoria": numero, ...}, sem markdown, sem texto extra.
-Histórico por ciclo (mais antigo → mais recente): ${JSON.stringify(hist)}
-Já gasto neste ciclo até agora: ${JSON.stringify(partial)}`;
+        const daysLeft = daysTotal - daysElapsed;
+        const months = forecastCfg.months || 3;
+        const marked = forecastCfg.categories || [];
+
+        const bCur = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
+        const { avg } = getCategoryAverages(months, cycle.start);
+        const history = buildForecastHistory(6, cycle.start);
+
+        // Current cycle variable spend by readable category
+        const curVarReadable = {};
+        Object.entries(bCur.expByCategoryVar || {}).forEach(([k, v]) => {
+            if (v > 0.01) curVarReadable[cats[k]?.label || k] = Math.round(v * 100) / 100;
+        });
+
+        // Averages for selected (or all) categories, in human-readable form
+        const focusCats = marked.length ? marked : Object.keys(avg);
+        const avgReadable = {};
+        focusCats.forEach(k => {
+            if ((avg[k] || 0) > 0.01) avgReadable[cats[k]?.label || k] = Math.round((avg[k] || 0) * 100) / 100;
+        });
+
+        // Fixed expenses still pending this cycle
+        const pendingFixed = [];
+        const monthKeys = new Set();
+        const w1 = new Date(cycle.start.getFullYear(), cycle.start.getMonth(), 1);
+        const w2 = new Date(cycle.end.getFullYear(), cycle.end.getMonth(), 1);
+        for (let w = new Date(w1); w <= w2; w.setMonth(w.getMonth() + 1)) {
+            monthKeys.add(`${w.getFullYear()}-${w.getMonth()}`);
+        }
+        monthKeys.forEach(key => {
+            const [y, m] = key.split('-').map(Number);
+            getActiveFixedForMonth(new Date(y, m, 1)).forEach(f => {
+                const st = getEffectiveFixedStatus(f, new Date(y, m, 1)).status;
+                if (st === 'pendente') pendingFixed.push({ nome: f.description, valor: getEffectiveFixedAmount(f, new Date(y, m, 1)) });
+            });
+        });
+
+        const prompt = `És um assistente de previsão financeira pessoal rigoroso. O teu objetivo é estimar com precisão as despesas variáveis que ainda irão ocorrer nos ${daysLeft} dias que restam do ciclo atual.
+
+MÊS ATUAL: ${today.getMonth() + 1} (${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][today.getMonth()]})
+CICLO: ${daysElapsed} dias decorridos de ${daysTotal} totais (${daysLeft} restantes)
+
+CICLO ATUAL:
+- Rendimento recebido: ${bCur.incReceived.toFixed(2)} €, pendente: ${bCur.incPending.toFixed(2)} €
+- Fixo já pago: ${bCur.expPaidFixed.toFixed(2)} €
+- Fixo pendente: ${JSON.stringify(pendingFixed)}
+- Variável já gasto por categoria: ${JSON.stringify(curVarReadable)}
+- Total variável já gasto: ${bCur.expPaidVariable.toFixed(2)} €
+
+MÉDIAS HISTÓRICAS POR CATEGORIA (último${months > 1 ? 's ' + months : ''} ciclo${months > 1 ? 's' : ''}):
+${JSON.stringify(avgReadable)}
+
+HISTÓRICO DETALHADO DOS ÚLTIMOS ${history.length} CICLOS (mais antigo → mais recente, inclui "sobrou" = rendimento − todas as despesas):
+${JSON.stringify(history, null, 1)}
+
+INSTRUÇÕES:
+1. Compara o que já foi gasto neste ciclo com o histórico do mesmo mês ou padrão sazonal
+2. Usa as médias como âncora mas ajusta conforme: se já gastou mais que a média, espera menos; se ainda tem muito mês, pondera o ritmo e o padrão histórico de "sobrou"
+3. Considera que meses com "sobrou" negativo indicam tendência de overspending nessas categorias
+4. Foca-te nas categorias com histórico real — não inventes categorias sem dados
+5. A estimativa é do que AINDA VAI GASTAR (não o total do ciclo)
+
+Devolve APENAS JSON válido, sem markdown:
+{
+  "restante_variavel": <número>,
+  "por_categoria": { "<nome da categoria>": <número>, ... },
+  "nota": "<explicação curta em PT de Portugal, máx 130 carateres>"
+}`;
+
         const raw = await callAIText(prompt);
         const obj = extractJsonObject(raw);
-        if (!obj) { showToast('IA não devolveu previsão válida'); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Prever com IA'; } return; }
-        const cycleKey = toLocalDateStr(cycle.start);
-        if (!forecastCfg.aiOverrides) forecastCfg.aiOverrides = {};
-        let applied = 0;
-        Object.entries(obj).forEach(([label, val]) => {
-            const key = labelToKey[label] || (cats[label] ? label : null);
-            const amount = parseFloat(val);
-            if (key && !isNaN(amount) && amount >= 0) {
-                forecastCfg.aiOverrides[key] = { amount: Math.round(amount * 100) / 100, cycleKey };
-                applied++;
-            }
+        if (!obj || obj.restante_variavel === undefined) throw new Error('Resposta inválida da IA');
+
+        const remainingVar = Math.max(0, parseFloat(obj.restante_variavel) || 0);
+        const breakdown = {};
+        Object.entries(obj.por_categoria || {}).forEach(([label, val]) => {
+            const key = Object.keys(cats).find(k => (cats[k]?.label || '').toLowerCase() === label.toLowerCase()) || label;
+            const v = parseFloat(val);
+            if (!isNaN(v) && v > 0) breakdown[key] = { label, amount: Math.round(v * 100) / 100 };
         });
+
+        if (!forecastCfg.aiOverrides) forecastCfg.aiOverrides = {};
+        forecastCfg.aiOverrides[cycleKey] = {
+            remainingVar: Math.round(remainingVar * 100) / 100,
+            breakdown, note: (obj.nota || '').slice(0, 140),
+            timestamp: Date.now()
+        };
         saveData();
+        closeForecastConfigModal();
         renderSalaryCycle();
-        openForecastConfigModal();
-        showToast(applied ? `Previsão IA aplicada a ${applied} ${applied === 1 ? 'categoria' : 'categorias'}` : 'Sem categorias correspondentes');
+        showToast('Previsão IA atualizada');
     } catch (e) {
-        showToast(`Erro: ${e?.message || e}`);
+        showToast(`Erro IA: ${e?.message || e}`);
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Prever com IA'; }
+        if (tuneRow) renderSalaryCycle();
     }
+}
+
+function _forecastLoadingHTML() {
+    return `<div style="text-align:center;padding:6px 0;color:rgba(255,255,255,0.7);font-size:0.78rem"><i class="fas fa-spinner fa-spin"></i> A analisar padrões de consumo…</div>`;
+}
+
+function clearForecastAiPrediction() {
+    const cycle = getSalaryCycleAt(new Date());
+    if (!cycle) return;
+    const key = toLocalDateStr(cycle.start);
+    if (forecastCfg.aiOverrides) delete forecastCfg.aiOverrides[key];
+    saveData();
+    renderSalaryCycle();
+    showToast('Previsão IA removida');
 }
 
 // ===== IRS TRACKER =====
