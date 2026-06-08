@@ -244,7 +244,7 @@ function renderAiSettingsUI() {
     const ownEl = document.getElementById('ai-own-contacts');
     if (ownEl && aiCfg.ownContacts !== undefined) ownEl.value = aiCfg.ownContacts;
     if (autoEl) autoEl.checked = aiCfg.autoSync;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateStr(new Date());
     if (fromEl && !fromEl.value) fromEl.value = today;
     if (toEl && !toEl.value) toEl.value = today;
     // Gmail status
@@ -300,9 +300,9 @@ function isProbablyPaymentEmail(subject, from) {
 }
 
 async function fetchGmailForPeriod(from, to) {
-    const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '/');
+    const fromStr = toLocalDateStr(from).replace(/-/g, '/');
     const toDate = new Date(to); toDate.setDate(toDate.getDate() + 1);
-    const toStr = toDate.toISOString().slice(0, 10).replace(/-/g, '/');
+    const toStr = toLocalDateStr(toDate).replace(/-/g, '/');
     // Broader keyword set so EDP/Galp/telco invoice notifications aren't filtered out.
     const q = `after:${fromStr} before:${toStr} (debito OR pagamento OR fatura OR factura OR compra OR transacao OR mbway OR multibanco OR movimentos OR recibo OR cobranca OR EDP OR Galp OR Vodafone OR NOS OR MEO OR Nowo OR seguro OR renda OR subscricao)`;
     // Step 1: fetch metadata only (no body) — free and fast
@@ -641,7 +641,7 @@ async function runSync(fromDate, toDate) {
             setStatus('Nenhum email de pagamento novo encontrado.');
             showToast('Sem emails novos');
             // Still update lastSyncDate so auto-sync doesn't retry today
-            aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+            aiCfg.lastSyncDate = toLocalDateStr(new Date());
             localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
             return;
         }
@@ -659,7 +659,7 @@ async function runSync(fromDate, toDate) {
         if (!extracted.length) {
             setStatus('Nenhuma despesa encontrada nos emails analisados.');
             showToast('Sem despesas detetadas');
-            aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+            aiCfg.lastSyncDate = toLocalDateStr(new Date());
             localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
             return;
         }
@@ -671,7 +671,7 @@ async function runSync(fromDate, toDate) {
             .filter(e => !pendingExpenses.some(p => p.description === e.description && p.amount === e.amount && p.date === e.date));
         pendingExpenses = [...pendingExpenses, ...newItems];
         localStorage.setItem(PENDING_KEY, JSON.stringify(pendingExpenses));
-        aiCfg.lastSyncDate = new Date().toISOString().slice(0, 10);
+        aiCfg.lastSyncDate = toLocalDateStr(new Date());
         localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg));
         setStatus(`✓ ${newItems.length} despesa(s) nova(s) aguardam aprovação.`);
         showToast(newItems.length ? `${newItems.length} despesas para aprovar!` : 'Sem despesas novas');
@@ -747,7 +747,7 @@ function checkAutoSync() {
         : aiCfg.aiProvider === 'groq' ? !!aiCfg.groqKey
         : !!aiCfg.geminiKey;
     if (!aiCfg.autoSync || !hasKey) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateStr(new Date());
     if (aiCfg.lastSyncDate === today) return;
     const from = aiCfg.lastSyncDate ? new Date(aiCfg.lastSyncDate) : new Date(Date.now() - 86400000);
     const to = new Date();
@@ -1049,9 +1049,7 @@ function approvePendingAsFixed(id) {
     if (!e) return;
     const d = new Date(e.date);
     const day = isNaN(d) ? 1 : d.getDate();
-    const monthKey = isNaN(d)
-        ? (new Date()).toISOString().slice(0, 7)
-        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = toLocalMonthStr(isNaN(d) ? new Date() : d);
     populateCategorySelects();
     populateFixedTypeOptions();
     document.getElementById('fixed-modal-title').textContent = 'Nova Despesa Fixa';
@@ -1983,7 +1981,7 @@ function loadData() {
                     id: expenseId,
                     description: `Carregamento ${card.name}`,
                     amount: parseFloat(t.amount) || 0,
-                    date: t.date || new Date().toISOString().slice(0, 10),
+                    date: t.date || toLocalDateStr(new Date()),
                     category: 'outros',
                     type: 'personal',
                     essential: true,
@@ -2782,7 +2780,7 @@ function updateDashboard() {
 
     // Pending/future expenses and incomes (for current and future months)
     const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = toLocalDateStr(today);
     const isPastMonth = currentDate.getFullYear() < today.getFullYear() ||
         (currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() < today.getMonth());
 
@@ -6243,6 +6241,9 @@ function togglePartnerDetails() {
 function toLocalDateStr(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+function toLocalMonthStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 // Whether to treat a date as a working day. Weekends only — Portuguese public
 // holidays would need a calendar, out of scope for now.
@@ -7829,7 +7830,7 @@ async function answerAiMoneyQuestion(question) {
     // Keep size bounded to avoid blowing up the context
     const slim = history.slice(0, 800);
 
-    const today = new Date().toISOString().slice(0,10);
+    const today = toLocalDateStr(new Date());
     const prompt = `${AI_SYSTEM_PROMPT}
 Responde à pergunta do utilizador com base nas despesas abaixo. Hoje é ${today}.
 ESCREVE TEXTO CORRIDO em PT-PT (1-3 frases curtas). NÃO devolvas JSON, NÃO uses chaves {} nem aspas, NÃO devolvas listas. Se a pergunta não puder ser respondida com estes dados, diz-o com clareza.
@@ -8189,7 +8190,7 @@ async function onReceiptImageSelected(input) {
         // for images we keep the vision flow.
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-        const today = new Date().toISOString().slice(0, 10);
+        const today = toLocalDateStr(new Date());
         if (isPdf) {
             // If Mistral key is available, use the dedicated OCR API first —
             // it handles both text-based and image/scanned PDFs without pdf.js.
@@ -8364,7 +8365,7 @@ async function callMistralAudioTranscribe(audioBlob) {
 async function callMistralVoiceToExpense(transcript) {
     const cats = getEffectiveCategories();
     const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateStr(new Date());
     const prompt = `${AI_SYSTEM_PROMPT}
 O utilizador disse em voz: "${transcript}"
 
@@ -8567,7 +8568,7 @@ async function onQuickCaptureFile(input) {
     try {
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-        const today = new Date().toISOString().slice(0, 10);
+        const today = toLocalDateStr(new Date());
         const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
         let obj;
         if (isPdf) {
@@ -8650,7 +8651,7 @@ function findMatchingGroupedExpense(desc, categoria) {
     if (!descNorm) return null;
     // Look in current month's expenses for grouped entries with similar name
     const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    const monthStart = toLocalDateStr(new Date(today.getFullYear(), today.getMonth(), 1));
     return expenses.find(e => {
         if (!e.isGrouped) return false;
         const eName = norm(e.description);
@@ -9568,14 +9569,14 @@ function renderReceiptInsights() {
     if (!card || !body) return;
 
     const now = new Date();
-    const nowStr = now.toISOString().slice(0, 10);
+    const nowStr = toLocalDateStr(now);
     const year = now.getFullYear();
 
     // Warranties expiring in the next 60 days (or already lapsed in last 30).
     const soon = new Date(now); soon.setDate(now.getDate() + 60);
     const past = new Date(now); past.setDate(now.getDate() - 30);
     const warranties = expenses
-        .filter(e => e.warrantyUntil && e.warrantyUntil >= past.toISOString().slice(0,10) && e.warrantyUntil <= soon.toISOString().slice(0,10))
+        .filter(e => e.warrantyUntil && e.warrantyUntil >= toLocalDateStr(past) && e.warrantyUntil <= toLocalDateStr(soon))
         .sort((a, b) => a.warrantyUntil.localeCompare(b.warrantyUntil));
 
     // Promotional savings for the current year
@@ -10085,7 +10086,7 @@ async function runOcrOnAttachment() {
     try {
         const cats = getEffectiveCategories();
         const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-        const today = new Date().toISOString().slice(0, 10);
+        const today = toLocalDateStr(new Date());
         if (isPdf) {
             // PDFs: extract text with pdf.js then route to the text AI with
             // the same fatura schema. Vision isn't used here because most
@@ -11520,9 +11521,7 @@ function promoteExpenseToFixed(id) {
     if (!e) { showToast('Despesa não encontrada'); return; }
     const d = new Date(e.date);
     const day = isNaN(d) ? 1 : d.getDate();
-    const monthKey = isNaN(d)
-        ? (new Date()).toISOString().slice(0, 7)
-        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = toLocalMonthStr(isNaN(d) ? new Date() : d);
     populateCategorySelects();
     populateFixedTypeOptions();
     document.getElementById('fixed-modal-title').textContent = 'Nova Despesa Fixa';
@@ -11708,7 +11707,7 @@ function submitSavingsGoal() {
         if (isFinite(initial) && initial > 0) {
             goal.transactions.push({
                 id: generateId(), type: 'add', amount: initial,
-                date: new Date().toISOString().slice(0, 10),
+                date: toLocalDateStr(new Date()),
                 note: 'Saldo inicial'
             });
         }
@@ -11737,7 +11736,7 @@ function openGoalTxModal(goalId, type) {
     document.getElementById('goal-tx-goal-id').value = goalId;
     document.getElementById('goal-tx-type').value = type;
     document.getElementById('goal-tx-amount').value = '';
-    document.getElementById('goal-tx-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('goal-tx-date').value = toLocalDateStr(new Date());
     document.getElementById('goal-tx-note').value = '';
     modal.classList.add('active');
     setTimeout(() => document.getElementById('goal-tx-amount')?.focus(), 100);
@@ -11750,7 +11749,7 @@ function submitGoalTx() {
     if (!g) return;
     const amt = parseFloat((document.getElementById('goal-tx-amount').value || '').replace(',', '.'));
     if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
-    const date = document.getElementById('goal-tx-date').value || new Date().toISOString().slice(0, 10);
+    const date = document.getElementById('goal-tx-date').value || toLocalDateStr(new Date());
     const note = (document.getElementById('goal-tx-note').value || '').trim();
     const balance = getGoalBalance(g);
     if (type === 'remove' && amt > balance) {
@@ -11842,7 +11841,7 @@ function renderSavingsGoals() {
 
     const profile = getUserProfile();
     const avgMonthlySaving = profile?.media_mensal?.poupanca || 0;
-    const thisMonth = new Date().toISOString().slice(0, 7);
+    const thisMonth = toLocalMonthStr(new Date());
 
     list.innerHTML = savingsGoals.map(g => {
         const balance = getGoalBalance(g);
@@ -11941,7 +11940,7 @@ function detectSubscriptions() {
 
     // 1) Explicit fixed expenses with category subscriptions/utilities
     fixedExpenses.forEach(f => {
-        if (f.endDate && f.endDate < new Date().toISOString().slice(0, 7)) return;
+        if (f.endDate && f.endDate < toLocalMonthStr(new Date())) return;
         const monthly = parseFloat(f.amount) || 0;
         subs.push({
             id: f.id,
@@ -12193,7 +12192,7 @@ function addPrepaidTopup(cardId, amount, description, date) {
     const card = prepaidCards.find(c => c.id === cardId);
     if (!card) return;
     const amt = parseFloat(amount);
-    const dateStr = date || new Date().toISOString().slice(0, 10);
+    const dateStr = date || toLocalDateStr(new Date());
     const txId = generateId();
     const expenseId = generateId();
     card.transactions = card.transactions || [];
@@ -12284,7 +12283,7 @@ function addPrepaidSpend(cardId, amount, description, date, expenseId) {
         type: 'spend',
         amount: parseFloat(amount),
         description: description || 'Consumo',
-        date: date || new Date().toISOString().slice(0, 10),
+        date: date || toLocalDateStr(new Date()),
         expenseId: expenseId || null
     });
     return txId;
@@ -12304,7 +12303,7 @@ function createPrepaidCard(name, initialBalance, icon, color) {
     // has to flow through addPrepaidTopup so the matching "Carregamento"
     // expense is created and the dashboard sees the cash out.
     if (initialBalance && initialBalance > 0) {
-        addPrepaidTopup(card.id, parseFloat(initialBalance), 'Saldo inicial', new Date().toISOString().slice(0, 10));
+        addPrepaidTopup(card.id, parseFloat(initialBalance), 'Saldo inicial', toLocalDateStr(new Date()));
     } else {
         saveData();
         renderPrepaidCards();
@@ -12379,7 +12378,7 @@ function editPrepaidCard(id) {
 function showAddPrepaidPrompt() {
     const modal = document.getElementById('modal-prepaid-create');
     if (!modal) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateStr(new Date());
     const nameEl = document.getElementById('prepaid-create-name');
     const balEl = document.getElementById('prepaid-create-balance');
     const dateEl = document.getElementById('prepaid-create-date');
@@ -12394,7 +12393,7 @@ function submitNewPrepaid() {
     const name = (document.getElementById('prepaid-create-name')?.value || '').trim();
     if (!name) { showToast('Indica um nome'); return; }
     const bal = parseFloat((document.getElementById('prepaid-create-balance')?.value || '0').replace(',', '.'));
-    const date = document.getElementById('prepaid-create-date')?.value || new Date().toISOString().slice(0, 10);
+    const date = document.getElementById('prepaid-create-date')?.value || toLocalDateStr(new Date());
     const card = {
         id: generateId(),
         name,
@@ -12426,7 +12425,7 @@ function showPrepaidTopupPrompt(cardId) {
     if (!card) return;
     const modal = document.getElementById('modal-prepaid-topup');
     if (!modal) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toLocalDateStr(new Date());
     const balance = getPrepaidBalance(cardId);
     document.getElementById('prepaid-topup-card-id').value = cardId;
     document.getElementById('prepaid-topup-card-info').innerHTML =
@@ -12445,7 +12444,7 @@ function submitPrepaidTopup() {
     if (!cardId) return;
     const amt = parseFloat((document.getElementById('prepaid-topup-amount')?.value || '').replace(',', '.'));
     if (!isFinite(amt) || amt <= 0) { showToast('Valor inválido'); return; }
-    const date = document.getElementById('prepaid-topup-date')?.value || new Date().toISOString().slice(0, 10);
+    const date = document.getElementById('prepaid-topup-date')?.value || toLocalDateStr(new Date());
     const note = (document.getElementById('prepaid-topup-note')?.value || '').trim() || 'Carregamento';
     const editingId = modal?.dataset.editingTxId;
     if (editingId) {
@@ -12791,7 +12790,7 @@ function exportToJSON() {
             spousePct: getSpousePct()
         }
     }, null, 2);
-    downloadFile(data, `despesas_backup_${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+    downloadFile(data, `despesas_backup_${toLocalDateStr(new Date())}.json`, 'application/json');
     closeExportMenu();
     showToast('Backup completo exportado!');
 }
@@ -13659,7 +13658,7 @@ function renderAccountsSettings() {
 
 function openAccountModal(id) {
     const acc = id ? accounts.find(a => a.id === id) : null;
-    const today = new Date().toISOString().slice(0,10);
+    const today = toLocalDateStr(new Date());
     document.getElementById('account-modal-id').value = acc?.id || '';
     document.getElementById('account-modal-name').value = acc?.name || '';
     document.getElementById('account-modal-color').value = acc?.color || '#6C5CE7';
@@ -16369,12 +16368,10 @@ function _addMonths(date, n) { const d = new Date(date); d.setMonth(d.getMonth()
 function _expensesInRange(startStr, endStr) {
     return expenses.filter(e => e.date >= startStr && e.date <= endStr && expenseAffectsBalance(e));
 }
-function _toStr(d) { return d.toISOString().slice(0, 10); }
-
 function computeInsights() {
     const out = [];
     const today = new Date();
-    const todayStr = _toStr(today);
+    const todayStr = toLocalDateStr(today);
     const wkLabel = _isoWeek(today);
     const cats = (typeof getEffectiveCategories === 'function') ? getEffectiveCategories() : (typeof CATEGORIES !== 'undefined' ? CATEGORIES : {});
     const catLabel = (k) => (cats && cats[k] && cats[k].label) ? cats[k].label : (k || 'Outros');
@@ -16389,13 +16386,13 @@ function computeInsights() {
     const top5Cats = Object.entries(byCatMonth).sort((a, b) => b[1] - a[1]).slice(0, 5).map(c => c[0]);
 
     top5Cats.forEach(catKey => {
-        const curWk = _expensesInRange(_toStr(weekStart), todayStr)
+        const curWk = _expensesInRange(toLocalDateStr(weekStart), todayStr)
             .filter(e => e.category === catKey).reduce((s, e) => s + e.amount, 0);
         const past = [];
         for (let w = 1; w <= 4; w++) {
             const ps = new Date(weekStart); ps.setDate(ps.getDate() - 7 * w);
             const pe = new Date(ps); pe.setDate(pe.getDate() + 6);
-            const sum = _expensesInRange(_toStr(ps), _toStr(pe))
+            const sum = _expensesInRange(toLocalDateStr(ps), toLocalDateStr(pe))
                 .filter(e => e.category === catKey).reduce((s, e) => s + e.amount, 0);
             past.push(sum);
         }
@@ -16434,7 +16431,7 @@ function computeInsights() {
             const mk = _monthKey(d);
             const start = `${mk}-01`;
             const endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-            const exp = _expensesInRange(start, _toStr(endD));
+            const exp = _expensesInRange(start, toLocalDateStr(endD));
             const sumByCat = {};
             exp.forEach(e => { sumByCat[e.category] = (sumByCat[e.category] || 0) + e.amount; });
             Object.entries(sumByCat).forEach(([cat, sum]) => {
@@ -16492,8 +16489,8 @@ function computeInsights() {
     }
 
     // ---- 4. Despesa unica invulgarmente alta (>= 95p ultimos 6 meses)
-    const lastSixStart = _toStr(_addMonths(today, -6));
-    const histVarBig = _expensesInRange(lastSixStart, _toStr(_addMonths(today, -1)))
+    const lastSixStart = toLocalDateStr(_addMonths(today, -6));
+    const histVarBig = _expensesInRange(lastSixStart, toLocalDateStr(_addMonths(today, -1)))
         .filter(e => !e.isFixedExpense)
         .map(e => e.amount).sort((a, b) => a - b);
     if (histVarBig.length >= 20) {
