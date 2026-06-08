@@ -1,4 +1,10 @@
 // ===== DATA STORE =====
+// Portuguese month-name lookups, centralized so the same 12-element arrays
+// aren't redefined in every render function. Read-only — never mutate.
+const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const MONTHS_PT_LC = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const MONTHS_PT_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
 const STORAGE_KEY = 'despesas_despesas';
 const INCOME_KEY = 'despesas_receitas';
 const FIXED_KEY = 'despesas_fixas';
@@ -1139,7 +1145,7 @@ function findGroupableClusters() {
 function groupSimilarPending() {
     const clusters = findGroupableClusters();
     if (!clusters.length) { showToast('Nada para agrupar'); return; }
-    const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const monthNames = MONTHS_PT;
     const toRemoveIds = new Set();
     const merged = [];
     for (const c of clusters) {
@@ -1283,13 +1289,12 @@ function renderSalaryCycle() {
     const cycleStart = cycle.start;
     const cycleEnd = cycle.end;
 
-    const cycleContainsToday = today >= cycleStart && today <= cycleEnd;
+    const { daysTotal, daysElapsed, daysLeft, cycleContainsToday } = getCycleDayInfo(cycleStart, cycleEnd, today);
     const refDate = cycleContainsToday ? today : cycleEnd;
-    const daysLeft = cycleContainsToday ? Math.max(0, Math.round((cycleEnd - today) / 86400000) + 1) : 0;
 
     // Period label \u2014 use the real cycle boundaries (may vary per month when
     // salaryMode is "last-working-day" or "working-day-after").
-    const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const months = MONTHS_PT;
     const periodLabel = `${cycleStart.getDate()} ${months[cycleStart.getMonth()]} \u2192 ${cycleEnd.getDate()} ${months[cycleEnd.getMonth()]}`;
 
     const b = getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate);
@@ -1311,18 +1316,20 @@ function renderSalaryCycle() {
     const available = totalBudget - spentSinceSalary - cycleFixed - cycleSavings;
     const usedPct = totalBudget > 0 ? Math.min(100, ((spentSinceSalary + cycleFixed + cycleSavings) / totalBudget) * 100) : 0;
 
-    // Day counters — for past/future cycles show the whole cycle as "done"
-    const daysTotal = Math.max(1, Math.round((cycleEnd - cycleStart) / 86400000) + 1);
-    const daysElapsed = cycleContainsToday
-        ? Math.max(1, Math.min(daysTotal, Math.round((today - cycleStart) / 86400000) + 1))
-        : daysTotal;
-
     // Variable-only rate compared against available/daysLeft (same as "Podes gastar").
     // A separate row shows the total including fixed paid when relevant.
     const dailyVarRate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
-    const _smart = getSmartProjectedVar(b, daysElapsed, daysLeft, cycleStart);
-    const projectedVar = _smart.projectedVar;
-    const projectedEndBalance = (b.incReceived + b.incPending) - (b.expPaid + b.expPending + projectedVar + cycleSavings);
+
+    // Single source of truth for the three day-adjusted forecasts. The footer
+    // headline uses the primary lens (AI when present, else current pace); the
+    // comparison panel below reuses the same object — no recomputation.
+    const fc = computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings);
+    const usedAI = fc.ai.present;
+    const projectedVar = usedAI ? fc.ai.remainingVar : fc.current.remainingVar;
+    const projectedEndBalance = usedAI ? fc.ai.endBalance : fc.current.endBalance;
+    const projBand = usedAI ? 0.12 : 0.30; // AI is tighter than naive extrapolation
+    const projectedVarOpt = projectedVar * (1 - projBand);
+    const projectedVarPess = projectedVar * (1 + projBand);
 
     // Top category within the cycle
     const topCat = Object.entries(b.expByCategory).sort((a, b) => b[1] - a[1])[0];
@@ -1464,19 +1471,16 @@ function renderSalaryCycle() {
     const cycleIsFuture = today < cycleStart;
     let showProjection = false;
     if (cycleContainsToday && b.expPaidVariable > 0 && daysLeft > 0) {
-        if (projLabelEl) projLabelEl.textContent = _smart.usedAI ? 'Previsão IA' : 'Ao ritmo atual';
+        if (projLabelEl) projLabelEl.textContent = usedAI ? 'Previsão IA' : 'Ao ritmo atual';
         if (projEl) {
             const sign = projectedEndBalance >= 0 ? '+' : '';
             const color = projectedEndBalance >= 0 ? '#69f0ae' : '#ff9f9f';
-            // Range projection: optimistic/pessimistic vary only the linearly
-            // extrapolated (non-averaged) portion ±30%; averaged categories are
-            // treated as a stable baseline so they don't widen the range.
-            const optimisticVar = _smart.projectedVarOpt;
-            const pessimisticVar = _smart.projectedVarPess;
+            // Range projection: optimistic/pessimistic vary the projected remaining
+            // variable by ±band (AI tighter than naive extrapolation).
             const incTotal = b.incReceived + b.incPending;
             const fixedTotal = b.expPaid + b.expPending;
-            const optimistic = incTotal - fixedTotal - optimisticVar - cycleSavings;
-            const pessimistic = incTotal - fixedTotal - pessimisticVar - cycleSavings;
+            const optimistic = incTotal - fixedTotal - projectedVarOpt - cycleSavings;
+            const pessimistic = incTotal - fixedTotal - projectedVarPess - cycleSavings;
             projEl.innerHTML = `<span style="font-weight:700">${sign}${formatCurrency(projectedEndBalance)}</span><span style="font-size:0.7em;opacity:0.85;margin-left:4px">(${formatCurrency(pessimistic)}…${formatCurrency(optimistic)})</span>`;
             projEl.style.color = color;
         }
@@ -1515,16 +1519,9 @@ function renderSalaryCycle() {
     // the cycle closes. Shown only when a lens beyond bare current-pace exists.
     const compareRow = document.getElementById('forecast-compare-row');
     if (compareRow) {
-        if (cycleContainsToday && daysLeft > 0) {
-            const sc = computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings);
-            if (sc.average.hasData || sc.ai.present) {
-                const primary = sc.ai.present ? 'ai' : 'current';
-                compareRow.innerHTML = renderForecastCompareHTML(sc, daysLeft, primary);
-                compareRow.style.display = 'block';
-            } else {
-                compareRow.style.display = 'none';
-                compareRow.innerHTML = '';
-            }
+        if (cycleContainsToday && daysLeft > 0 && (fc.average.hasData || fc.ai.present)) {
+            compareRow.innerHTML = renderForecastCompareHTML(fc, daysLeft, usedAI ? 'ai' : 'current');
+            compareRow.style.display = 'block';
         } else {
             compareRow.style.display = 'none';
             compareRow.innerHTML = '';
@@ -3683,7 +3680,7 @@ function renderCycleExpenses() {
     }, 0);
     const received = all.reduce((s, r) => s + (r.kind === 'income' && r.realized ? r.amount : 0), 0);
 
-    const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const months = MONTHS_PT_LC;
     const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
     const cycleLength = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
     const inCycle = today >= cycle.start && today <= cycle.end;
@@ -4930,7 +4927,7 @@ function renderFixedItemChrono(f) {
 function renderExpensesChrono(monthExp, filterCat, filterType) {
     const container = document.getElementById('expenses-list');
     if (!container) return;
-    const monthsAbbr = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const monthsAbbr = MONTHS_PT_LC;
     const chronoFilter = getExpensesChronoFilter();
 
     // Build unified list. For fixed: every active fixa for the month, dated on
@@ -5769,8 +5766,6 @@ function getActiveChild() {
     return children[0] || null;
 }
 
-function onChildSelectChange() {} // no-op, kept for backwards compat
-
 function batchToggleCoParent(childId, markPaid) {
     const monthExpAll = getEffectiveMonthExpenses(currentDate);
     const childSplit = monthExpAll.filter(e => e.type === childId && e.split);
@@ -6005,7 +6000,7 @@ function renderCategoryHeatmap() {
     });
 
     const today = new Date();
-    const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const months = MONTHS_PT;
     const monthDates = [];
     for (let i = N - 1; i >= 0; i--) {
         monthDates.push(new Date(today.getFullYear(), today.getMonth() - i, 1));
@@ -6056,7 +6051,7 @@ function renderFixedVsVariable() {
     if (!container) return;
     const N = getReportsPeriod();
     const today = new Date();
-    const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const monthsShort = MONTHS_PT_LC;
 
     const data = [];
     let maxTotal = 0;
@@ -6164,7 +6159,7 @@ function renderPartnerSpending() {
         series.push({ date: d, total: t.involved });
     }
     const maxSeries = Math.max(...series.map(s => s.total), 1);
-    const monthsShort = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const monthsShort = MONTHS_PT;
     const cats = getEffectiveCategories();
 
     // Sort entries by date desc
@@ -6308,6 +6303,22 @@ function getSalaryCycleAt(ref) {
     return getSalaryCycleForMonth(d.getFullYear(), d.getMonth() - 1);
 }
 
+// Single source of truth for a cycle's day counters. `refDate` (defaults to now,
+// date-only) decides whether the cycle is in progress. When the reference day is
+// outside the cycle, the cycle is treated as fully elapsed (daysElapsed=daysTotal,
+// daysLeft=0). All counts are inclusive of both endpoints, matching the salary card.
+function getCycleDayInfo(cycleStart, cycleEnd, refDate) {
+    const raw = refDate || new Date();
+    const ref = new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
+    const contains = ref >= cycleStart && ref <= cycleEnd;
+    const daysTotal = Math.max(1, Math.round((cycleEnd - cycleStart) / 86400000) + 1);
+    const daysElapsed = contains
+        ? Math.max(1, Math.min(daysTotal, Math.round((ref - cycleStart) / 86400000) + 1))
+        : daysTotal;
+    const daysLeft = contains ? Math.max(0, Math.round((cycleEnd - ref) / 86400000) + 1) : 0;
+    return { daysTotal, daysElapsed, daysLeft, cycleContainsToday: contains };
+}
+
 // Checks whether a salary is configured (at all). Used to show/hide the
 // salary-cycle card and the report.
 function isSalaryConfigured() {
@@ -6441,7 +6452,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 // Stops (and shows the override as a synthetic entry) when a cycle with a
 // manual opening override is encountered, mirroring getCycleOpeningBalance.
 function buildCycleOpeningBreakdown(cycleStart) {
-    const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const months = MONTHS_PT_LC;
     const result = [];
     let cursor = new Date(cycleStart);
     cursor.setDate(cursor.getDate() - 1);
@@ -6626,7 +6637,7 @@ function renderSalaryCycleReport() {
 
     if (summaries.length === 0) { container.style.display = 'none'; return; }
 
-    const monthsShort = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const monthsShort = MONTHS_PT_LC;
     const fmtLabel = (d) => `${d.getDate()} ${monthsShort[d.getMonth()]}`;
     const cats = getEffectiveCategories();
 
@@ -6635,7 +6646,7 @@ function renderSalaryCycleReport() {
     const worst = completed.length ? completed.slice().sort((a, b) => a.balance - b.balance)[0] : null;
     const avgBalance = completed.length ? completed.reduce((s, x) => s + x.balance, 0) / completed.length : 0;
     const avgExp = completed.length ? completed.reduce((s, x) => s + x.totalExp, 0) / completed.length : 0;
-    const monthsFull = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const monthsFull = MONTHS_PT_FULL;
 
     container.style.display = 'block';
     const modeDesc = salaryMode === 'last-working-day' ? 'último dia útil do mês'
@@ -7714,15 +7725,13 @@ async function generateAiMonthNarrative(date) {
     let prompt;
     if (cycleActive) {
         const b = getSalaryCycleBreakdown(cycle.start, cycle.end, today);
-        const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
-        const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
-        const daysLeft = Math.max(0, Math.round((cycle.end - today) / 86400000) + 1);
+        const { daysTotal, daysElapsed, daysLeft } = getCycleDayInfo(cycle.start, cycle.end, today);
         const cycleSavingsAI = Math.max(0, getGoalsContributionInRange(cycle.start, cycle.end));
         const totalBudget = b.incReceived || (b.expPaid + b.expPending);
         const available = totalBudget - b.expPaid - b.expPending - cycleSavingsAI;
         const dailyRate = b.expPaidVariable > 0 ? b.expPaidVariable / daysElapsed : 0;
         const dailyBudget = daysLeft > 0 && available > 0 ? available / daysLeft : 0;
-        const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const months = MONTHS_PT;
         const periodLabel = `${cycle.start.getDate()} ${months[cycle.start.getMonth()]} → ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}`;
         prompt = `${AI_SYSTEM_PROMPT}
 ESCREVE TEXTO CORRIDO (NÃO devolvas JSON, NÃO uses chaves {} nem aspas, NÃO devolvas listas). Apenas 2 a 3 frases naturais focadas no CICLO SALARIAL em curso (${periodLabel}, dia ${daysElapsed}/${daysTotal}). Só no fim, se sobrar espaço, contextualiza com o mês de calendário. Inclui pelo menos um valor concreto em EUR. Diz se está no bom caminho, se tem de abrandar o ritmo diário, ou se pode dar-se a um gasto extra.
@@ -9147,7 +9156,8 @@ function getCategoryAverages(months, beforeCycleStart) {
 // Build the three day-adjusted forecasts (current pace, historical average, AI)
 // for a cycle. Each projects only the REMAINING variable spend across the days
 // left — so a cycle with 1 day to go yields a far smaller remainder than day 1.
-// endBalance mirrors the canonical formula used in renderSalaryCycle.
+// This is the single source of truth for the cycle end-balance projection;
+// renderSalaryCycle's footer headline and the comparison panel both read it.
 function computeForecastScenarios(b, daysElapsed, daysLeft, daysTotal, cycleStart, cycleSavings) {
     const incTotal = b.incReceived + b.incPending;
     const endBal = (remVar) => incTotal - (b.expPaid + b.expPending + remVar + cycleSavings);
@@ -9229,26 +9239,6 @@ function buildForecastHistory(maxCycles, beforeCycleStart) {
         cursor.setDate(cursor.getDate() - 1);
     }
     return result.reverse();
-}
-
-// Returns AI-projected remaining variable spend if cached, else naive daily-rate fallback.
-function getSmartProjectedVar(b, daysElapsed, daysLeft, cycleStart) {
-    const cycleKey = toLocalDateStr(cycleStart);
-    const ov = forecastCfg.aiOverrides && forecastCfg.aiOverrides[cycleKey];
-    if (ov && ov.remainingVar !== undefined) {
-        return {
-            projectedVar: ov.remainingVar,
-            projectedVarOpt: ov.remainingVar * 0.88,
-            projectedVarPess: ov.remainingVar * 1.12,
-            usedAI: true, breakdown: ov.breakdown || {}, note: ov.note || ''
-        };
-    }
-    const rate = daysElapsed > 0 ? b.expPaidVariable / daysElapsed : 0;
-    const pv = rate * daysLeft;
-    return {
-        projectedVar: pv, projectedVarOpt: pv * 0.7, projectedVarPess: pv * 1.3,
-        usedAI: false, breakdown: {}, note: ''
-    };
 }
 
 function openForecastConfigModal() {
@@ -9348,9 +9338,7 @@ async function runAiForecastPredict() {
     try {
         const cats = getEffectiveCategories();
         const today = new Date();
-        const daysTotal = Math.max(1, Math.round((cycle.end - cycle.start) / 86400000) + 1);
-        const daysElapsed = Math.max(1, Math.min(daysTotal, Math.round((today - cycle.start) / 86400000) + 1));
-        const daysLeft = daysTotal - daysElapsed;
+        const { daysTotal, daysElapsed, daysLeft } = getCycleDayInfo(cycle.start, cycle.end, today);
         const months = forecastCfg.months || 3;
         const marked = forecastCfg.categories || [];
 
@@ -9389,7 +9377,7 @@ async function runAiForecastPredict() {
 
         const prompt = `És um assistente de previsão financeira pessoal rigoroso. O teu objetivo é estimar com precisão as despesas variáveis que ainda irão ocorrer nos ${daysLeft} dias que restam do ciclo atual.
 
-MÊS ATUAL: ${today.getMonth() + 1} (${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][today.getMonth()]})
+MÊS ATUAL: ${today.getMonth() + 1} (${MONTHS_PT[today.getMonth()]})
 CICLO: ${daysElapsed} dias decorridos de ${daysTotal} totais (${daysLeft} restantes)
 
 CICLO ATUAL:
@@ -13528,7 +13516,7 @@ function renderBalanceSnapshotModal() {
         return;
     }
 
-    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const MON = MONTHS_PT_LC;
     const fmt = d => { const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]} ${dt.getFullYear()}`; };
 
     histEl.innerHTML = snaps.map(s => `
@@ -13628,7 +13616,7 @@ function renderTransfersList() {
     const el = document.getElementById('transfers-list');
     if (!el) return;
     if (!transfers.length) { el.innerHTML = ''; return; }
-    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const MON = MONTHS_PT_LC;
     const fmtD = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]} ${dt.getFullYear()}`; };
     const getAccName = id => accounts.find(a => a.id === id)?.name || '—';
     el.innerHTML = `<div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 4px">Transferências</div>` +
@@ -14642,7 +14630,7 @@ function renderBankReconciliation() {
     const applyLabel = document.getElementById('bank-import-apply-label');
     if (!container) return;
     const cats = getEffectiveCategories();
-    const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const MON = MONTHS_PT_LC;
 
     const fmtDate = d => { if (!d) return '—'; const dt = new Date(d + 'T12:00:00'); return `${String(dt.getDate()).padStart(2,'0')} ${MON[dt.getMonth()]}`; };
 
@@ -15090,17 +15078,6 @@ function toggleSpouseSettingsUI() {
     if (partnerGrp) partnerGrp.style.display = mode === 'separated' ? 'block' : 'none';
     document.getElementById('modal-settings').classList.add('active');
 }
-
-// The dedicated fixed-expense and fixed-income manager modals were
-// removed once the dashboard rows got their own edit/duplicate/delete
-// actions and the headers got "+ Nova" chips. The functions are kept
-// as compatibility shims that route to showAddFixed/showAddFixedIncome
-// so any legacy onclick="openFixedManagerModal()" still does something
-// sensible (open the add form).
-function openFixedManagerModal() { showAddFixed(); }
-function closeFixedManagerModal() { /* modal removed */ }
-function openFixedIncomeManagerModal() { showAddFixedIncome(); }
-function closeFixedIncomeManagerModal() { /* modal removed */ }
 
 function saveProfileName() {
     const name = document.getElementById('profile-name').value.trim();
