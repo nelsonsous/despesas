@@ -3944,7 +3944,7 @@ function renderCycleExpenses() {
                             <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
                             ${balLine(r)}
                         </div>
-                        <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir objetivo"><i class="fas fa-chevron-right"></i></button>
+                                <button onclick="showGoalHistory('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Histórico do objetivo"><i class="fas fa-chevron-right"></i></button>
                     </div>`;
             }
             if (r.kind === 'transfer') {
@@ -4085,7 +4085,7 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
                 <div style="width:42px;font-size:0.7rem;color:var(--text-light);flex-shrink:0">${formatDate(r.date)}</div>
                 <div style="flex:1;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description}</div>
                 <div style="font-weight:700;color:${amtColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</div>
-                <button onclick="openGoalModal('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-chevron-right"></i></button>
+                <button onclick="showGoalHistory('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Histórico do objetivo"><i class="fas fa-chevron-right"></i></button>
             </div>`;
         }
         const badge = r.status === 'pago' ? '✅' : r.status === 'pendente' ? '⏳' : '⏸';
