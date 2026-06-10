@@ -3870,7 +3870,7 @@ function renderCycleExpenses() {
             })
         };
         const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
-        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' vs ciclo');
+        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' face ao previsto');
         const diffClickable = Math.abs(cycleBalDiff) >= 1;
         return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
             ${currentRows}${untaggedRow}${savingsRows2}
@@ -6574,12 +6574,15 @@ function openCycleDiffModal() {
     const el = document.getElementById('modal-confirm');
     if (!el) return;
     el.innerHTML = `<div class="modal-content modal-small" style="padding:20px">
-        <div style="font-weight:800;font-size:1rem;margin-bottom:14px">Diferença vs Ciclo</div>
+        <div style="font-weight:800;font-size:1rem;margin-bottom:8px">Diferença face ao previsto</div>
+        <div style="font-size:0.74rem;color:var(--text-light);line-height:1.45;margin-bottom:12px">
+            A app compara o dinheiro que <b>tens mesmo nas contas</b> com o saldo que o ciclo <b>previa</b> (saldo transitado + recebido − gasto). Se houver diferença, ou faltam movimentos por registar, ou o saldo transitado de ciclos antigos está desatualizado.
+        </div>
         <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0">
-            <span>Soma das contas</span><span style="font-weight:600">${formatCurrency(currentTotal)}</span>
+            <span>Dinheiro real nas contas</span><span style="font-weight:600">${formatCurrency(currentTotal)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:8px">
-            <span>Saldo do ciclo</span><span style="font-weight:600">${formatCurrency(closingBalance)}</span>
+            <span>Previsto pelo ciclo</span><span style="font-weight:600">${formatCurrency(closingBalance)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.85rem;font-weight:700;padding:4px 0;margin-bottom:12px">
             <span>Diferença</span><span style="color:${cycleBalDiff < 0 ? '#C62828' : '#1565C0'}">${cycleBalDiff > 0 ? '+' : ''}${formatCurrency(cycleBalDiff)}</span>
@@ -6591,7 +6594,7 @@ function openCycleDiffModal() {
             <span style="font-weight:600">${unexplained > 0 ? '+' : ''}${formatCurrency(unexplained)}</span>
         </div>` : ''}
         <div style="font-size:0.72rem;color:var(--text-light);margin-top:10px;line-height:1.4">
-            Calibrar ajusta o <em>Saldo transitado</em> para que o ciclo passe a partir do saldo real das contas. Os gaps individuais por conta mantêm-se visíveis para validação.
+            <b>Calibrar</b> aceita o dinheiro real como ponto de partida: ajusta o <em>Saldo transitado</em> e a diferença desaparece. Usa-o quando a diferença vem de histórico antigo e não de movimentos em falta neste ciclo.
         </div>
         <div style="display:flex;gap:8px;margin-top:14px">
             <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-family:var(--font);font-size:0.85rem;cursor:pointer">Fechar</button>
@@ -13031,8 +13034,11 @@ function exportToCSV() {
 }
 
 function exportToJSON() {
+    // version 3: includes accounts, transfers, savings goals, balance snapshots,
+    // prepaid cards and cycle config — older exports silently lost all of these.
+    // AI API keys are deliberately NOT exported (backups get shared around).
     const data = JSON.stringify({
-        version: 2,
+        version: 3,
         exportedAt: new Date().toISOString(),
         expenses,
         incomes,
@@ -13045,12 +13051,23 @@ function exportToJSON() {
         customIncCategories,
         expenseTemplates,
         categoryBudgets,
+        accounts,
+        transfers,
+        savingsGoals,
+        balanceSnapshots,
+        prepaidCards,
+        cycleOpeningOverrides,
+        forecastCfg,
+        netWorth,
+        bankMappings,
         settings: {
             userName: getUserName(),
             appTitle: getAppTitle(),
             householdMode: getHouseholdMode(),
             spouseName: localStorage.getItem(SPOUSE_NAME_KEY) || '',
-            spousePct: getSpousePct()
+            spousePct: getSpousePct(),
+            salaryDay: localStorage.getItem('despesas_salary_day') || '',
+            salaryMode: localStorage.getItem('despesas_salary_mode') || ''
         }
     }, null, 2);
     downloadFile(data, `despesas_backup_${toLocalDateStr(new Date())}.json`, 'application/json');
@@ -13496,6 +13513,16 @@ function importData(event) {
                     if (data.customIncCategories) customIncCategories = data.customIncCategories;
                     if (data.expenseTemplates) expenseTemplates = data.expenseTemplates;
                     if (data.categoryBudgets) categoryBudgets = data.categoryBudgets;
+                    // v3 format: accounts, transfers, goals, snapshots, prepaid, cycle config
+                    if (data.accounts) accounts = data.accounts;
+                    if (data.transfers) transfers = data.transfers;
+                    if (data.savingsGoals) savingsGoals = data.savingsGoals;
+                    if (data.balanceSnapshots) balanceSnapshots = data.balanceSnapshots;
+                    if (data.prepaidCards) prepaidCards = data.prepaidCards;
+                    if (data.cycleOpeningOverrides) cycleOpeningOverrides = data.cycleOpeningOverrides;
+                    if (data.forecastCfg) forecastCfg = { categories: data.forecastCfg.categories || [], months: data.forecastCfg.months || 3, aiOverrides: data.forecastCfg.aiOverrides || {}, aiAutoAttempted: data.forecastCfg.aiAutoAttempted || {} };
+                    if (data.netWorth) netWorth = data.netWorth;
+                    if (data.bankMappings) bankMappings = data.bankMappings;
                     if (data.settings) {
                         const s = data.settings;
                         if (s.userName) localStorage.setItem(USER_NAME_KEY, s.userName);
@@ -13503,6 +13530,8 @@ function importData(event) {
                         if (s.householdMode) localStorage.setItem(HOUSEHOLD_MODE_KEY, s.householdMode);
                         if (s.spouseName) localStorage.setItem(SPOUSE_NAME_KEY, s.spouseName);
                         if (s.spousePct != null) localStorage.setItem(SPOUSE_PCT_KEY, String(s.spousePct));
+                        if (s.salaryDay) localStorage.setItem('despesas_salary_day', s.salaryDay);
+                        if (s.salaryMode) localStorage.setItem('despesas_salary_mode', s.salaryMode);
                     }
                 }
                 saveData();
@@ -13645,62 +13674,75 @@ function deleteBalanceSnapshot(id) {
 }
 
 function reconcileAccount(accountId, fromSnap, toSnap) {
-    // Returns { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, pendingExpenses, pendingIncomes, debtOwed }
+    // Computes the app-side balance evolution between two snapshots using the SAME
+    // rules as getAccountBalance (all registered movements, validated or not), so
+    // "saldo calculado" always agrees with the balance shown elsewhere in the app.
+    // diff = real bank balance − everything the app knows = genuinely missing entries.
+    // Returns { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet,
+    //           savingsNet, pendingExpenses, pendingIncomes, debtOwed }
+    // pendingExpenses/pendingIncomes are the not-yet-bank-validated SUBSETS of the
+    // counted totals (informational — they are already inside `calculated`).
+    const acc = accounts.find(a => a.id === accountId);
     const fromDate = fromSnap.date;
     const toDate = toSnap.date;
+    const inWindow = d => d && d > fromDate && d <= toDate;
 
-    // Paid incomes in the account between the two dates (bankValidated regular + fixed received)
-    let paidIncome = 0;
+    // Incomes — ALL registered (validation is tracked separately)
+    let paidIncome = 0, pendingIncomes = 0;
     incomes.forEach(i => {
-        if (i.accountId !== accountId) return;
-        if (!i.bankValidated || !i.date) return;
-        if (i.date > fromDate && i.date <= toDate) paidIncome += i.amount || 0;
+        if (i.accountId !== accountId || !inWindow(i.date)) return;
+        paidIncome += i.amount || 0;
+        if (!i.bankValidated) pendingIncomes += i.amount || 0;
     });
     fixedIncomes.forEach(fi => {
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
             if ((s.accountId || fi.accountId) !== accountId) return;
-            const d = s.month + '-01';
-            if (d > fromDate && d <= toDate) paidIncome += (s.amount || fi.amount || 0);
+            if (inWindow(s.month + '-01')) paidIncome += (s.amount || fi.amount || 0);
         });
     });
 
-    // Paid expenses in the account between the two dates (bankValidated)
-    let paidExpense = 0;
+    // Expenses — ALL registered (validation tracked separately)
+    let paidExpense = 0, pendingExpenses = 0;
     expenses.forEach(e => {
-        if (e.accountId !== accountId) return;
-        if (!e.bankValidated || !e.date || e.status === 'ignorado') return;
-        if (!expenseAffectsBalance(e)) return;
-        if (e.date > fromDate && e.date <= toDate) paidExpense += e.amount || 0;
+        if (e.accountId !== accountId || e.status === 'ignorado') return;
+        if (!expenseAffectsBalance(e) || !inWindow(e.date)) return;
+        paidExpense += e.amount || 0;
+        if (!e.bankValidated) pendingExpenses += e.amount || 0;
     });
     fixedExpenses.forEach(fe => {
         if ((fe.accountId) !== accountId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
             const d = s.paidDate || (s.month + '-28');
-            if (d > fromDate && d <= toDate) paidExpense += (s.amount || fe.amount || 0);
+            if (inWindow(d)) paidExpense += (s.amount || fe.amount || 0);
         });
     });
 
     // Transfers involving this account
     let paidTransfersNet = 0;
     transfers.forEach(t => {
-        if (!t.date || t.date <= fromDate || t.date > toDate) return;
+        if (!inWindow(t.date)) return;
         if (t.fromAccountId === accountId) paidTransfersNet -= t.amount || 0;
         if (t.toAccountId === accountId) paidTransfersNet += t.amount || 0;
     });
 
-    const calculated = fromSnap.amount + paidIncome - paidExpense + paidTransfersNet;
+    // Savings goal movements — same rules as getAccountBalance: on the savings
+    // account add=+/remove=−; on a regular account tagged as source/destination
+    // add=− (money left into savings) / remove=+ (withdrawal landed here).
+    let savingsNet = 0;
+    (savingsGoals || []).forEach(g => {
+        (g.transactions || []).forEach(t => {
+            if (!inWindow(t.date)) return;
+            if (acc?.isSavings) {
+                savingsNet += t.type === 'add' ? (t.amount || 0) : -(t.amount || 0);
+            } else if (t.accountId === accountId) {
+                savingsNet += t.type === 'remove' ? (t.amount || 0) : -(t.amount || 0);
+            }
+        });
+    });
+
+    const calculated = fromSnap.amount + paidIncome - paidExpense + paidTransfersNet + savingsNet;
     const actual = toSnap.amount;
     const diff = actual - calculated;
-
-    // Pending (not yet bankValidated) expenses in the period
-    const pendingExpenses = expenses.filter(e =>
-        e.accountId === accountId && !e.bankValidated && e.date > fromDate && e.date <= toDate && e.status !== 'ignorado' && expenseAffectsBalance(e)
-    ).reduce((s, e) => s + (e.amount || 0), 0);
-
-    // Pending incomes not yet validated
-    const pendingIncomes = incomes.filter(i =>
-        i.accountId === accountId && !i.bankValidated && i.date > fromDate && i.date <= toDate
-    ).reduce((s, i) => s + (i.amount || 0), 0);
 
     // Unpaid co-parent debt: split expenses where paidByFather is not set, up to toDate.
     let debtOwed = 0;
@@ -13724,7 +13766,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
         });
     });
 
-    return { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, pendingExpenses, pendingIncomes, debtOwed };
+    return { calculated, actual, diff, paidIncome, paidExpense, paidTransfersNet, savingsNet, pendingExpenses, pendingIncomes, debtOwed };
 }
 
 function applyBalanceAdjustment(accountId, date, amount, notes) {
@@ -13819,32 +13861,54 @@ function renderBalanceSnapshotModal() {
     const r = reconcileAccount(accId, fromSnap, toSnap);
     const diffColor = Math.abs(r.diff) < 0.02 ? '#2E7D32' : (r.diff > 0 ? '#1565C0' : '#C62828');
     const diffIcon = Math.abs(r.diff) < 0.02 ? '✓' : (r.diff > 0 ? '▲' : '▼');
-    const diffLabel = Math.abs(r.diff) < 0.02 ? 'Saldo bate certo' : (r.diff > 0 ? 'Sobra dinheiro não registado' : 'Faltam lançamentos');
+    const diffLabel = Math.abs(r.diff) < 0.02 ? 'Saldo bate certo' : (r.diff > 0 ? 'Dinheiro a mais no banco' : 'Gastos não registados na app');
+
+    // Detect likely duplicate adjustments: an "Ajuste de saldo" whose amount matches
+    // another expense on the same account within ±5 days. These happen when an
+    // adjustment was created for money that a registered (but not yet validated)
+    // expense already explained — the classic double-count.
+    const adjDupes = [];
+    expenses.filter(e => e.accountId === accId && /ajuste de saldo/i.test(e.description || '')).forEach(adj => {
+        const twin = expenses.find(e =>
+            e.id !== adj.id && e.accountId === accId && e.status !== 'ignorado' &&
+            Math.abs((e.amount || 0) - (adj.amount || 0)) < 0.005 &&
+            !/ajuste de saldo/i.test(e.description || '') &&
+            Math.abs((new Date(e.date) - new Date(adj.date)) / 86400000) <= 5);
+        if (twin) adjDupes.push({ adj, twin });
+    });
+    const dupesHTML = adjDupes.map(({ adj, twin }) => `
+        <div style="font-size:0.74rem;background:#FFF3E0;border:1px solid #FFCC80;border-radius:8px;padding:8px;margin-bottom:6px;line-height:1.45">
+            ⚠️ <b>Possível duplicado:</b> o ajuste «${adj.description}» de ${formatCurrency(adj.amount)} (${formatDate(adj.date)}) parece duplicar «${twin.description}» de ${formatCurrency(twin.amount)} (${formatDate(twin.date)}).
+            <button onclick="removeDuplicateAdjustment('${adj.id}')" style="display:block;width:100%;margin-top:6px;padding:6px;background:#E65100;color:#fff;border:none;border-radius:8px;font-family:var(--font);font-size:0.74rem;font-weight:700;cursor:pointer"><i class="fas fa-trash"></i> Apagar o ajuste duplicado</button>
+        </div>`).join('');
 
     const adjId = `bal-adj-desc-${accId}`;
     recEl.innerHTML = `
         <div style="background:var(--surface);border-radius:12px;padding:12px;margin-top:4px">
+            ${dupesHTML}
             <div style="font-size:0.78rem;font-weight:700;color:var(--text-light);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.04em">Reconciliação ${fmt(fromSnap.date)} → ${fmt(toSnap.date)}</div>
             <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px"><span>Saldo inicial</span><span style="font-weight:600">${formatCurrency(fromSnap.amount)}</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#2E7D32"><span>+ Receitas validadas</span><span>${formatCurrency(r.paidIncome)}</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:var(--danger)"><span>− Despesas validadas</span><span>${formatCurrency(r.paidExpense)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#2E7D32"><span>+ Receitas registadas</span><span>${formatCurrency(r.paidIncome)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:var(--danger)"><span>− Despesas registadas</span><span>${formatCurrency(r.paidExpense)}</span></div>
             ${Math.abs(r.paidTransfersNet) > 0.01 ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#6C5CE7"><span>${r.paidTransfersNet > 0 ? '+' : '−'} Transferências</span><span>${formatCurrency(Math.abs(r.paidTransfersNet))}</span></div>` : ''}
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px;border-top:1px solid var(--border);padding-top:6px"><span>= Saldo calculado</span><span style="font-weight:600">${formatCurrency(r.calculated)}</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px"><span>Saldo real registado</span><span style="font-weight:700">${formatCurrency(r.actual)}</span></div>
+            ${Math.abs(r.savingsNet) > 0.01 ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#B8336B"><span>${r.savingsNet > 0 ? '+' : '−'} Poupança</span><span>${formatCurrency(Math.abs(r.savingsNet))}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px;border-top:1px solid var(--border);padding-top:6px"><span>= Saldo segundo a app</span><span style="font-weight:600">${formatCurrency(r.calculated)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:6px"><span>Saldo real no banco</span><span style="font-weight:700">${formatCurrency(r.actual)}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:0.85rem;font-weight:700;color:${diffColor};padding:6px 8px;background:${Math.abs(r.diff) < 0.02 ? '#E8F5E9' : '#FFF3E0'};border-radius:8px;margin-bottom:8px">
                 <span>${diffIcon} ${diffLabel}</span><span>${r.diff > 0 ? '+' : ''}${formatCurrency(r.diff)}</span>
             </div>
-            ${r.pendingExpenses > 0 ? `<div style="display:flex;align-items:center;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px">
-                <span>⏳ Despesas por validar</span>
+            ${r.pendingExpenses > 0 ? `<div style="display:flex;align-items:center;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px" title="Já contam no saldo da app; valida-as com o extrato para confirmar que coincidem com o banco.">
+                <span>⏳ Por conferir c/ extrato</span>
                 <span style="display:flex;align-items:center;gap:6px">
-                    <span>−${formatCurrency(r.pendingExpenses)}</span>
+                    <span>${formatCurrency(r.pendingExpenses)}</span>
                     <button onclick="closeBalanceSnapshotModal();openBankImportModal('${accId}','${fromSnap.date}','${toSnap.date}')" style="font-size:0.65rem;padding:2px 7px;border-radius:8px;background:#EEE7FF;color:#5A3BD8;border:1px solid #B9A4F0;cursor:pointer;white-space:nowrap"><i class="fas fa-file-import" style="font-size:0.55rem"></i> Validar extrato</button>
                 </span>
             </div>` : ''}
-            ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por validar</span><span>+${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
+            ${r.pendingIncomes > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-light);margin-bottom:2px"><span>⏳ Receitas por conferir</span><span>${formatCurrency(r.pendingIncomes)}</span></div>` : ''}
             ${r.debtOwed > 0 ? `<div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#1565C0;margin-bottom:2px" title="Valor que o co-parente ainda não pagou (despesas partilhadas não marcadas como pagas)"><span>💰 A receber do co-parente</span><span>+${formatCurrency(r.debtOwed)}</span></div>` : ''}
             ${Math.abs(r.diff) >= 0.02 ? `
             <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+                <div style="font-size:0.72rem;color:var(--text-light);margin-bottom:6px;line-height:1.4"><i class="fas fa-triangle-exclamation" style="color:#E65100"></i> Só cria o ajuste se este valor corresponder a movimentos reais que não registaste na app (ex.: compra esquecida). Se a despesa já está registada, NÃO cries — ficaria duplicada.</div>
                 <div style="font-size:0.75rem;color:var(--text-light);margin-bottom:4px">Descrição do ajuste (opcional)</div>
                 <input id="${adjId}" type="text" placeholder="Ajuste de saldo" value="Ajuste de saldo" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:0.8rem;box-sizing:border-box;margin-bottom:6px">
                 <button onclick="applyBalanceAdjustment('${accId}','${toSnap.date}',${r.diff},document.getElementById('${adjId}')?.value);closeBalanceSnapshotModal()"
@@ -13853,6 +13917,17 @@ function renderBalanceSnapshotModal() {
                 </button>
             </div>` : ''}
         </div>`;
+}
+
+function removeDuplicateAdjustment(expenseId) {
+    const e = expenses.find(x => x.id === expenseId);
+    if (!e) return;
+    if (!confirm(`Apagar «${e.description}» de ${formatCurrency(e.amount)}?`)) return;
+    expenses = expenses.filter(x => x.id !== expenseId);
+    saveData();
+    updateAll();
+    renderBalanceSnapshotModal();
+    showToast('Ajuste duplicado removido');
 }
 
 function renderBalanceSnapshotButtons() {
