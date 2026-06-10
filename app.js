@@ -6808,12 +6808,36 @@ function openCycleDiffModal() {
 }
 
 function calibrateCycleOpening(cycleStartKey, newOpening) {
+    const oldOpening = getCycleOpeningBalance(new Date(cycleStartKey + 'T12:00:00'));
     cycleOpeningOverrides[cycleStartKey] = newOpening;
     saveData();
-    document.getElementById('modal-confirm').innerHTML = '';
-    document.getElementById('modal-confirm').classList.remove('active');
     renderCycleExpenses();
-    showToast('Saldo transitado calibrado');
+    const delta = newOpening - oldOpening;
+    const el = document.getElementById('modal-confirm');
+    if (!el) { showToast('Saldo transitado calibrado'); return; }
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:340px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:10px">✓ Calibrado</div>
+        <div style="font-size:0.78rem;line-height:1.5;color:var(--text);margin-bottom:10px">
+            A única coisa que mudou foi o <b>Saldo transitado</b> deste ciclo (a linha 🏁 no fundo da lista):
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:3px 0">
+            <span>Antes</span><span style="font-weight:600">${formatCurrency(oldOpening)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:3px 0;border-bottom:1px solid var(--border);margin-bottom:6px">
+            <span>Agora</span><span style="font-weight:700">${formatCurrency(newOpening)} <span style="color:${delta < 0 ? '#C62828' : '#1565C0'};font-size:0.72rem">(${delta > 0 ? '+' : ''}${formatCurrency(delta)})</span></span>
+        </div>
+        <div style="font-size:0.72rem;line-height:1.5;color:var(--text-light);margin-bottom:12px">
+            Não foi criada nenhuma despesa nem alterado nenhum saldo de conta — só o ponto de partida do ciclo, para a previsão bater certo com o dinheiro real. O aviso «Face ao previsto» desaparece.
+            Podes desfazer a qualquer momento com o botão <b>↩ Auto</b> na linha 🏁.
+        </div>
+        <div style="display:flex;gap:8px">
+            <button onclick="clearCycleOpeningOverride('${cycleStartKey}');document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')"
+                style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">↩ Desfazer</button>
+            <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')"
+                style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer">Entendido</button>
+        </div>
+    </div>`;
+    el.classList.add('active');
 }
 
 function editCycleOpeningBalance(cycleStartKey, currentValue) {
