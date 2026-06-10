@@ -2410,7 +2410,7 @@ function openFixedPaidDateModal(fixedId, dueDateStr) {
         <label style="font-size:0.75rem;font-weight:600;color:var(--text-light);display:block;margin-bottom:4px">Quando saiu o dinheiro da conta?</label>
         <input type="date" id="fpd-date-input" value="${currentPaidDate || todayStr}" max="${todayStr}"
             style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--font);font-size:0.9rem;box-sizing:border-box;margin-bottom:6px">
-        ${!currentPaidDate ? `<div style="font-size:0.68rem;color:#E65100;margin-bottom:10px">⚠️ Sem data confirmada — a app assumia dia 28. Define a data real para o saldo bater certo.</div>` : ''}
+        ${!currentPaidDate ? `<div style="font-size:0.68rem;color:#E65100;margin-bottom:10px">⚠️ Sem data confirmada — a app assume o dia agendado da despesa. Define a data real para o saldo bater certo.</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:8px">
             <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')"
                 style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Cancelar</button>
@@ -2432,7 +2432,7 @@ function openUnconfirmedFixedModal() {
     if (!el) return;
     el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:340px">
         <div style="font-weight:800;font-size:0.95rem;margin-bottom:6px">Fixas pagas sem data confirmada</div>
-        <div style="font-size:0.74rem;color:var(--text-light);line-height:1.45;margin-bottom:12px">Estão marcadas como pagas mas sem data exacta — a app assume dia 28. Confirma no extrato quando saiu o dinheiro, para os saldos baterem certo.</div>
+        <div style="font-size:0.74rem;color:var(--text-light);line-height:1.45;margin-bottom:12px">Estão marcadas como pagas, mas o dia agendado ainda não chegou — até lá a app não desconta do saldo. Se o dinheiro já saiu mesmo, confirma a data real.</div>
         ${list.map(u => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
             <div style="min-width:0">
                 <div style="font-size:0.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.description}</div>
@@ -2538,6 +2538,17 @@ function getFixedExpensePaymentDate(f, year, month) {
     const target = new Date(year, month, clampedDay);
     if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
     return target;
+}
+
+// Effective cash-out date of a paid fixed-status record: the explicit
+// paidDate wins; otherwise the expense's own scheduled payment day for that
+// month. (The legacy fallback assumed day 28 for everything, which misdated
+// every auto-approved fixed — a PPR scheduled for day 7 was treated as
+// leaving the account on the 28th.)
+function getFixedCashOutDate(fe, s) {
+    if (s.paidDate) return s.paidDate;
+    const [y, m] = s.month.split('-').map(Number);
+    return toLocalDateStr(getFixedExpensePaymentDate(fe, y, m - 1));
 }
 
 function getEffectiveFixedIncomeStatus(fi, date) {
@@ -3710,19 +3721,21 @@ function renderCycleExpenses() {
             // payment date so the running balance reflects when cash left.
             const dateStr = (status === 'pago' && !eff.auto && eff.paidDate) ? eff.paidDate : dueDateStr;
             const amount = status === 'ignorado' ? 0 : getEffectiveFixedAmount(f, monthDate);
-            // Effective cash-out date, same rule as getAccountBalance: explicit
-            // paidDate, else month-28 (legacy 'pago' marks without a date). Used
-            // to gate the running balance so it agrees with account balances.
-            const cashDate = status === 'pago'
-                ? (eff.paidDate || `${y}-${String(m + 1).padStart(2, '0')}-28`)
-                : null;
+            // Effective cash-out date, same rule as getAccountBalance
+            // (getFixedCashOutDate): explicit paidDate, else the scheduled due
+            // date. Used to gate the running balance so it agrees with account
+            // balances.
+            const cashDate = status === 'pago' ? (eff.paidDate || dueDateStr) : null;
             fixedRows.push({
                 kind: 'fixed',
                 id: f.id,
                 date: dateStr,
                 dueDate: dueDateStr,
                 cashDate,
-                unconfirmedDate: status === 'pago' && !eff.paidDate,
+                // Flag only the genuinely ambiguous case: marked paid but the
+                // scheduled date is still ahead, so the app postpones the
+                // deduction even though the user says the money already left.
+                unconfirmedDate: status === 'pago' && !eff.paidDate && dueDateStr > toLocalDateStr(today),
                 description: f.description,
                 category: f.category,
                 amount,
@@ -13898,7 +13911,7 @@ function getAccountBalance(accId) {
     fixedExpenses.forEach(fe => {
         if (fe.accountId !== accId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
-            const d = s.paidDate || (s.month + '-28');
+            const d = getFixedCashOutDate(fe, s);
             if (d > since && d <= todayStr) bal -= (s.amount || fe.amount || 0);
         });
     });
@@ -13985,7 +13998,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     fixedExpenses.forEach(fe => {
         if ((fe.accountId) !== accountId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
-            const d = s.paidDate || (s.month + '-28');
+            const d = getFixedCashOutDate(fe, s);
             if (inWindow(d)) paidExpense += (s.amount || fe.amount || 0);
         });
     });
@@ -14160,7 +14173,7 @@ function renderBalanceSnapshotModal() {
         if (fe.accountId !== accId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
             if (s.paidDate) return;
-            const d = s.month + '-28';
+            const d = getFixedCashOutDate(fe, s);
             if (d > fromSnap.date && d <= toSnap.date) {
                 unconfirmedFixed.push({ description: fe.description, amount: s.amount || fe.amount || 0, fixedId: fe.id, dueDate: d });
             }
