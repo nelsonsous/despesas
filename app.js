@@ -1903,6 +1903,90 @@ function populateCategorySelects() {
     populateAccountSelects();
 }
 
+// Merge duplicated fixed records (same normalized name + same amount), folding
+// the duplicates' monthly statuses into the surviving copy so paid history is
+// never lost. Keeps the copy with an account assigned (it's the one the user
+// configured most recently); ties break on most history, then newest.
+// Returns { merged: [labels], review: [labels] } — review lists same-name pairs
+// with DIFFERENT amounts, which are left for the user to resolve manually.
+function dedupFixedRecords() {
+    const norm = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const STRENGTH = { pago: 3, recebido: 3, ignorado: 2, pendente: 1 };
+    const merged = [], review = [];
+
+    const dedupSet = (items, statuses, idField) => {
+        const groups = {};
+        items.forEach(it => {
+            const k = norm(it.description) + '|' + (Math.round((it.amount || 0) * 100) / 100);
+            (groups[k] = groups[k] || []).push(it);
+        });
+        const removedIds = new Set();
+        Object.values(groups).filter(g => g.length > 1).forEach(g => {
+            const histCount = it => statuses.filter(s => s[idField] === it.id).length;
+            const keeper = g.slice().sort((a, b) =>
+                ((b.accountId ? 1 : 0) - (a.accountId ? 1 : 0)) ||
+                (histCount(b) - histCount(a)) ||
+                String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+            // Merged validity window covers every copy: earliest start, latest end
+            // (any open-ended copy keeps the result open-ended). Users "ended" the
+            // old copy and started a fresh one — the merge must span both halves,
+            // otherwise the current month loses its salary/bill.
+            const starts = g.map(x => x.startDate).filter(Boolean);
+            keeper.startDate = starts.length ? starts.sort()[0] : keeper.startDate;
+            const anyOpen = g.some(x => !x.endDate);
+            const ends = g.map(x => x.endDate).filter(Boolean);
+            if (anyOpen) delete keeper.endDate;
+            else if (ends.length) keeper.endDate = ends.sort().slice(-1)[0];
+            g.forEach(dup => {
+                if (dup === keeper) return;
+                if (!keeper.accountId && dup.accountId) keeper.accountId = dup.accountId;
+                statuses.filter(s => s[idField] === dup.id).forEach(s => {
+                    const existing = statuses.find(x => x[idField] === keeper.id && x.month === s.month);
+                    if (!existing) { s[idField] = keeper.id; }
+                    else if ((STRENGTH[s.status] || 0) > (STRENGTH[existing.status] || 0)) {
+                        existing.status = s.status;
+                        if (s.paidDate) existing.paidDate = s.paidDate;
+                        if (s.amount != null) existing.amount = s.amount;
+                    }
+                });
+                removedIds.add(dup.id);
+            });
+            merged.push(`${keeper.description} ${formatCurrency(keeper.amount)} (×${g.length})`);
+        });
+        // Same name but different amounts → manual review hint (no auto-action)
+        const byName = {};
+        items.forEach(it => { if (!removedIds.has(it.id)) (byName[norm(it.description)] = byName[norm(it.description)] || new Set()).add(Math.round((it.amount || 0) * 100) / 100); });
+        Object.entries(byName).forEach(([name, amts]) => {
+            if (amts.size > 1) review.push(`${name} (${[...amts].map(a => formatCurrency(a)).join(' vs ')})`);
+        });
+        return items.filter(it => !removedIds.has(it.id));
+    };
+
+    fixedExpenses = dedupSet(fixedExpenses, fixedStatus, 'fixedId');
+    fixedStatus = fixedStatus.filter(s => fixedExpenses.some(f => f.id === s.fixedId));
+    fixedIncomes = dedupSet(fixedIncomes, fixedIncomeStatus, 'fixedIncomeId');
+    fixedIncomeStatus = fixedIncomeStatus.filter(s => fixedIncomes.some(f => f.id === s.fixedIncomeId));
+    return { merged, review };
+}
+
+function showDedupReport() {
+    const rep = window._pendingDedupReport;
+    const el = document.getElementById('modal-confirm');
+    if (!rep || !el) return;
+    window._pendingDedupReport = null;
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-height:80vh;overflow-y:auto">
+        <div style="font-weight:800;font-size:1rem;margin-bottom:8px">🧹 Limpeza de duplicados</div>
+        <div style="font-size:0.78rem;color:var(--text-light);line-height:1.45;margin-bottom:10px">Encontrei despesas/receitas fixas duplicadas (criadas ao reatribuir contas) e fundi-as numa só, mantendo o histórico de pagamentos. Os meses passados e futuros deixam de contar a dobrar.</div>
+        ${rep.merged.length ? `<div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;margin-bottom:4px">Fundidas (${rep.merged.length})</div>
+        <div style="font-size:0.78rem;line-height:1.6;margin-bottom:10px">${rep.merged.map(m => `✓ ${m}`).join('<br>')}</div>` : ''}
+        ${rep.review.length ? `<div style="font-size:0.72rem;font-weight:700;color:#E65100;text-transform:uppercase;margin-bottom:4px">Para rever manualmente</div>
+        <div style="font-size:0.76rem;line-height:1.55;margin-bottom:6px;color:var(--text-light)">Nomes iguais com valores diferentes — confirma em Definições → Despesas fixas qual queres manter:</div>
+        <div style="font-size:0.78rem;line-height:1.6;margin-bottom:10px">${rep.review.map(m => `⚠️ ${m}`).join('<br>')}</div>` : ''}
+        <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active');updateAll()" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.85rem;font-weight:700;cursor:pointer">Entendido</button>
+    </div>`;
+    el.classList.add('active');
+}
+
 function loadData() {
     // One-shot migration: rename legacy vanessa_* keys to despesas_* (no data loss)
     if (!localStorage.getItem('despesas_migrated_v1')) {
@@ -1992,6 +2076,22 @@ function loadData() {
         localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
         localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
         localStorage.setItem('despesas_migrated_savwd_v2', '1');
+    }
+    // One-shot: merge duplicated fixed expenses/incomes (same name + same amount).
+    // Re-assigning accounts on 2026-06-05-style edits created brand-new copies
+    // instead of updating, so months were double/triple-counting salaries and
+    // bills. Keep the best copy, fold the others' monthly statuses into it.
+    if (!localStorage.getItem('despesas_migrated_dedup_v1')) {
+        const report = dedupFixedRecords();
+        localStorage.setItem(FIXED_KEY, JSON.stringify(fixedExpenses));
+        localStorage.setItem(FIXED_STATUS_KEY, JSON.stringify(fixedStatus));
+        localStorage.setItem(FIXED_INCOME_KEY, JSON.stringify(fixedIncomes));
+        localStorage.setItem(FIXED_INCOME_STATUS_KEY, JSON.stringify(fixedIncomeStatus));
+        localStorage.setItem('despesas_migrated_dedup_v1', '1');
+        if (report.merged.length || report.review.length) {
+            window._pendingDedupReport = report;
+            setTimeout(() => showDedupReport(), 1800);
+        }
     }
     const netWorthData = localStorage.getItem(NETWORTH_KEY);
     netWorth = netWorthData ? JSON.parse(netWorthData) : { assets: [], liabilities: [], updatedAt: null };
