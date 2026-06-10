@@ -3638,6 +3638,7 @@ function renderCycleExpenses() {
                     description: e.description || '(sem descrição)', category: e.category,
                     amount: entryAmt,
                     isGroupedEntry: true,
+                    createdAt: e.createdAt || '',
                     accountId: en.accountId || e.accountId || null,
                     bankValidated: en.bankValidated || false,
                     childId: e.type && e.type !== 'personal' ? e.type : null, status: 'pago' });
@@ -3649,6 +3650,7 @@ function renderCycleExpenses() {
         varRows.push({ kind: 'var', id: adj.id, date: adj.date,
             description: adj.description || '(sem descrição)', category: adj.category,
             amount: adj.amount || 0,
+            createdAt: e.createdAt || '',
             accountId: e.accountId || null,
             bankValidated: e.bankValidated || false,
             childId: adj.type && adj.type !== 'personal' ? adj.type : null, status: 'pago' });
@@ -3821,13 +3823,14 @@ function renderCycleExpenses() {
     // ascending (income before expense on ties) and stamp each realized row
     // with the balance after it. Pending/future rows get no balance.
     const opening = getCycleOpeningBalance(cycle.start);
-    // Ascending (oldest first, income before expense, lower _i last within
-    // same-date same-flow) is the exact reverse of the display sort so that
-    // reading the display list bottom-to-top yields a consistent ledger:
-    // each row's balanceAfter = the row below's balanceAfter + this row's delta.
+    // Ascending (oldest first, income before expense, earliest-registered
+    // first within same-date same-flow) is the exact reverse of the display
+    // sort so that reading the display list bottom-to-top yields a consistent
+    // ledger: each row's balanceAfter = the row below's balanceAfter + delta.
     const ascending = [...all].sort((a, b) =>
         (a.date || '').localeCompare(b.date || '') ||
         ((a.flow === 'in' ? 0 : 1) - (b.flow === 'in' ? 0 : 1)) ||
+        (a.createdAt || '').localeCompare(b.createdAt || '') ||
         b._i - a._i);
     // Per-account opening: current balance minus realized cycle delta for that account.
     const accCycleDelta = {};
@@ -3858,10 +3861,13 @@ function renderCycleExpenses() {
     });
     const closingBalance = run;
 
-    // Display order: newest first (expense before income on date ties, lower _i first).
+    // Display order: newest first (expense before income on date ties; within
+    // the same day, the most recently registered movement on top, mirroring
+    // the day ordering — read bottom-to-top for insertion order).
     all.sort((a, b) =>
         (b.date || '').localeCompare(a.date || '') ||
         ((b.flow === 'in' ? 0 : 1) - (a.flow === 'in' ? 0 : 1)) ||
+        (b.createdAt || '').localeCompare(a.createdAt || '') ||
         a._i - b._i);
 
     // Header totals: spent = variables + paid fixed; committed adds pending
