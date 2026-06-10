@@ -13739,6 +13739,7 @@ function getAccountBalance(accId) {
     const acc = accounts.find(a => a.id === accId);
     if (!acc) return 0;
     const since = acc.initialBalanceDate || '1970-01-01';
+    const todayStr = toLocalDateStr(new Date());
     let bal = acc.initialBalance || 0;
     incomes.forEach(inc => { if (inc.accountId === accId && inc.date > since) bal += inc.amount || 0; });
     fixedIncomes.forEach(fi => {
@@ -13753,7 +13754,7 @@ function getAccountBalance(accId) {
         if (fe.accountId !== accId) return;
         fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
             const d = s.paidDate || (s.month + '-28');
-            if (d > since) bal -= (s.amount || fe.amount || 0);
+            if (d > since && d <= todayStr) bal -= (s.amount || fe.amount || 0);
         });
     });
     if (acc.isSavings) {
