@@ -3644,11 +3644,18 @@ function renderCycleExpenses() {
             // payment date so the running balance reflects when cash left.
             const dateStr = (status === 'pago' && !eff.auto && eff.paidDate) ? eff.paidDate : dueDateStr;
             const amount = status === 'ignorado' ? 0 : getEffectiveFixedAmount(f, monthDate);
+            // Effective cash-out date, same rule as getAccountBalance: explicit
+            // paidDate, else month-28 (legacy 'pago' marks without a date). Used
+            // to gate the running balance so it agrees with account balances.
+            const cashDate = status === 'pago'
+                ? (eff.paidDate || `${y}-${String(m + 1).padStart(2, '0')}-28`)
+                : null;
             fixedRows.push({
                 kind: 'fixed',
                 id: f.id,
                 date: dateStr,
                 dueDate: dueDateStr,
+                cashDate,
                 description: f.description,
                 category: f.category,
                 amount,
@@ -3758,8 +3765,11 @@ function renderCycleExpenses() {
             r.delta = 0;
         } else {
             r.flow = 'out';
-            r.realized = r.status === 'pago';
-            r.delta = r.status === 'pago' ? -r.amount : 0;
+            // Fixed expenses marked 'pago' whose cash hasn't left yet (cashDate
+            // in the future) don't count toward the running balance — matching
+            // getAccountBalance, so "face ao previsto" doesn't show phantom gaps.
+            r.realized = r.status === 'pago' && (!r.cashDate || r.cashDate <= nowStr);
+            r.delta = r.realized ? -r.amount : 0;
         }
     });
 
@@ -3981,18 +3991,28 @@ function renderCycleExpenses() {
                 return { id: a.id, name: a.name, bal, gap };
             })
         };
-        const diffColor = Math.abs(cycleBalDiff) < 1 ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
-        const diffLabel = Math.abs(cycleBalDiff) < 1 ? '✓' : ((cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff) + ' face ao previsto');
-        const diffClickable = Math.abs(cycleBalDiff) >= 1;
+        const diffOk = Math.abs(cycleBalDiff) < 1;
+        const diffColor = diffOk ? '#2E7D32' : (cycleBalDiff > 0 ? '#1565C0' : '#C62828');
+        const diffBg = diffOk ? '#E8F5E9' : (cycleBalDiff > 0 ? '#E3F2FD' : '#FFEBEE');
+        const diffBorder = diffOk ? '#C8E6C9' : (cycleBalDiff > 0 ? '#BBDEFB' : '#FFCDD2');
+        // Diff vs previsto gets its own full-width row — it was previously squeezed
+        // next to "Total" and overflowed on narrow screens.
+        const diffRow = diffOk
+            ? ''
+            : `<button onclick="openCycleDiffModal()" style="display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:6px;padding:6px 10px;border-radius:8px;background:${diffBg};border:1px solid ${diffBorder};cursor:pointer;font-family:var(--font)">
+                <span style="font-size:0.72rem;font-weight:600;color:${diffColor}"><i class="fas fa-scale-unbalanced" style="font-size:0.62rem;margin-right:5px"></i>Face ao previsto</span>
+                <span style="font-size:0.76rem;font-weight:700;color:${diffColor}">${(cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff)} <i class="fas fa-chevron-right" style="font-size:0.55rem;opacity:0.6"></i></span>
+            </button>`;
         return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
             ${currentRows}${untaggedRow}${savingsRows2}
             <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
-                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total ${diffClickable ? `<button onclick="openCycleDiffModal()" style="background:none;border:none;padding:0;cursor:pointer;font-family:var(--font)"><span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel} <i class="fas fa-info-circle" style="font-size:0.6rem"></i></span></button>` : `<span style="color:${diffColor};font-size:0.7rem;font-weight:600">${diffLabel}</span>`}</span>
-                <span style="display:flex;align-items:center;gap:6px">
-                    <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(currentTotal)}</span>
-                    <button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
-                    <button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
-                </span>
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total${diffOk ? ` <span style="color:${diffColor};font-size:0.72rem;font-weight:700">✓</span>` : ''}</span>
+                <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(currentTotal)}</span>
+            </div>
+            ${diffRow}
+            <div style="display:flex;gap:6px;margin-top:7px">
+                <button onclick="openTransferModal()" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
+                <button onclick="openBankImportModal()" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
             </div>
         </div>`;
     })() : `<div style="display:flex;gap:5px;padding:6px 0 8px;border-bottom:1px solid var(--border)"><button onclick="openTransferModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button><button onclick="openBankImportModal()" style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button></div>`;
@@ -15368,7 +15388,9 @@ async function applyBankImportSelections() {
         } else if (s.action === 'mark-fixed-paid') {
             const month = tx.date.slice(0, 7);
             const idx = fixedStatus.findIndex(fs => fs.fixedId === s.matchId && fs.month === month);
-            const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidAt: new Date().toISOString() };
+            // paidDate = the bank transaction's real date, so account balances
+            // and the cycle ledger place the cash-out on the day it happened.
+            const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidDate: tx.date, paidAt: new Date().toISOString() };
             if (idx >= 0) fixedStatus[idx] = entry; else fixedStatus.push(entry);
             if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
