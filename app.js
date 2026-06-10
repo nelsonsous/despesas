@@ -3621,16 +3621,23 @@ function renderCycleExpenses() {
         walker.setMonth(walker.getMonth() + 1);
     }
     const fixedRows = [];
+    // One occurrence of each fixed item per cycle — same rule as
+    // getSalaryCycleBreakdown, so the list always reconciles with the card.
+    // (Boundary cycles like 29 Mai → 29 Jun would otherwise show next
+    // month's salary/bill again at the end of the window.)
+    const seenListFixed = new Set();
     monthsTouched.forEach(monthDate => {
         const y = monthDate.getFullYear();
         const m = monthDate.getMonth();
         const maxDay = new Date(y, m + 1, 0).getDate();
         getActiveFixedForMonth(monthDate).forEach(f => {
+            if (seenListFixed.has(f.id)) return;
             const payDate = getFixedExpensePaymentDate(f, y, m);
             const dueDateStr = toLocalDateStr(payDate);
             // Membership check always uses the scheduled due date so each
             // expense appears in exactly one cycle.
             if (dueDateStr < startStr || dueDateStr > endStr) return;
+            seenListFixed.add(f.id);
             const eff = getEffectiveFixedStatus(f, monthDate);
             const status = eff.status; // 'pago' | 'pendente' | 'ignorado'
             // If manually paid before the due date, place the row on the actual
@@ -3684,6 +3691,8 @@ function renderCycleExpenses() {
             amount: i.amount || 0, status: 'recebido', fixed: false, accountId: i.accountId || null,
             bankValidated: i.bankValidated || false });
     });
+    // One occurrence of each fixed income per cycle (see seenListFixed above).
+    const seenListInc = new Set();
     monthsTouched.forEach(monthDate => {
         const y = monthDate.getFullYear();
         const m = monthDate.getMonth();
@@ -3691,15 +3700,18 @@ function renderCycleExpenses() {
         getPaidFixedIncomesAsIncome(monthDate).forEach(fi => {
             if (!fi.date || fi.date < startStr || fi.date > endStr) return;
             const fiObj = fixedIncomes.find(x => x.id === fi.fixedIncomeId);
+            seenListInc.add(fi.fixedIncomeId);
             incomeRows.push({ kind: 'income', id: fi.fixedIncomeId, date: fi.date,
                 description: fi.description, category: fi.category || 'ordenado',
                 amount: fi.amount, status: 'recebido', fixed: true, accountId: fiObj?.accountId || null });
         });
         getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
             if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
+            if (seenListInc.has(fi.id)) return; // next cycle's occurrence
             const payDate = getFixedIncomePaymentDate(fi, y, m);
             const dStr = toLocalDateStr(payDate);
             if (dStr < startStr || dStr > endStr) return;
+            seenListInc.add(fi.id);
             incomeRows.push({ kind: 'income', id: fi.id, date: dStr,
                 description: fi.description, category: fi.category || 'ordenado',
                 amount: getEffectiveFixedIncomeAmount(fi, monthDate), status: 'pendente', fixed: true, accountId: fi.accountId || null });
@@ -6520,6 +6532,15 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         monthKeys.add(`${walker.getFullYear()}-${walker.getMonth()}`);
         walker.setMonth(walker.getMonth() + 1);
     }
+    // A monthly fixed item occurs at most ONCE per salary cycle. Cycles whose
+    // boundary day repeats inside the window (e.g. 29 Mai → 29 Jun when salary
+    // is the last working day) would otherwise count the NEXT month's salary
+    // (or bill) as pending inside the current cycle — inflating "por receber"
+    // and every end-of-cycle projection by a whole salary. Paid occurrences
+    // register the id; a later pending occurrence of the same id is skipped
+    // (it belongs to the next cycle).
+    const seenFixedExp = new Set();
+    const seenFixedInc = new Set();
     for (const key of monthKeys) {
         const [y, m] = key.split('-').map(Number);
         const monthDate = new Date(y, m, 1);
@@ -6531,6 +6552,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
             // expenses already marked paid.
             expPaidFixed += e.amount;
             expByCategory[e.category] = (expByCategory[e.category] || 0) + e.amount;
+            seenFixedExp.add(e.fixedId);
         });
         getPaidFixedIncomesAsIncome(monthDate).forEach(i => {
             if (!inCycle(i.date)) return;
@@ -6539,6 +6561,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
             // isRealized is true. Explicit-recebido may be set BEFORE the
             // scheduled payDate (user got the money early) — count anyway.
             incReceivedFixed += i.amount;
+            seenFixedInc.add(i.fixedIncomeId);
         });
 
         const maxDay = new Date(y, m + 1, 0).getDate();
@@ -6547,6 +6570,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         getActiveFixedForMonth(monthDate).forEach(f => {
             const st = getEffectiveFixedStatus(f, monthDate).status;
             if (st === 'pago' || st === 'ignorado') return;
+            if (seenFixedExp.has(f.id)) return; // already occurred this cycle
             const dStr = dStrFor(f.dayOfMonth);
             if (!inCycle(dStr)) return;
             // Include all unpaid fixas in expPending — including those whose
@@ -6557,9 +6581,11 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
             const amt = getEffectiveFixedAmount(f, monthDate);
             expPending += amt;
             if (isRealized(dStr)) expPendingOverdue += amt;
+            seenFixedExp.add(f.id);
         });
         getActiveFixedIncomesForMonth(monthDate).forEach(fi => {
             if (getEffectiveFixedIncomeStatus(fi, monthDate).status === 'recebido') return;
+            if (seenFixedInc.has(fi.id)) return; // already occurred this cycle
             const dStr = dStrFor(fi.dayOfMonth);
             if (!inCycle(dStr)) return;
             // Same treatment for incomes: an unreconciled receita whose
@@ -6568,6 +6594,7 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
             const amt = getEffectiveFixedIncomeAmount(fi, monthDate);
             incPending += amt;
             if (isRealized(dStr)) incPendingOverdue += amt;
+            seenFixedInc.add(fi.id);
         });
     }
 
