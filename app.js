@@ -2425,6 +2425,26 @@ function openFixedPaidDateModal(fixedId, dueDateStr) {
     el.classList.add('active');
 }
 
+function openUnconfirmedFixedModal() {
+    const list = window._unconfirmedFixedRows || [];
+    if (!list.length) return;
+    const el = document.getElementById('modal-confirm');
+    if (!el) return;
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:340px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:6px">Fixas pagas sem data confirmada</div>
+        <div style="font-size:0.74rem;color:var(--text-light);line-height:1.45;margin-bottom:12px">Estão marcadas como pagas mas sem data exacta — a app assume dia 28. Confirma no extrato quando saiu o dinheiro, para os saldos baterem certo.</div>
+        ${list.map(u => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+            <div style="min-width:0">
+                <div style="font-size:0.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.description}</div>
+                <div style="font-size:0.68rem;color:var(--danger)">−${formatCurrency(u.amount)}</div>
+            </div>
+            <button onclick="openFixedPaidDateModal('${u.id}','${u.dueDate}')" style="flex-shrink:0;font-size:0.7rem;padding:5px 9px;border-radius:8px;background:#FFF3E0;color:#E65100;border:1px solid #FFE082;cursor:pointer;font-family:var(--font);font-weight:600"><i class="fas fa-calendar-check" style="font-size:0.6rem"></i> Confirmar data</button>
+        </div>`).join('')}
+        <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')" style="width:100%;margin-top:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Fechar</button>
+    </div>`;
+    el.classList.add('active');
+}
+
 function saveFixedPaidDate(fixedId, monthKey, newDate) {
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
     if (idx < 0) {
@@ -3702,6 +3722,7 @@ function renderCycleExpenses() {
                 date: dateStr,
                 dueDate: dueDateStr,
                 cashDate,
+                unconfirmedDate: status === 'pago' && !eff.paidDate,
                 description: f.description,
                 category: f.category,
                 amount,
@@ -4046,20 +4067,44 @@ function renderCycleExpenses() {
         const diffBg = diffOk ? '#E8F5E9' : (cycleBalDiff > 0 ? '#E3F2FD' : '#FFEBEE');
         const diffBorder = diffOk ? '#C8E6C9' : (cycleBalDiff > 0 ? '#BBDEFB' : '#FFCDD2');
         // Diff vs previsto gets its own full-width row — it was previously squeezed
-        // next to "Total" and overflowed on narrow screens.
+        // next to "Total" and overflowed on narrow screens. Named "Acerto de
+        // contas" (not "previsto") so it doesn't read like a budget forecast.
         const diffRow = diffOk
             ? ''
             : `<button onclick="openCycleDiffModal()" style="display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:6px;padding:6px 10px;border-radius:8px;background:${diffBg};border:1px solid ${diffBorder};cursor:pointer;font-family:var(--font)">
-                <span style="font-size:0.72rem;font-weight:600;color:${diffColor}"><i class="fas fa-scale-unbalanced" style="font-size:0.62rem;margin-right:5px"></i>Face ao previsto</span>
+                <span style="font-size:0.72rem;font-weight:600;color:${diffColor}"><i class="fas fa-scale-unbalanced" style="font-size:0.62rem;margin-right:5px"></i>Acerto de contas</span>
                 <span style="font-size:0.76rem;font-weight:700;color:${diffColor}">${(cycleBalDiff > 0 ? '+' : '') + formatCurrency(cycleBalDiff)} <i class="fas fa-chevron-right" style="font-size:0.55rem;opacity:0.6"></i></span>
             </button>`;
+        // "Resto do ciclo": fixed commitments still to leave the accounts and
+        // (rare) incomes still to arrive, so the user sees what's actually free.
+        // committed − spent = Σ pending fixeds (savings/vars appear in both).
+        const pendingFixedOut = Math.max(0, committed - spent);
+        const pendingIncIn = all.reduce((s, r) => s + (r.kind === 'income' && !r.realized ? r.amount : 0), 0);
+        const freeUntilEnd = currentTotal - pendingFixedOut + pendingIncIn;
+        const restRows = (pendingFixedOut > 0.005 || pendingIncIn > 0.005)
+            ? `${pendingFixedOut > 0.005 ? `<div style="display:flex;justify-content:space-between;font-size:0.74rem;color:var(--text-light);padding:2px 0 0"><span style="padding-left:2px">− Fixas por pagar até ${cycle.end.getDate()} ${months[cycle.end.getMonth()]}</span><span style="font-weight:600;color:var(--danger)">−${formatCurrency(pendingFixedOut)}</span></div>` : ''}
+              ${pendingIncIn > 0.005 ? `<div style="display:flex;justify-content:space-between;font-size:0.74rem;color:var(--text-light);padding:2px 0 0"><span style="padding-left:2px">+ Por receber</span><span style="font-weight:600;color:#2E7D32">+${formatCurrency(pendingIncIn)}</span></div>` : ''}
+              <div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:3px 0 0"><span style="font-weight:700;color:var(--text)">= Livre até final do ciclo</span><span style="font-weight:700;color:${freeUntilEnd >= 0 ? '#2E7D32' : '#C62828'}">${formatCurrency(freeUntilEnd)}</span></div>`
+            : '';
+        // Paid fixeds with no confirmed payment date — the balance math is
+        // guessing day 28 for these, so surface them where the user can fix it.
+        const unconfirmedRows = all.filter(r => r.kind === 'fixed' && r.unconfirmedDate && r.amount > 0);
+        window._unconfirmedFixedRows = unconfirmedRows.map(r => ({ id: r.id, dueDate: r.dueDate, description: r.description, amount: r.amount }));
+        const unconfirmedBadge = unconfirmedRows.length
+            ? `<button onclick="openUnconfirmedFixedModal()" style="display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:6px;padding:6px 10px;border-radius:8px;background:#FFF8E1;border:1px solid #FFE082;cursor:pointer;font-family:var(--font)">
+                <span style="font-size:0.72rem;font-weight:600;color:#E65100">⚠️ ${unconfirmedRows.length} fixa${unconfirmedRows.length > 1 ? 's' : ''} paga${unconfirmedRows.length > 1 ? 's' : ''} sem data confirmada</span>
+                <i class="fas fa-chevron-right" style="font-size:0.55rem;color:#E65100;opacity:0.6"></i>
+            </button>`
+            : '';
         return `<div style="padding:4px 0 8px;border-bottom:1px solid var(--border)">
             ${currentRows}${untaggedRow}${savingsRows2}
             <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);margin-top:3px;padding-top:5px">
                 <span style="font-size:0.8rem;font-weight:700;color:var(--text)">Total${diffOk ? ` <span style="color:${diffColor};font-size:0.72rem;font-weight:700">✓</span>` : ''}</span>
                 <span style="font-size:0.82rem;font-weight:700;color:var(--text)">${formatCurrency(currentTotal)}</span>
             </div>
+            ${restRows}
             ${diffRow}
+            ${unconfirmedBadge}
             <div style="display:flex;gap:6px;margin-top:7px">
                 <button onclick="openTransferModal()" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 9px;border-radius:12px;background:#E3F2FD;color:#1565C0;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #BBDEFB;cursor:pointer;font-family:var(--font)"><i class="fas fa-exchange-alt" style="font-size:0.6rem"></i> Transferência</button>
                 <button onclick="openBankImportModal()" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 9px;border-radius:12px;background:#EEE7FF;color:#5A3BD8;font-size:0.7rem;font-weight:600;white-space:nowrap;border:1px solid #B9A4F0;cursor:pointer;font-family:var(--font)"><i class="fas fa-file-import" style="font-size:0.6rem"></i> Validar extrato</button>
@@ -6777,9 +6822,9 @@ function openCycleDiffModal() {
     const el = document.getElementById('modal-confirm');
     if (!el) return;
     el.innerHTML = `<div class="modal-content modal-small" style="padding:20px">
-        <div style="font-weight:800;font-size:1rem;margin-bottom:8px">Diferença face ao previsto</div>
+        <div style="font-weight:800;font-size:1rem;margin-bottom:8px">Acerto de contas</div>
         <div style="font-size:0.74rem;color:var(--text-light);line-height:1.45;margin-bottom:12px">
-            A app compara o dinheiro que <b>tens mesmo nas contas</b> com o saldo que o ciclo <b>previa</b> (saldo transitado + recebido − gasto). Se houver diferença, ou faltam movimentos por registar, ou o saldo transitado de ciclos antigos está desatualizado.
+            <b>Não é um orçamento</b> — não diz quanto vais gastar, nem muda quando gastas. A app compara o dinheiro que <b>tens mesmo nas contas</b> com o saldo que os movimentos registados <b>explicam</b> (saldo transitado + recebido − gasto). Se houver diferença, ou faltam movimentos por registar, ou o saldo transitado de ciclos antigos está desatualizado.
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:4px 0">
             <span>Dinheiro real nas contas</span><span style="font-weight:600">${formatCurrency(currentTotal)}</span>
@@ -6827,7 +6872,7 @@ function calibrateCycleOpening(cycleStartKey, newOpening) {
             <span>Agora</span><span style="font-weight:700">${formatCurrency(newOpening)} <span style="color:${delta < 0 ? '#C62828' : '#1565C0'};font-size:0.72rem">(${delta > 0 ? '+' : ''}${formatCurrency(delta)})</span></span>
         </div>
         <div style="font-size:0.72rem;line-height:1.5;color:var(--text-light);margin-bottom:12px">
-            Não foi criada nenhuma despesa nem alterado nenhum saldo de conta — só o ponto de partida do ciclo, para a previsão bater certo com o dinheiro real. O aviso «Face ao previsto» desaparece.
+            Não foi criada nenhuma despesa nem alterado nenhum saldo de conta — só o ponto de partida do ciclo, para a contabilidade bater certo com o dinheiro real. O aviso «Acerto de contas» desaparece.
             Podes desfazer a qualquer momento com o botão <b>↩ Auto</b> na linha 🏁.
         </div>
         <div style="display:flex;gap:8px">
