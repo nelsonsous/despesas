@@ -2395,6 +2395,50 @@ function toggleFixedPaidFromCycle(fixedId, dueDateStr, currentlyPaid) {
     markFixedPaid(fixedId, new Date(dueDateStr + 'T12:00:00'), !currentlyPaid);
 }
 
+function openFixedPaidDateModal(fixedId, dueDateStr) {
+    const date = new Date(dueDateStr + 'T12:00:00');
+    const monthKey = getFixedMonthKey(date);
+    const f = fixedExpenses.find(x => x.id === fixedId);
+    if (!f) return;
+    const s = fixedStatus.find(st => st.fixedId === fixedId && st.month === monthKey);
+    const currentPaidDate = s?.paidDate || '';
+    const todayStr = toLocalDateStr(new Date());
+    const el = document.getElementById('modal-confirm');
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:340px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:3px">Data de pagamento</div>
+        <div style="font-size:0.78rem;color:var(--text-light);margin-bottom:14px">${f.description} · ${getMonthLabel(date)}</div>
+        <label style="font-size:0.75rem;font-weight:600;color:var(--text-light);display:block;margin-bottom:4px">Quando saiu o dinheiro da conta?</label>
+        <input type="date" id="fpd-date-input" value="${currentPaidDate || todayStr}" max="${todayStr}"
+            style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--font);font-size:0.9rem;box-sizing:border-box;margin-bottom:6px">
+        ${!currentPaidDate ? `<div style="font-size:0.68rem;color:#E65100;margin-bottom:10px">⚠️ Sem data confirmada — a app assumia dia 28. Define a data real para o saldo bater certo.</div>` : ''}
+        <div style="display:flex;gap:8px;margin-top:8px">
+            <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')"
+                style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Cancelar</button>
+            <button onclick="saveFixedPaidDate('${fixedId}','${monthKey}',document.getElementById('fpd-date-input').value)"
+                style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer">Guardar data</button>
+        </div>
+        <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active');editFixed('${fixedId}','${dueDateStr}')"
+            style="width:100%;margin-top:8px;padding:8px;border-radius:10px;border:1px solid var(--border);background:none;font-family:var(--font);font-size:0.75rem;color:var(--text-light);cursor:pointer">
+            <i class="fas fa-pen" style="font-size:0.65rem"></i> Editar despesa fixa completa
+        </button>
+    </div>`;
+    el.classList.add('active');
+}
+
+function saveFixedPaidDate(fixedId, monthKey, newDate) {
+    const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
+    if (idx < 0) {
+        fixedStatus.push({ fixedId, month: monthKey, status: 'pago', paidDate: newDate || toLocalDateStr(new Date()) });
+    } else {
+        if (newDate) fixedStatus[idx].paidDate = newDate;
+        else delete fixedStatus[idx].paidDate;
+    }
+    saveData();
+    document.getElementById('modal-confirm').innerHTML = '';
+    document.getElementById('modal-confirm').classList.remove('active');
+    updateAll();
+}
+
 function toggleFixedIncomeReceivedFromCycle(fixedIncomeId, dateStr, currentlyReceived) {
     markFixedIncomePaid(fixedIncomeId, new Date(dateStr + 'T12:00:00'), !currentlyReceived);
 }
@@ -4177,7 +4221,13 @@ function renderCycleExpenses() {
             }
             const amountColor = r.status === 'ignorado' ? 'var(--text-light)' : 'var(--danger)';
             const amountTxt = r.status === 'ignorado' ? '—' : formatCurrency(r.amount);
-            const action = r.isGroupedEntry ? `editGroupedEntry('${r.id}','${r.eid}')` : (r.kind === 'fixed' ? `editFixed('${r.id}','${r.date}')` : `editExpense('${r.id}')`);
+            const action = r.isGroupedEntry
+                ? `editGroupedEntry('${r.id}','${r.eid}')`
+                : (r.kind === 'fixed' && r.status === 'pago')
+                    ? `openFixedPaidDateModal('${r.id}','${r.dueDate}')`
+                    : r.kind === 'fixed'
+                        ? `editFixed('${r.id}','${r.date}')`
+                        : `editExpense('${r.id}')`;
             const opacity = r.status === 'ignorado' ? '0.55' : '1';
             const groupedIcon = r.isGroupedEntry ? '<i class="fas fa-layer-group" title="Entrada agrupada" style="color:var(--primary);font-size:0.6rem;flex-shrink:0"></i>' : '';
             const validatedBadge = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
@@ -14030,10 +14080,35 @@ function renderBalanceSnapshotModal() {
             <button onclick="removeDuplicateAdjustment('${adj.id}')" style="display:block;width:100%;margin-top:6px;padding:6px;background:#E65100;color:#fff;border:none;border-radius:8px;font-family:var(--font);font-size:0.74rem;font-weight:700;cursor:pointer"><i class="fas fa-trash"></i> Apagar o ajuste duplicado</button>
         </div>`).join('');
 
+    const unconfirmedFixed = [];
+    fixedExpenses.forEach(fe => {
+        if (fe.accountId !== accId) return;
+        fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
+            if (s.paidDate) return;
+            const d = s.month + '-28';
+            if (d > fromSnap.date && d <= toSnap.date) {
+                unconfirmedFixed.push({ description: fe.description, amount: s.amount || fe.amount || 0, fixedId: fe.id, dueDate: d });
+            }
+        });
+    });
+    const unconfirmedHtml = unconfirmedFixed.length
+        ? `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:8px 10px;margin-bottom:8px">
+            <div style="font-size:0.72rem;font-weight:700;color:#E65100;margin-bottom:4px">⚠️ Fixas pagas sem data confirmada</div>
+            <div style="font-size:0.7rem;color:var(--text-light);margin-bottom:6px">Marcadas como pagas mas sem data exacta — verifica no extrato antes de criar um ajuste:</div>
+            ${unconfirmedFixed.map(u => `<div style="display:flex;align-items:center;justify-content:space-between;font-size:0.75rem;margin-bottom:3px">
+                <span style="font-weight:600">${u.description}</span>
+                <span style="display:flex;align-items:center;gap:6px">
+                    <span style="color:var(--danger)">−${formatCurrency(u.amount)}</span>
+                    <button onclick="closeBalanceSnapshotModal();openFixedPaidDateModal('${u.fixedId}','${u.dueDate}')" style="font-size:0.62rem;padding:2px 6px;border-radius:6px;background:#FFF3E0;color:#E65100;border:1px solid #FFE082;cursor:pointer;white-space:nowrap"><i class="fas fa-calendar-check" style="font-size:0.55rem"></i> Confirmar data</button>
+                </span>
+            </div>`).join('')}
+        </div>`
+        : '';
+
     const adjId = `bal-adj-desc-${accId}`;
     recEl.innerHTML = `
         <div style="background:var(--surface);border-radius:12px;padding:12px;margin-top:4px">
-            ${dupesHTML}
+            ${dupesHTML}${unconfirmedHtml}
             <div style="font-size:0.78rem;font-weight:700;color:var(--text-light);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.04em">Reconciliação ${fmt(fromSnap.date)} → ${fmt(toSnap.date)}</div>
             <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px"><span>Saldo inicial</span><span style="font-weight:600">${formatCurrency(fromSnap.amount)}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#2E7D32"><span>+ Receitas registadas</span><span>${formatCurrency(r.paidIncome)}</span></div>
