@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=306">
+    <link rel="stylesheet" href="styles.css?v=307">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -568,7 +568,7 @@
             <div id="income-list" class="expenses-list"></div>
         </section>
 
-        <!-- Família Tab: fixed expenses overview + family splits -->
+        <!-- Família Tab: monthly management cockpit -->
         <section id="tab-familia" class="tab-content">
             <div class="month-selector">
                 <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
@@ -576,47 +576,64 @@
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
             </div>
 
-            <!-- Fixed Expenses Overview -->
+            <!-- Quick balance strip -->
+            <div class="mensal-balance-strip">
+                <div class="mensal-bal-item">
+                    <div class="mensal-bal-label">Receitas</div>
+                    <div class="mensal-bal-amount" id="mensal-bal-income">—</div>
+                </div>
+                <div class="mensal-bal-item">
+                    <div class="mensal-bal-label">Fixas</div>
+                    <div class="mensal-bal-amount mensal-danger" id="mensal-bal-fixed">—</div>
+                </div>
+                <div class="mensal-bal-item">
+                    <div class="mensal-bal-label">Variáveis</div>
+                    <div class="mensal-bal-amount mensal-danger" id="mensal-bal-var">—</div>
+                </div>
+                <div class="mensal-bal-item mensal-free-item">
+                    <div class="mensal-bal-label">Livre</div>
+                    <div class="mensal-bal-amount" id="mensal-bal-free">—</div>
+                </div>
+            </div>
+
+            <!-- Fixed expenses checklist -->
             <div class="familia-section-header">
                 <span><i class="fas fa-repeat" style="color:var(--primary)"></i> Fixas do Mês</span>
-                <button onclick="showAddFixed()" class="btn btn-sm" style="background:#EEE7FF;color:var(--primary);border:1px solid rgba(108,92,231,0.25)"><i class="fas fa-plus"></i> Nova</button>
-            </div>
-            <div id="fixas-overview-card" class="card fixas-overview-card">
-                <div class="fixas-stats-row">
-                    <div class="fixas-stat">
-                        <div class="fixas-stat-label">Comprometido</div>
-                        <div class="fixas-stat-value" id="fixas-stat-total">—</div>
-                    </div>
-                    <div class="fixas-stat">
-                        <div class="fixas-stat-label">Pagas</div>
-                        <div class="fixas-stat-value fixas-success" id="fixas-stat-paid-count">—</div>
-                    </div>
-                    <div class="fixas-stat">
-                        <div class="fixas-stat-label">Por pagar</div>
-                        <div class="fixas-stat-value fixas-danger" id="fixas-stat-pending">—</div>
-                    </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span id="mensal-fixed-badge" style="font-size:0.72rem;color:var(--text-light);font-weight:600"></span>
+                    <button onclick="showAddFixed()" class="btn btn-sm mensal-add-btn" title="Nova fixa"><i class="fas fa-plus"></i></button>
                 </div>
+            </div>
+            <div style="margin-bottom:8px">
                 <div class="fixas-progress-bar"><div id="fixas-progress-fill" style="width:0%"></div></div>
                 <div id="fixas-progress-label" class="fixas-progress-label">0% pago</div>
             </div>
-            <div id="fixas-list" class="expenses-list" style="margin-bottom:6px"></div>
-            <div id="fixas-empty-cta" style="display:none;padding:8px 0 16px">
+            <div id="fixas-list" style="margin-bottom:4px"></div>
+            <div id="fixas-empty-cta" style="display:none;padding:4px 0 12px">
                 <button onclick="showAddFixed()" class="btn btn-sm btn-secondary" style="width:100%"><i class="fas fa-plus"></i> Configurar despesas fixas</button>
             </div>
 
-            <!-- Family Splits -->
-            <div id="familia-family-wrap">
-                <div class="familia-section-header" id="familia-splits-header" style="display:none;margin-top:8px">
-                    <span><i class="fas fa-handshake" style="color:var(--primary)"></i> Partilhas</span>
+            <!-- Variable expenses by category -->
+            <div class="familia-section-header" style="margin-top:8px">
+                <span><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Variáveis</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span id="mensal-var-total-label" style="font-size:0.72rem;color:var(--text-light);font-weight:600"></span>
+                    <button onclick="showAddExpense()" class="btn btn-sm mensal-add-btn" title="Nova despesa"><i class="fas fa-plus"></i></button>
                 </div>
-                <div id="family-partner-section">
-                    <div class="card-section-header" id="family-partner-header" style="display:none;font-size:0.78rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em;margin:0 4px 8px"><i class="fas fa-heart" style="color:#E91E63;margin-right:4px"></i> <span id="family-partner-header-label">Conjuge / namorado(a)</span></div>
-                    <div class="card" id="partner-summary-card" style="display:none;border-left:4px solid #E91E63"></div>
-                </div>
-                <div id="family-children-section">
-                    <div class="card-section-header" id="family-children-header" style="display:none;font-size:0.78rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em;margin:14px 4px 8px"><i class="fas fa-children" style="margin-right:4px"></i> Filhos</div>
-                    <div id="children-content"></div>
-                </div>
+            </div>
+            <div id="mensal-var-categories" style="margin-bottom:4px"></div>
+
+            <!-- Family splits (shown only when family members exist) -->
+            <div class="familia-section-header" id="familia-splits-header" style="display:none;margin-top:8px">
+                <span><i class="fas fa-handshake" style="color:var(--primary)"></i> Partilhas</span>
+            </div>
+            <div id="family-partner-section">
+                <div class="card-section-header" id="family-partner-header" style="display:none;font-size:0.78rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em;margin:0 4px 8px"><i class="fas fa-heart" style="color:#E91E63;margin-right:4px"></i> <span id="family-partner-header-label">Conjuge / namorado(a)</span></div>
+                <div class="card" id="partner-summary-card" style="display:none;border-left:4px solid #E91E63"></div>
+            </div>
+            <div id="family-children-section">
+                <div class="card-section-header" id="family-children-header" style="display:none;font-size:0.78rem;font-weight:700;color:var(--text-light);text-transform:uppercase;letter-spacing:0.04em;margin:14px 4px 8px"><i class="fas fa-children" style="margin-right:4px"></i> Filhos</div>
+                <div id="children-content"></div>
             </div>
         </section>
 
@@ -2461,7 +2478,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=306"></script>
+    <script src="app.js?v=307"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

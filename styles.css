@@ -3431,3 +3431,181 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     letter-spacing: 0.05em;
     padding: 14px 2px 8px;
 }
+
+/* ── Mensal balance strip ── */
+.mensal-balance-strip {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+.mensal-bal-item {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 6px;
+    text-align: center;
+}
+.mensal-bal-item.mensal-free-item {
+    background: #F0FFF4;
+    border-color: #C8E6C9;
+}
+.mensal-bal-label {
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 3px;
+}
+.mensal-bal-amount {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+}
+.mensal-danger { color: var(--danger) !important; }
+
+/* ── Fixed expense compact checklist rows ── */
+.mensal-fixed-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    background: var(--card-bg);
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    margin-bottom: 5px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    user-select: none;
+}
+.mensal-fixed-row:active { background: var(--surface); }
+.mensal-fixed-row.is-paid {
+    background: #F5FFF7;
+    border-color: #C8E6C9;
+    opacity: 0.82;
+}
+.mensal-fixed-check {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.55rem;
+    color: transparent;
+    transition: all 0.15s;
+}
+.mensal-fixed-row.is-paid .mensal-fixed-check {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+}
+.mensal-fixed-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.mensal-fixed-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.mensal-fixed-desc {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mensal-fixed-row.is-paid .mensal-fixed-desc { color: var(--text-light); }
+.mensal-fixed-day {
+    font-size: 0.63rem;
+    color: var(--text-muted);
+}
+.mensal-fixed-amount {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--danger);
+    flex-shrink: 0;
+}
+.mensal-fixed-row.is-paid .mensal-fixed-amount {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    font-weight: 500;
+}
+.mensal-fixed-edit {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    padding: 4px 5px;
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: 6px;
+    opacity: 0.7;
+}
+.mensal-fixed-edit:active { background: var(--surface); opacity: 1; }
+
+/* ── Variable categories grid ── */
+.mensal-cat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.mensal-cat-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    background: var(--card-bg);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.12s;
+    overflow: hidden;
+}
+.mensal-cat-chip:active { background: var(--surface); }
+.mensal-cat-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    flex-shrink: 0;
+}
+.mensal-cat-body { min-width: 0; flex: 1; }
+.mensal-cat-name {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mensal-cat-amount {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.mensal-add-btn {
+    padding: 4px 8px !important;
+    min-width: 28px;
+    background: #EEE7FF !important;
+    color: var(--primary) !important;
+    border: 1px solid rgba(108,92,231,0.25) !important;
+}
