@@ -2904,7 +2904,7 @@ function getMonthLabel(date) {
 
 function updateMonthLabels() {
     const label = getMonthLabel(currentDate);
-    ['current-month-label', 'expenses-month-label', 'fixas-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
+    ['current-month-label', 'expenses-month-label', 'familia-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = label;
     });
@@ -17816,7 +17816,7 @@ if (document.readyState === 'loading') {
     setTimeout(initDriveSync, 200);
 }
 
-// ===== FIXAS TAB =====
+// ===== FAMÍLIA TAB (fixed expenses overview + family splits) =====
 function renderFixasTab() {
     const activeFixed = getActiveFixedForMonth(currentDate);
     const fixasList = document.getElementById('fixas-list');
@@ -17859,7 +17859,6 @@ function renderFixasTab() {
         if (progressFill) progressFill.style.width = `${paidPct}%`;
         if (progressLabel) progressLabel.textContent = `${paidPct}% pago`;
 
-        // Sort: pending first (by day of month), then paid
         const sorted = [...notSkipped].sort((a, b) => {
             const aPaid = getEffectiveFixedStatus(a, currentDate).status === 'pago';
             const bPaid = getEffectiveFixedStatus(b, currentDate).status === 'pago';
@@ -17882,24 +17881,14 @@ function renderFixasTab() {
             }).join('')}
         ` : '';
 
-        const listHtml = sorted.map(f => renderFixedItemChrono(f)).join('') + skippedHtml;
-        fixasList.innerHTML = listHtml || '<div class="empty-state" style="padding:20px 0"><p>Sem despesas fixas neste mês</p></div>';
+        fixasList.innerHTML = sorted.map(f => renderFixedItemChrono(f)).join('') + skippedHtml;
     }
 
-    // Family section — show only when family members exist
-    const familySection = document.getElementById('fixas-family-section');
+    // Show "Partilhas" header only when there are family members
+    const splitsHdr = document.getElementById('familia-splits-header');
     const hasFamily = children.length > 0 || (!isMarriedMode() && !!getPartnerName());
-    if (familySection) familySection.style.display = hasFamily ? 'block' : 'none';
+    if (splitsHdr) splitsHdr.style.display = hasFamily ? 'flex' : 'none';
     renderChildrenTab();
-}
-
-function toggleFixasFamily() {
-    const body = document.getElementById('fixas-family-body');
-    const chevron = document.getElementById('fixas-family-chevron');
-    if (!body) return;
-    const isOpen = body.style.display !== 'none';
-    body.style.display = isOpen ? 'none' : 'block';
-    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
 }
 
 // ===== FORM EXTRA OPTIONS =====
