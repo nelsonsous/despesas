@@ -13957,6 +13957,7 @@ function addBalanceSnapshot(accountId, date, amount, notes) {
 function deleteBalanceSnapshot(id) {
     balanceSnapshots = balanceSnapshots.filter(s => s.id !== id);
     saveData();
+    updateAll();
 }
 
 function reconcileAccount(accountId, fromSnap, toSnap) {
@@ -13972,11 +13973,25 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     const fromDate = fromSnap.date;
     const toDate = toSnap.date;
     const inWindow = d => d && d > fromDate && d <= toDate;
+    // Same-day boundary: a movement dated on a snapshot's own day may have been
+    // made before or after the balance was read at the bank. When both the
+    // snapshot and the movement carry createdAt timestamps, use them to decide
+    // which side of the boundary the movement belongs to — e.g. purchases
+    // registered AFTER the morning's snapshot count toward the NEXT window,
+    // even though they share its date.
+    const inWindowMv = (d, createdAt) => {
+        if (!d) return false;
+        if (createdAt) {
+            if (d === fromDate && fromSnap.createdAt) return createdAt > fromSnap.createdAt;
+            if (d === toDate && toSnap.createdAt && createdAt > toSnap.createdAt) return false;
+        }
+        return inWindow(d);
+    };
 
     // Incomes — ALL registered (validation is tracked separately)
     let paidIncome = 0, pendingIncomes = 0;
     incomes.forEach(i => {
-        if (i.accountId !== accountId || !inWindow(i.date)) return;
+        if (i.accountId !== accountId || !inWindowMv(i.date, i.createdAt)) return;
         paidIncome += i.amount || 0;
         if (!i.bankValidated) pendingIncomes += i.amount || 0;
     });
@@ -13991,7 +14006,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     let paidExpense = 0, pendingExpenses = 0;
     expenses.forEach(e => {
         if (e.accountId !== accountId || e.status === 'ignorado') return;
-        if (!expenseAffectsBalance(e) || !inWindow(e.date)) return;
+        if (!expenseAffectsBalance(e) || !inWindowMv(e.date, e.createdAt)) return;
         paidExpense += e.amount || 0;
         if (!e.bankValidated) pendingExpenses += e.amount || 0;
     });
@@ -14099,6 +14114,7 @@ function saveBalanceSnapshot() {
     addBalanceSnapshot(_balModalAccountId, date, amount, notes);
     document.getElementById('bal-snap-amount').value = '';
     document.getElementById('bal-snap-notes').value = '';
+    updateAll();
     renderBalanceSnapshotModal();
 }
 
