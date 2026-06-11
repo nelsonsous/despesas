@@ -3369,3 +3369,83 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .reports-period-chip.active {
     box-shadow: 0 2px 8px rgba(108,92,231,0.18);
 }
+
+/* ===== FIXAS TAB ===== */
+.fixas-overview-card {
+    padding: 14px 16px 12px;
+    margin-bottom: 12px;
+}
+.fixas-overview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.fixas-overview-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.fixas-stats-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.fixas-stat {
+    flex: 1;
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 8px 10px;
+    text-align: center;
+}
+.fixas-stat-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+.fixas-stat-value {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.fixas-success { color: var(--success) !important; }
+.fixas-danger { color: var(--danger) !important; }
+.fixas-progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+#fixas-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-light), var(--primary));
+    border-radius: 3px;
+    transition: width 0.35s ease;
+}
+.fixas-progress-label {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    text-align: right;
+}
+.fixas-family-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    margin-bottom: 2px;
+    user-select: none;
+}
+.fixas-family-header:active {
+    background: var(--surface);
+}

@@ -2904,7 +2904,7 @@ function getMonthLabel(date) {
 
 function updateMonthLabels() {
     const label = getMonthLabel(currentDate);
-    ['current-month-label', 'expenses-month-label', 'children-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
+    ['current-month-label', 'expenses-month-label', 'fixas-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = label;
     });
@@ -2942,7 +2942,7 @@ function updateAll() {
     updateDashboard();
     renderExpenses();
     renderIncomeTab();
-    renderChildrenTab();
+    renderFixasTab();
     renderReports();
     renderTransfersList();
 }
@@ -17814,6 +17814,92 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initDriveSync, 200));
 } else {
     setTimeout(initDriveSync, 200);
+}
+
+// ===== FIXAS TAB =====
+function renderFixasTab() {
+    const activeFixed = getActiveFixedForMonth(currentDate);
+    const fixasList = document.getElementById('fixas-list');
+    const emptyCtaEl = document.getElementById('fixas-empty-cta');
+    const overviewCard = document.getElementById('fixas-overview-card');
+
+    if (!fixasList) return;
+
+    const hasAnyFixed = fixedExpenses.length > 0 || activeFixed.length > 0;
+
+    if (!hasAnyFixed) {
+        if (overviewCard) overviewCard.style.display = 'none';
+        if (emptyCtaEl) emptyCtaEl.style.display = 'block';
+        fixasList.innerHTML = '';
+    } else {
+        if (overviewCard) overviewCard.style.display = 'block';
+        if (emptyCtaEl) emptyCtaEl.style.display = 'none';
+
+        const notSkipped = activeFixed.filter(f => !isFixedSkipped(f.id, currentDate));
+        const skipped = activeFixed.filter(f => isFixedSkipped(f.id, currentDate));
+
+        let totalCommitted = 0, totalPaid = 0, paidCount = 0;
+        notSkipped.forEach(f => {
+            const amount = getEffectiveFixedAmount(f, currentDate);
+            const isPaid = getEffectiveFixedStatus(f, currentDate).status === 'pago';
+            totalCommitted += amount;
+            if (isPaid) { totalPaid += amount; paidCount++; }
+        });
+        const paidPct = totalCommitted > 0 ? Math.round(totalPaid / totalCommitted * 100) : 0;
+
+        const totalEl = document.getElementById('fixas-stat-total');
+        const paidCountEl = document.getElementById('fixas-stat-paid-count');
+        const pendingEl = document.getElementById('fixas-stat-pending');
+        const progressFill = document.getElementById('fixas-progress-fill');
+        const progressLabel = document.getElementById('fixas-progress-label');
+
+        if (totalEl) totalEl.textContent = formatCurrency(totalCommitted);
+        if (paidCountEl) paidCountEl.textContent = `${paidCount}/${notSkipped.length}`;
+        if (pendingEl) pendingEl.textContent = formatCurrency(totalCommitted - totalPaid);
+        if (progressFill) progressFill.style.width = `${paidPct}%`;
+        if (progressLabel) progressLabel.textContent = `${paidPct}% pago`;
+
+        // Sort: pending first (by day of month), then paid
+        const sorted = [...notSkipped].sort((a, b) => {
+            const aPaid = getEffectiveFixedStatus(a, currentDate).status === 'pago';
+            const bPaid = getEffectiveFixedStatus(b, currentDate).status === 'pago';
+            if (aPaid !== bPaid) return aPaid ? 1 : -1;
+            return (a.dayOfMonth || 1) - (b.dayOfMonth || 1);
+        });
+
+        const cats = getEffectiveCategories();
+        const skippedHtml = skipped.length ? `
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;padding:8px 0 4px">Ignoradas este mês</div>
+            ${skipped.map(f => {
+                const cat = cats[f.category] || cats.outros;
+                const amount = getEffectiveFixedAmount(f, currentDate);
+                return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;opacity:0.5">
+                    <div style="width:32px;height:32px;border-radius:8px;background:#F5F5F5;display:flex;align-items:center;justify-content:center;color:#BDBDBD;flex-shrink:0"><i class="fas ${cat.icon}"></i></div>
+                    <div style="flex:1;font-size:0.85rem;color:var(--text-light);text-decoration:line-through">${f.description}</div>
+                    <div style="color:var(--text-light);font-size:0.85rem">${formatCurrency(amount)}</div>
+                    <button onclick="toggleSkipFixed('${f.id}', currentDate)" class="fixed-status-badge" style="border:none;cursor:pointer;background:#F5F5F5;color:#757575;font-size:0.62rem"><i class="fas fa-rotate-left"></i> Reativar</button>
+                </div>`;
+            }).join('')}
+        ` : '';
+
+        const listHtml = sorted.map(f => renderFixedItemChrono(f)).join('') + skippedHtml;
+        fixasList.innerHTML = listHtml || '<div class="empty-state" style="padding:20px 0"><p>Sem despesas fixas neste mês</p></div>';
+    }
+
+    // Family section — show only when family members exist
+    const familySection = document.getElementById('fixas-family-section');
+    const hasFamily = children.length > 0 || (!isMarriedMode() && !!getPartnerName());
+    if (familySection) familySection.style.display = hasFamily ? 'block' : 'none';
+    renderChildrenTab();
+}
+
+function toggleFixasFamily() {
+    const body = document.getElementById('fixas-family-body');
+    const chevron = document.getElementById('fixas-family-chevron');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
 }
 
 // ===== FORM EXTRA OPTIONS =====
