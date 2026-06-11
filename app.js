@@ -127,27 +127,27 @@ function applyAppTitle() {
 // ===== CATEGORY CONFIG =====
 const CATEGORIES = {
     supermercado: { label: 'Supermercado', icon: 'fa-cart-shopping', color: '#8BC34A' },
-    alimentacao: { label: 'Alimentacao', icon: 'fa-utensils', color: '#FFC107' },
+    alimentacao: { label: 'Alimentação', icon: 'fa-utensils', color: '#FFC107' },
     restaurantes: { label: 'Restaurantes', icon: 'fa-burger', color: '#FF9800' },
     transportes: { label: 'Transportes', icon: 'fa-bus', color: '#03A9F4' },
-    combustivel: { label: 'Combustivel', icon: 'fa-gas-pump', color: '#9C27B0' },
-    saude: { label: 'Saude', icon: 'fa-heart-pulse', color: '#F44336' },
-    farmacia: { label: 'Farmacia', icon: 'fa-pills', color: '#E91E63' },
-    educacao: { label: 'Educacao', icon: 'fa-graduation-cap', color: '#3F51B5' },
+    combustivel: { label: 'Combustível', icon: 'fa-gas-pump', color: '#9C27B0' },
+    saude: { label: 'Saúde', icon: 'fa-heart-pulse', color: '#F44336' },
+    farmacia: { label: 'Farmácia', icon: 'fa-pills', color: '#E91E63' },
+    educacao: { label: 'Educação', icon: 'fa-graduation-cap', color: '#3F51B5' },
     roupa: { label: 'Roupa', icon: 'fa-shirt', color: '#673AB7' },
     casa: { label: 'Casa/Renda', icon: 'fa-house', color: '#2196F3' },
     contas: { label: 'Contas', icon: 'fa-file-invoice', color: '#009688' },
-    telecomunicacoes: { label: 'Telecomunicacoes', icon: 'fa-wifi', color: '#00BCD4' },
+    telecomunicacoes: { label: 'Telecomunicações', icon: 'fa-wifi', color: '#00BCD4' },
     lazer: { label: 'Lazer', icon: 'fa-gamepad', color: '#CDDC39' },
     beleza: { label: 'Beleza', icon: 'fa-spa', color: '#E91E63' },
-    subscricoes: { label: 'Subscricoes', icon: 'fa-rotate', color: '#7B1FA2' },
+    subscricoes: { label: 'Subscrições', icon: 'fa-rotate', color: '#7B1FA2' },
     presentes: { label: 'Presentes', icon: 'fa-gift', color: '#FF5722' },
     outros: { label: 'Outros', icon: 'fa-ellipsis', color: '#607D8B' }
 };
 
 const INCOME_CATEGORIES = {
     ordenado: { label: 'Ordenado', icon: 'fa-briefcase' },
-    subsidio: { label: 'Subsidio', icon: 'fa-gift' },
+    subsidio: { label: 'Subsídio', icon: 'fa-gift' },
     freelance: { label: 'Freelance / Extra', icon: 'fa-laptop' },
     reembolso: { label: 'Reembolso', icon: 'fa-rotate-left' },
     pagamento_coparent: { label: 'Pagamento Co-progenitor', icon: 'fa-hand-holding-dollar' },
@@ -10707,6 +10707,8 @@ function applyOcrFieldsToOpenModal(obj) {
     }
     updateFiscalFieldsUI();
     applyFiscalFieldsContext();
+    // OCR fills fiscal details — show them
+    openFormExtra();
 }
 
 function removePendingAttachment() {
@@ -10785,11 +10787,15 @@ function showAddExpense() {
         document.getElementById('modal-title').textContent = 'Nova Despesa';
         document.getElementById('expense-id').value = '';
         window._editingExpenseId = null;
+        // Collapse extra options for new expenses
+        closeFormExtra();
         const promoBtn = document.getElementById('promote-to-fixed-btn');
         if (promoBtn) promoBtn.style.display = 'none';
         // Prepaid cards: show select only when the user has at least one card.
         const prepaidGrp = document.getElementById('expense-prepaid-group');
-        if (prepaidGrp) prepaidGrp.style.display = (Array.isArray(prepaidCards) && prepaidCards.length) ? 'block' : 'none';
+        const hasPrepaid = Array.isArray(prepaidCards) && prepaidCards.length;
+        if (prepaidGrp) prepaidGrp.style.display = hasPrepaid ? 'block' : 'none';
+        if (hasPrepaid) openFormExtra();
         populatePrepaidSelect();
         const psel = document.getElementById('expense-prepaid-card');
         if (psel) psel.value = '';
@@ -11340,6 +11346,8 @@ function editExpense(id) {
     document.getElementById('expense-id').value = e.id;
     // Expose the source id to the "Tornar fixa" button rendered in the modal.
     window._editingExpenseId = e.id;
+    // Always open extras when editing so all existing data is visible
+    openFormExtra();
     const promoBtn = document.getElementById('promote-to-fixed-btn');
     if (promoBtn) promoBtn.style.display = 'block';
     const prepaidGrp = document.getElementById('expense-prepaid-group');
@@ -17806,6 +17814,32 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initDriveSync, 200));
 } else {
     setTimeout(initDriveSync, 200);
+}
+
+// ===== FORM EXTRA OPTIONS =====
+function openFormExtra() {
+    const sec = document.getElementById('form-extra-options');
+    const btn = document.getElementById('btn-form-extra');
+    const chev = document.getElementById('form-extra-chevron');
+    if (!sec) return;
+    sec.style.display = 'block';
+    if (btn) btn.classList.add('open');
+    if (chev) chev.style.transform = 'rotate(180deg)';
+}
+function closeFormExtra() {
+    const sec = document.getElementById('form-extra-options');
+    const btn = document.getElementById('btn-form-extra');
+    const chev = document.getElementById('form-extra-chevron');
+    if (!sec) return;
+    sec.style.display = 'none';
+    if (btn) btn.classList.remove('open');
+    if (chev) chev.style.transform = '';
+}
+function toggleFormExtra() {
+    const sec = document.getElementById('form-extra-options');
+    if (!sec) return;
+    if (sec.style.display === 'none' || !sec.style.display) openFormExtra();
+    else closeFormExtra();
 }
 
 // ===== SPEED DIAL =====

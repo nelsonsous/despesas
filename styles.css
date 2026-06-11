@@ -2354,6 +2354,28 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .tab.active::before { left: 20%; right: 20%; }
 .tab.active::after { display: none; }
 
+/* ===== Form extra-options toggle ===== */
+.btn-form-extra {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    font-family: var(--font);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-light);
+    cursor: pointer;
+    margin: 4px 0 8px;
+    transition: background 0.15s, color 0.15s;
+}
+.btn-form-extra:hover { background: var(--card-bg); color: var(--primary); }
+.btn-form-extra.open { color: var(--primary); background: rgba(108,92,231,0.06); border-color: rgba(108,92,231,0.3); }
+#form-extra-options { padding-top: 2px; }
+
 /* Respect user's reduced-motion preference — disable everything flashy */
 @media (prefers-reduced-motion: reduce) {
     .app-header,

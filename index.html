@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=302">
+    <link rel="stylesheet" href="styles.css?v=303">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -57,7 +57,7 @@
                 <i class="fas fa-users"></i><span>Família</span>
             </button>
             <button class="tab" data-tab="reports" onclick="switchTab('reports')">
-                <i class="fas fa-chart-bar"></i><span>Relatorios</span>
+                <i class="fas fa-chart-bar"></i><span>Relatórios</span>
             </button>
         </nav>
 
@@ -474,7 +474,7 @@
             <!-- Fixed Expenses This Month -->
             <div id="fixed-month-section" class="fixed-month-section" style="display:none">
                 <div class="fixed-month-header" style="user-select:none">
-                    <h3 onclick="toggleFixedSection()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;flex:1"><i class="fas fa-repeat"></i> Despesas Fixas do Mes</h3>
+                    <h3 onclick="toggleFixedSection()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;flex:1"><i class="fas fa-repeat"></i> Despesas Fixas do Mês</h3>
                     <span id="fixed-month-total" class="fixed-month-total" onclick="toggleFixedSection()" style="cursor:pointer"></span>
                     <button onclick="event.stopPropagation();showAddFixed()" title="Adicionar despesa fixa" style="background:#EDE7F6;color:var(--primary);border:1px solid rgba(108,92,231,0.25);border-radius:8px;padding:6px 10px;font-family:var(--font);font-size:0.78rem;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-left:8px"><i class="fas fa-plus"></i> Nova</button>
                     <button onclick="event.stopPropagation();toggleFixedSection()" title="Expandir/colapsar" class="btn-icon" style="margin-left:6px;width:32px;height:32px;color:var(--text-light)"><i id="fixed-section-chevron" class="fas fa-chevron-up" style="font-size:0.85rem;transition:transform 0.2s"></i></button>
@@ -825,11 +825,11 @@
                 <form id="expense-form" onsubmit="saveExpense(event)">
                     <input type="hidden" id="expense-id">
                     <div class="form-group">
-                        <label>Descricao</label>
+                        <label>Descrição</label>
                         <input type="text" id="expense-desc" required placeholder="Ex: Compras Continente" oninput="onDescriptionInput()">
                     </div>
                     <div class="form-group">
-                        <label>Valor (EUR)</label>
+                        <label>Valor (€)</label>
                         <input type="number" id="expense-amount" step="0.01" min="0.01" required placeholder="0,00">
                         <div class="quick-amounts">
                             <button type="button" onclick="document.getElementById('expense-amount').value='5'" class="quick-amt-btn">5€</button>
@@ -848,20 +848,20 @@
                         <select id="expense-category" required onchange="applyFiscalFieldsContext()">
                             <option value="">Selecionar...</option>
                             <option value="supermercado">Supermercado</option>
-                            <option value="alimentacao">Alimentacao</option>
+                            <option value="alimentacao">Alimentação</option>
                             <option value="restaurantes">Restaurantes</option>
                             <option value="transportes">Transportes</option>
-                            <option value="combustivel">Combustivel</option>
+                            <option value="combustivel">Combustível</option>
                             <option value="saude">Saude</option>
                             <option value="farmacia">Farmacia</option>
-                            <option value="educacao">Educacao</option>
+                            <option value="educacao">Educação</option>
                             <option value="roupa">Roupa</option>
                             <option value="casa">Casa/Renda</option>
-                            <option value="contas">Contas (agua, luz, gas)</option>
-                            <option value="telecomunicacoes">Telecomunicacoes</option>
+                            <option value="contas">Contas (água, luz, gás)</option>
+                            <option value="telecomunicacoes">Telecomunicações</option>
                             <option value="lazer">Lazer/Entretenimento</option>
                             <option value="beleza">Beleza/Cuidados</option>
-                            <option value="subscricoes">Subscricoes</option>
+                            <option value="subscricoes">Subscrições</option>
                             <option value="presentes">Presentes</option>
                             <option value="outros">Outros</option>
                         </select>
@@ -936,14 +936,14 @@
                             <label class="radio-label">
                                 <input type="radio" name="laura-split" value="no">
                                 <span class="radio-custom"></span>
-                                Nao
+                                Não
                             </label>
                         </div>
                     </div>
                     <div class="form-group" id="paid-by-father-group" style="display:none">
                         <label>
                             <input type="checkbox" id="paid-by-father">
-                            <span id="paid-by-father-label">Co-progenitor ja pagou a parte dele</span>
+                            <span id="paid-by-father-label">Co-progenitor já pagou a parte dele</span>
                         </label>
                     </div>
                     <div class="form-group" id="split-pct-override-group" style="display:none">
@@ -957,6 +957,12 @@
                             <small class="field-hint">Substitui a % por defeito do filho só nesta despesa.</small>
                         </div>
                     </div>
+                    <!-- ── Mais opções toggle ── -->
+                    <button type="button" class="btn-form-extra" id="btn-form-extra" onclick="toggleFormExtra()">
+                        <i class="fas fa-sliders"></i> Mais opções
+                        <i class="fas fa-chevron-down" id="form-extra-chevron" style="margin-left:auto;font-size:0.75rem;transition:transform 0.2s"></i>
+                    </button>
+                    <div id="form-extra-options" style="display:none">
                     <div class="form-group">
                         <label><input type="checkbox" id="split-with-other" onchange="toggleSplitWithOther()"> Dividir com alguém</label>
                         <div id="split-with-other-fields" style="display:none;margin-top:8px;padding:10px;background:var(--surface);border-radius:10px">
@@ -981,7 +987,7 @@
                             <label class="radio-label">
                                 <input type="radio" name="essential" value="no">
                                 <span class="radio-custom"></span>
-                                Nao
+                                Não
                             </label>
                         </div>
                     </div>
@@ -1184,6 +1190,7 @@
                             <div id="fiscal-line-items" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)"></div>
                         </div>
                     </div>
+                    </div><!-- /form-extra-options -->
 
                     <button type="submit" class="btn btn-primary btn-block">
                         <i class="fas fa-save"></i> Guardar
@@ -2420,7 +2427,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=302"></script>
+    <script src="app.js?v=303"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
