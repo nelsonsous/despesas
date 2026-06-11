@@ -3962,7 +3962,7 @@ function renderCycleExpenses() {
           `</div>`
         : '';
     const openingRowHtml = `
-        <div class="cycle-expense-row" style="display:flex;flex-direction:column;gap:4px;padding:8px 4px;border-top:2px solid var(--border);background:var(--surface)">
+        <div class="cycle-expense-row" style="display:flex;flex-direction:column;gap:4px;padding:12px 6px;border-top:2px solid var(--border);background:var(--surface)">
             <div style="display:flex;align-items:center;gap:8px">
                 <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🏁</div>
                 <div style="width:42px;flex-shrink:0"></div>
@@ -4157,8 +4157,8 @@ function renderCycleExpenses() {
         const d = new Date(dateStr + 'T12:00:00');
         const label = `${DOW_PT[d.getDay()]}, ${d.getDate()} ${MON_PT[d.getMonth()]}`;
         const color = isToday ? 'var(--primary)' : 'var(--text-light)';
-        const badge = isToday ? ' <span style="font-size:0.62rem;background:var(--primary);color:#fff;padding:1px 7px;border-radius:8px;vertical-align:middle;margin-left:4px">HOJE</span>' : '';
-        return `<div style="padding:14px 4px 5px;font-size:0.72rem;font-weight:700;color:${color};letter-spacing:0.02em;text-transform:capitalize">${label}${badge}</div>`;
+        const badge = isToday ? '<span class="cycle-today-badge">HOJE</span>' : '';
+        return `<div class="cycle-day-header" style="color:${color}">${label}${badge}</div>`;
     };
 
     const dateGroups = [];
@@ -4189,9 +4189,9 @@ function renderCycleExpenses() {
                 const savAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const savAccChip = savAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${savAcc.color || '#9E9E9E'}20;color:${savAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${savAcc.name}</span>` : '';
                 return `
-                    <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)">
+                    <div class="cycle-expense-row savings-row${futureClass}" style="display:flex;align-items:center;gap:8px;padding:10px 6px;border-bottom:1px solid var(--border)">
                         <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">🐷</div>
-                        <div style="width:24px;height:24px;border-radius:6px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.7rem"></i></div>
+                        <div style="width:32px;height:32px;border-radius:8px;background:#FFE0EC;color:#E84C84;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Poupança"><i class="fas fa-piggy-bank" style="font-size:0.78rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                             <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                                 <span class="cycle-row-tag" style="background:#FFE0EC;color:#B8336B"><i class="fas fa-piggy-bank"></i> POUPANÇA</span>
@@ -4200,10 +4200,10 @@ function renderCycleExpenses() {
                             <div style="display:flex;align-items:center;gap:5px;font-size:0.62rem;color:var(--text-light)">${dirLabel}${savAccChip}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                            <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${sign}${formatCurrency(r.amount)}</span>
+                            <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.85rem">${sign}${formatCurrency(r.amount)}</span>
                             ${balLine(r)}
                         </div>
-                                <button onclick="showGoalHistory('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Histórico do objetivo"><i class="fas fa-chevron-right"></i></button>
+                                <button onclick="showGoalHistory('${r.goalId}')" class="btn-icon" style="color:var(--text-light);padding:5px 8px;flex-shrink:0" title="Histórico do objetivo"><i class="fas fa-chevron-right"></i></button>
                     </div>`;
             }
             if (r.kind === 'transfer') {
@@ -4213,20 +4213,20 @@ function renderCycleExpenses() {
                 const toName   = toAcc   ? toAcc.name   : 'externa';
                 const validatedBadgeT = r.bankValidated ? '<i class="fas fa-landmark" title="Validado por extrato bancário" style="color:#2E7D32;font-size:0.55rem;flex-shrink:0"></i>' : '';
                 return swipeWrap(`
-                    <div class="cycle-expense-row${futureClass}" ${swipeAttrs('deleteTransfer', r.id)} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);position:relative;z-index:1">
+                    <div class="cycle-expense-row${futureClass}" ${swipeAttrs('deleteTransfer', r.id)} style="display:flex;align-items:center;gap:8px;padding:10px 6px;background:var(--surface);position:relative;z-index:1">
                         <div style="width:18px;text-align:center;flex-shrink:0;font-size:0.85rem">↔</div>
-                        <div style="width:24px;height:24px;border-radius:6px;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-exchange-alt" style="font-size:0.7rem"></i></div>
+                        <div style="width:32px;height:32px;border-radius:8px;background:#E3F2FD;color:#1565C0;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-exchange-alt" style="font-size:0.78rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                             <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                                 ${validatedBadgeT}
-                                <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                                <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
                             </div>
                             <div style="font-size:0.62rem;color:#1565C0">${fromName} → ${toName}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                            <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.8rem">${formatCurrency(r.amount)}</span>
+                            <span style="font-weight:700;color:#1565C0;white-space:nowrap;font-size:0.85rem">${formatCurrency(r.amount)}</span>
                         </div>
-                        <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0"><i class="fas fa-pen"></i></button>
+                        <button onclick="openTransferModal('${r.id}')" class="btn-icon" style="color:var(--text-light);padding:5px 8px;flex-shrink:0"><i class="fas fa-pen"></i></button>
                     </div>`);
             }
             if (r.kind === 'income') {
@@ -4247,21 +4247,21 @@ function renderCycleExpenses() {
                 const incAcc = r.accountId ? accounts.find(a => a.id === r.accountId) : null;
                 const incAccChip = incAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${incAcc.color || '#9E9E9E'}20;color:${incAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${incAcc.name}</span>` : '';
                 const incInner = `
-                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);${!r.fixed ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'}">
+                    <div class="cycle-expense-row${futureClass}" ${!r.fixed ? swipeAttrs('confirmDeleteIncome', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:10px 6px;background:var(--surface);${!r.fixed ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'}">
                         <div style="width:18px;text-align:center;flex-shrink:0">${incBadge}</div>
-                        <div style="width:24px;height:24px;border-radius:6px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.7rem"></i></div>
+                        <div style="width:32px;height:32px;border-radius:8px;background:#E0F7EC;color:#00B894;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Receita"><i class="fas fa-arrow-down" style="font-size:0.78rem"></i></div>
                         <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                             <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                                 ${r.fixed ? '<i class="fas fa-repeat" title="Receita fixa" style="color:#00B894;font-size:0.65rem;flex-shrink:0"></i>' : ''}
-                                <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
+                                <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}</span>
                             </div>
                             <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--text-light)">Receita${incAccChip}</div>
                         </div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                            <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.8rem">+${formatCurrency(r.amount)}</span>
+                            <span style="font-weight:700;color:#00B894;white-space:nowrap;font-size:0.85rem">+${formatCurrency(r.amount)}</span>
                             ${balLine(r)}
                         </div>
-                        <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                        <button onclick="${incAction}" class="btn-icon" style="color:var(--text-light);padding:5px 8px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                     </div>`;
                 return !r.fixed ? swipeWrap(incInner) : incInner;
             }
@@ -4299,23 +4299,23 @@ function renderCycleExpenses() {
             const accChip = rowAcc ? `<span style="font-size:0.58rem;padding:1px 5px;border-radius:8px;background:${rowAcc.color || '#9E9E9E'}20;color:${rowAcc.color || '#9E9E9E'};font-weight:600;flex-shrink:0">${rowAcc.name}</span>` : '';
             const expSwipe = !r.isGroupedEntry && r.kind !== 'fixed';
             const expInner = `
-                <div class="cycle-expense-row${futureClass}" ${expSwipe ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:7px 4px;background:var(--surface);${expSwipe ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'};opacity:${opacity}">
+                <div class="cycle-expense-row${futureClass}" ${expSwipe ? swipeAttrs('confirmDelete', r.id) : ''} style="display:flex;align-items:center;gap:8px;padding:10px 6px;background:var(--surface);${expSwipe ? 'position:relative;z-index:1' : 'border-bottom:1px solid var(--border)'};opacity:${opacity}">
                     <div style="width:18px;text-align:center;flex-shrink:0">${badge}</div>
-                    <div style="width:24px;height:24px;border-radius:6px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.7rem"></i></div>
+                    <div style="width:32px;height:32px;border-radius:8px;background:${c.color || '#9E9E9E'}22;color:${c.color || '#9E9E9E'};display:flex;align-items:center;justify-content:center;flex-shrink:0" title="${c.label || r.category}"><i class="fas ${c.icon || 'fa-circle'}" style="font-size:0.78rem"></i></div>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
                         <div style="display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden">
                             ${r.kind === 'fixed' ? '<i class="fas fa-repeat" title="Despesa fixa" style="color:var(--primary);font-size:0.65rem;flex-shrink:0"></i>' : ''}
                             ${groupedIcon}
                             ${validatedBadge}
-                            <span style="font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
+                            <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;min-width:0">${r.description}${childTag}</span>
                         </div>
                         <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--text-light)">${c.label || r.category}${accChip}</div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-                        <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.8rem">${amountTxt}</span>
+                        <span style="font-weight:700;color:${amountColor};white-space:nowrap;font-size:0.85rem">${amountTxt}</span>
                         ${balLine(r)}
                     </div>
-                    <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:4px 6px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
+                    <button onclick="${action}" class="btn-icon" style="color:var(--text-light);padding:5px 8px;flex-shrink:0" title="Abrir / editar"><i class="fas fa-pen"></i></button>
                 </div>`;
             return expSwipe ? swipeWrap(expInner) : expInner;
         }).join('');

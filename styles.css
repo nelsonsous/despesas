@@ -1689,7 +1689,7 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
-    background: white;
+    background: var(--card-bg);
     border-radius: 12px;
     margin-bottom: 8px;
     border: 1px solid rgba(108,92,231,0.1);
@@ -1730,7 +1730,7 @@ body:not(.mode-married) .show-when-married { display: none !important; }
     font-weight: 700;
 }
 .fixed-month-item:last-child { margin-bottom: 0; }
-.fixed-skipped-item { opacity: 0.5; background: #fafafa; }
+.fixed-skipped-item { opacity: 0.5; background: var(--surface); }
 .fixed-status-badge {
     font-size: 0.68rem;
     font-weight: 700;
@@ -3171,3 +3171,121 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 #drive-cloud-icon.cloud-error { color: #E53935; }
 #drive-cloud-icon.cloud-syncing { color: #1E88E5; animation: drive-spin 1s linear infinite; }
 @keyframes drive-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ===== Design Polish v301 ===== */
+
+/* Tab bar — subtle pill behind active icon+label */
+.tab.active::before {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 30px;
+    background: rgba(108,92,231,0.1);
+    border-radius: 10px;
+    pointer-events: none;
+}
+
+/* Primary button — gradient instead of flat */
+.btn-primary {
+    background: linear-gradient(135deg, #7B5CF6, var(--primary-dark));
+    box-shadow: 0 4px 14px rgba(108,92,231,0.3);
+}
+.btn-primary:hover { background: linear-gradient(135deg, var(--primary), #4A3BC0); }
+.btn-primary:active { transform: scale(0.97); }
+
+/* Card hover lift (mouse/trackpad only) */
+@media (hover: hover) {
+    .card:hover {
+        box-shadow: 0 6px 24px rgba(108,92,231,0.12), 0 2px 8px rgba(0,0,0,0.06);
+        transform: translateY(-1px);
+    }
+    .expense-item:hover {
+        box-shadow: 0 4px 18px rgba(108,92,231,0.12);
+        transform: translateY(-1px);
+    }
+}
+.card, .expense-item { transition: box-shadow 0.2s, transform 0.18s; }
+
+/* Cycle expense rows — cursor + tap highlight */
+.cycle-expense-row {
+    cursor: pointer;
+    transition: background 0.1s, opacity 0.1s;
+}
+.cycle-expense-row:active {
+    background: rgba(108,92,231,0.06) !important;
+}
+
+/* Day headers in cycle list */
+.cycle-day-header {
+    padding: 14px 4px 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: capitalize;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+}
+.cycle-day-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    opacity: 0.7;
+}
+.cycle-today-badge {
+    font-size: 0.6rem;
+    background: var(--primary);
+    color: #fff;
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-weight: 700;
+    flex-shrink: 0;
+    letter-spacing: 0.06em;
+}
+
+/* Salary cycle "Disponível" value — hero number */
+#salary-available {
+    font-size: 1.3rem !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.5px;
+    line-height: 1;
+}
+
+/* Salary cycle progress bar — thicker + green gradient */
+.salary-cycle-progress-bar { height: 8px !important; }
+.salary-cycle-progress-bar > div {
+    background: linear-gradient(90deg, #69f0ae, #00B894) !important;
+}
+
+/* Modal — backdrop blur (progressive enhancement) */
+.modal {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+@supports not (backdrop-filter: blur(4px)) {
+    .modal { background: rgba(0,0,0,0.58); }
+}
+
+/* Form — clearer focus ring */
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(108,92,231,0.15);
+    outline: none;
+}
+
+/* Expense filter chips — active shadow */
+.expense-filter-chip.active {
+    box-shadow: 0 2px 8px rgba(108,92,231,0.18);
+}
+
+/* Reports period chips — active shadow */
+.reports-period-chip.active {
+    box-shadow: 0 2px 8px rgba(108,92,231,0.18);
+}
