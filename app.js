@@ -14651,7 +14651,7 @@ function _swipeEnd(el) {
     el.style.transition = 'transform 0.2s';
     el.style.transform = '';
     setTimeout(() => { if (el) el.style.transition = ''; }, 200);
-    if (tx < -40) {
+    if (tx < -55) {
         const fn = el.dataset.swipeDeleteFn;
         const id = el.dataset.swipeDeleteId;
         if (fn === 'confirmDelete') confirmDelete(id);
@@ -17852,20 +17852,23 @@ function closeSpeedDial() {
 
 // ===== SWIPE MONTH NAVIGATION =====
 (function initSwipe() {
-    let sx = 0, sy = 0;
+    let sx = 0, sy = 0, startEl = null;
     function onStart(e) {
         const t = e.touches ? e.touches[0] : e;
         sx = t.clientX; sy = t.clientY;
+        startEl = e.target;
     }
     function onEnd(e) {
-        // Ignore swipes that originated inside a scrollable list or modal
-        if (e.target.closest('.modal, .sheet, .overflow-menu, .speed-dial')) return;
+        // Ignore swipes inside modals, menus, speed dial, or swipe-to-delete rows
+        if (!startEl) return;
+        if (startEl.closest('.modal, .sheet, .overflow-menu, .speed-dial, [data-swipe-delete-fn]')) return;
         const t = e.changedTouches ? e.changedTouches[0] : e;
         const dx = t.clientX - sx;
         const dy = t.clientY - sy;
-        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.8) {
             changeMonth(dx < 0 ? 1 : -1);
         }
+        startEl = null;
     }
     document.addEventListener('touchstart', onStart, { passive: true });
     document.addEventListener('touchend', onEnd, { passive: true });
