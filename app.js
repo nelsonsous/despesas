@@ -9336,10 +9336,11 @@ function applyFiscalFieldsContext() {
     // Line items preview
     const itemsBox = document.getElementById('fiscal-line-items');
     if (itemsBox) {
-        if (Array.isArray(p.lineItems) && p.lineItems.length) {
+        const _prf = pendingReceiptFields;
+        if (Array.isArray(_prf?.lineItems) && _prf.lineItems.length) {
             itemsBox.style.display = 'block';
-            itemsBox.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px">${p.lineItems.length} ${p.lineItems.length === 1 ? 'item' : 'itens'} detetados</div>` +
-                p.lineItems.map((it, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:0.78rem;gap:8px">
+            itemsBox.innerHTML = `<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px">${_prf.lineItems.length} ${_prf.lineItems.length === 1 ? 'item' : 'itens'} detetados</div>` +
+                _prf.lineItems.map((it, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:0.78rem;gap:8px">
                     <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}${it.quantity !== 1 ? ` <span style="color:var(--text-light)">×${it.quantity}${it.unit || ''}</span>` : ''}</div>
                     <div style="white-space:nowrap;font-weight:600">${formatCurrency(it.total)}</div>
                     <button type="button" onclick="removeLineItem(${idx})" class="btn-icon" style="width:22px;height:22px;color:var(--danger)"><i class="fas fa-xmark" style="font-size:0.7rem"></i></button>
