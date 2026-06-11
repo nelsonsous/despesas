@@ -17806,3 +17806,32 @@ if (document.readyState === 'loading') {
 } else {
     setTimeout(initDriveSync, 200);
 }
+
+// ===== SPEED DIAL =====
+function toggleSpeedDial() {
+    document.getElementById('speed-dial').classList.toggle('open');
+}
+function closeSpeedDial() {
+    document.getElementById('speed-dial').classList.remove('open');
+}
+
+// ===== SWIPE MONTH NAVIGATION =====
+(function initSwipe() {
+    let sx = 0, sy = 0;
+    function onStart(e) {
+        const t = e.touches ? e.touches[0] : e;
+        sx = t.clientX; sy = t.clientY;
+    }
+    function onEnd(e) {
+        // Ignore swipes that originated inside a scrollable list or modal
+        if (e.target.closest('.modal, .sheet, .overflow-menu, .speed-dial')) return;
+        const t = e.changedTouches ? e.changedTouches[0] : e;
+        const dx = t.clientX - sx;
+        const dy = t.clientY - sy;
+        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+            changeMonth(dx < 0 ? 1 : -1);
+        }
+    }
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchend', onEnd, { passive: true });
+})();
