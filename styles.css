@@ -327,6 +327,30 @@ body {
     transition: background 0.2s;
 }
 .btn-icon:hover { background: rgba(255,255,255,0.15); }
+
+/* Month selector arrow buttons — large tap targets */
+.month-selector .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(108,92,231,0.08);
+    border-radius: 12px;
+    font-size: 1rem;
+    color: var(--primary);
+    transition: background 0.15s, transform 0.1s;
+}
+.month-selector .btn-icon:hover { background: rgba(108,92,231,0.16); }
+.month-selector .btn-icon:active { transform: scale(0.84); background: rgba(108,92,231,0.22); }
+
+/* Month label slide-in on change */
+@keyframes monthSlideIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.month-label-animate { animation: monthSlideIn 0.22s ease forwards; }
+
 .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
 
 /* ===== QUICK AMOUNTS ===== */
@@ -2214,6 +2238,77 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
     font-weight: 600;
 }
 
+/* SCC (Salary Cycle Card) new layout classes */
+.scc-hero {
+    text-align: center;
+    padding: 10px 0 2px;
+}
+.scc-available-label {
+    font-size: 0.68rem;
+    color: rgba(255,255,255,0.55);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    margin-bottom: 4px;
+}
+.scc-breakdown {
+    display: flex;
+    gap: 6px;
+    margin: 12px 0 4px;
+}
+.scc-chip {
+    flex: 1;
+    background: rgba(255,255,255,0.07);
+    border-radius: 10px;
+    padding: 8px 6px 7px;
+    border: 1px solid rgba(255,255,255,0.1);
+    text-align: center;
+    min-width: 0;
+}
+.scc-chip-label {
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.scc-chip-val {
+    font-size: 0.9rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.scc-chip-sub {
+    font-size: 0.58rem;
+    color: rgba(255,255,255,0.38);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.scc-extra-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 2px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    margin-top: 3px;
+}
+.scc-extra-label {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.58);
+}
+.scc-extra-val {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.88);
+}
+.scc-extra-val.danger { color: #ff9f9f; }
+.scc-extra-val.success { color: #69f0ae; }
+
 /* ===== Income Section Premium ===== */
 #fixed-income-section {
     background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%) !important;
@@ -3330,10 +3425,11 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 
 /* Salary cycle "Disponível" value — hero number */
 #salary-available {
-    font-size: 1.3rem !important;
+    font-size: 2.2rem !important;
     font-weight: 900 !important;
-    letter-spacing: -0.5px;
+    letter-spacing: -1.5px;
     line-height: 1;
+    display: block;
 }
 
 /* Salary cycle progress bar — thicker + green gradient */

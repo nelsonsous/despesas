@@ -2914,7 +2914,11 @@ function updateMonthLabels() {
     const label = getMonthLabel(currentDate);
     ['current-month-label', 'expenses-month-label', 'familia-month-label', 'reports-month-label', 'income-month-label'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.textContent = label;
+        if (!el) return;
+        el.textContent = label;
+        el.classList.remove('month-label-animate');
+        void el.offsetWidth;
+        el.classList.add('month-label-animate');
     });
 }
 
