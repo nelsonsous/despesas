@@ -6634,6 +6634,9 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
     });
     expenses.forEach(e => {
         if (!e.date) return;
+        // Expenses from savings accounts don't flow from salary — exclude them
+        const expAcc = accounts.find(a => a.id === e.accountId);
+        if (expAcc && expAcc.isSavings) return;
         if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
             // Only count individual entries that fall within the cycle
             const cycleEntries = e.entries.filter(en => en.date && inCycle(en.date) && isRealized(en.date));
