@@ -13916,12 +13916,29 @@ function getAccountBalance(accId) {
         });
     });
     expenses.forEach(exp => { if (exp.accountId === accId && exp.date > since && exp.status !== 'ignorado') bal -= exp.amount || 0; });
+    // For each fixed expense on this account, iterate month-by-month using
+    // getEffectiveFixedStatus so that auto-approved items (shown as paid in the
+    // UI but not yet written to fixedStatus) are also deducted.
     fixedExpenses.forEach(fe => {
         if (fe.accountId !== accId) return;
-        fixedStatus.filter(s => s.fixedId === fe.id && s.status === 'pago').forEach(s => {
-            const d = getFixedCashOutDate(fe, s);
-            if (d > since && d <= todayStr) bal -= (s.amount || fe.amount || 0);
-        });
+        const feStart = (fe.startDate || '2000-01').substring(0, 7);
+        const feEnd   = (fe.endDate   || '9999-12').substring(0, 7);
+        const rangeFrom = since.substring(0, 7);
+        const rangeTo   = todayStr.substring(0, 7);
+        if (feEnd < rangeFrom || feStart > rangeTo) return;
+        const [sy0, sm0] = (feStart > rangeFrom ? feStart : rangeFrom).split('-').map(Number);
+        const [ey0, em0] = (feEnd   < rangeTo   ? feEnd   : rangeTo  ).split('-').map(Number);
+        let sy = sy0, sm = sm0;
+        while (sy * 12 + sm <= ey0 * 12 + em0) {
+            const monthDate = new Date(sy, sm - 1, 15);
+            const eff = getEffectiveFixedStatus(fe, monthDate);
+            if (eff.status === 'pago') {
+                const explicit = fixedStatus.find(s => s.fixedId === fe.id && s.month === `${sy}-${String(sm).padStart(2,'0')}`);
+                const d = explicit?.paidDate || toLocalDateStr(getFixedExpensePaymentDate(fe, sy, sm - 1));
+                if (d > since && d <= todayStr) bal -= (explicit?.amount || fe.amount || 0);
+            }
+            sm++; if (sm > 12) { sm = 1; sy++; }
+        }
     });
     if (acc.isSavings) {
         (savingsGoals || []).forEach(g => {
