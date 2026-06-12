@@ -1266,7 +1266,12 @@ function renderCategoryDonut() {
 // ===== SALARY CYCLE =====
 function renderSalaryCycle() {
     const card = document.getElementById('salary-cycle-card');
-    if (!card || !isSalaryConfigured()) { if (card) card.style.display = 'none'; return; }
+    if (!card || !isSalaryConfigured()) {
+        if (card) card.style.display = 'none';
+        const sub = document.getElementById('cycle-period-subtitle');
+        if (sub) sub.style.display = 'none';
+        return;
+    }
 
     const _todayRaw = new Date();
     const today = new Date(_todayRaw.getFullYear(), _todayRaw.getMonth(), _todayRaw.getDate());
@@ -1335,6 +1340,9 @@ function renderSalaryCycle() {
 
     card.style.display = 'block';
     document.getElementById('salary-cycle-period').textContent = periodLabel;
+    // Update month-selector subtitle so the cycle period is always visible
+    const sub = document.getElementById('cycle-period-subtitle');
+    if (sub) { sub.textContent = periodLabel; sub.style.display = 'block'; }
     const daysEl = document.getElementById('salary-cycle-days');
     if (daysEl) {
         if (cycleContainsToday) {
@@ -3178,6 +3186,7 @@ function updateDashboard() {
     renderMonthComparison(monthExp);
     renderTopExpenses(monthExp);
     renderCategoryDonut();
+    renderSalaryDayPrompt();
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
@@ -5167,40 +5176,23 @@ function renderExpenses() {
 function renderFixedItemChrono(f) {
     const cats = getEffectiveCategories();
     const cat = cats[f.category] || cats.outros;
-    const effSt = getEffectiveFixedStatus(f, currentDate);
-    const isPaid = effSt.status === 'pago';
+    const isPaid = getEffectiveFixedStatus(f, currentDate).status === 'pago';
     const amount = getEffectiveFixedAmount(f, currentDate);
     const child = children.find(c => c.id === f.type);
     const payDate = getFixedExpensePaymentDate(f, currentDate.getFullYear(), currentDate.getMonth());
-    const dateStr = `${payDate.getFullYear()}-${String(payDate.getMonth()+1).padStart(2,'0')}-${String(payDate.getDate()).padStart(2,'0')}`;
-    // Match the category view's quick-actions for fixed rows so users have the
-    // same shortcuts (toggle paid, duplicate, skip, delete) regardless of mode.
+    const day = payDate.getDate();
     return `
-        <div class="expense-item" onclick="editFixed('${f.id}')" style="cursor:pointer;border-left:3px solid ${cat.color || '#9E9E9E'}">
-            <div class="expense-icon" style="background:${isPaid ? '#E8F5E9' : '#EDE7F6'};color:${isPaid ? '#2E7D32' : 'var(--primary)'}">
-                <i class="fas ${cat.icon}"></i>
+        <div class="mensal-fixed-row${isPaid ? ' is-paid' : ''}" onclick="markFixedPaid('${f.id}', currentDate, ${!isPaid})">
+            <div class="mensal-fixed-check"><i class="fas fa-check"></i></div>
+            <div class="mensal-fixed-icon" style="background:${cat.color}22;color:${cat.color}"><i class="fas ${cat.icon}"></i></div>
+            <div class="mensal-fixed-info">
+                <span class="mensal-fixed-desc">${f.description}${child ? ` <span style="font-size:0.6rem;color:var(--text-muted)">(${child.name})</span>` : ''}</span>
+                <span class="mensal-fixed-day">dia ${day} · ${cat.label}</span>
             </div>
-            <div style="flex:1;min-width:0">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                    <div class="expense-desc">${f.description} <span style="font-size:0.62rem;background:#EDE7F6;color:var(--primary);padding:1px 5px;border-radius:4px;font-weight:700">fixa</span></div>
-                    <div class="expense-amount" style="flex-shrink:0">${formatCurrency(amount)}</div>
-                </div>
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px">
-                    <div class="expense-meta">
-                        <span>${formatDate(dateStr)}</span> &middot; <span>${cat.label}</span>${child ? ` &middot; <span>${child.name}</span>` : ''}
-                    </div>
-                    <div class="expense-actions" style="display:flex;align-items:center;gap:4px">
-                        <button onclick="event.stopPropagation();markFixedPaid('${f.id}', currentDate, ${!isPaid})" class="fixed-status-badge ${isPaid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.62rem;padding:2px 6px" title="${isPaid ? 'Marcar como pendente' : 'Marcar como pago'}">
-                            ${isPaid ? '<i class="fas fa-check"></i> Pago' : '<i class="fas fa-clock"></i> Pendente'}
-                        </button>
-                        <button class="btn-icon" onclick="event.stopPropagation();duplicateFixed('${f.id}')" title="Duplicar" style="color:#E65100;padding:4px"><i class="fas fa-copy"></i></button>
-                        <button class="btn-icon" onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" title="Ignorar este mês" style="color:var(--text-light);padding:4px"><i class="fas fa-ban"></i></button>
-                        <button class="btn-icon" onclick="event.stopPropagation();confirmDeleteFixed('${f.id}')" title="Apagar" style="color:var(--danger);padding:4px"><i class="fas fa-trash"></i></button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+            <div class="mensal-fixed-amount">${formatCurrency(amount)}</div>
+            <button class="mensal-fixed-edit" onclick="event.stopPropagation();toggleSkipFixed('${f.id}', currentDate)" title="Ignorar este mês"><i class="fas fa-ban"></i></button>
+            <button class="mensal-fixed-edit" onclick="event.stopPropagation();editFixed('${f.id}')" title="Editar"><i class="fas fa-pencil"></i></button>
+        </div>`;
 }
 
 // Chronological flat list of all expenses (variable + fixed) for the month.
@@ -17814,6 +17806,27 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initDriveSync, 200));
 } else {
     setTimeout(initDriveSync, 200);
+}
+
+// ===== SALARY DAY SETUP PROMPT =====
+function renderSalaryDayPrompt() {
+    const card = document.getElementById('salary-day-setup-card');
+    if (!card) return;
+    card.style.display = salaryDay ? 'none' : 'flex';
+}
+
+function saveSalaryDayQuick() {
+    const input = document.getElementById('salary-day-quick-input');
+    if (!input) return;
+    const val = parseInt(input.value);
+    if (val >= 1 && val <= 31) {
+        salaryDay = val;
+        localStorage.setItem('despesas_salary_day', val);
+        updateAll();
+    } else {
+        input.style.borderColor = 'var(--danger)';
+        input.focus();
+    }
 }
 
 // ===== FAMÍLIA TAB — monthly management cockpit =====

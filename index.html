@@ -12,7 +12,7 @@
     <title>Despesas</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=307">
+    <link rel="stylesheet" href="styles.css?v=308">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -68,8 +68,24 @@
         <section id="tab-dashboard" class="tab-content active">
             <div class="month-selector">
                 <button onclick="changeMonth(-1)" class="btn-icon"><i class="fas fa-chevron-left"></i></button>
-                <span id="current-month-label"></span>
+                <div style="text-align:center">
+                    <span id="current-month-label"></span>
+                    <div id="cycle-period-subtitle" style="display:none;font-size:0.62rem;color:var(--text-muted);margin-top:1px;font-weight:500"></div>
+                </div>
                 <button onclick="changeMonth(1)" class="btn-icon"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <!-- Salary day setup prompt (shown when salaryDay not configured) -->
+            <div id="salary-day-setup-card" class="salary-day-setup-card" style="display:none">
+                <div class="salary-day-setup-icon"><i class="fas fa-calendar-day"></i></div>
+                <div class="salary-day-setup-body">
+                    <div class="salary-day-setup-title">Ativa o Ciclo Salarial</div>
+                    <div class="salary-day-setup-sub">Qual o dia em que recebes o salário?</div>
+                </div>
+                <div class="salary-day-setup-input-wrap">
+                    <input type="number" id="salary-day-quick-input" min="1" max="31" placeholder="22" class="salary-day-quick-input" onkeydown="if(event.key==='Enter')saveSalaryDayQuick()">
+                    <button onclick="saveSalaryDayQuick()" class="btn btn-sm" style="background:var(--primary);color:white;border:none;padding:6px 12px;border-radius:8px;font-weight:600">Guardar</button>
+                </div>
             </div>
 
             <!-- Salary Cycle Card -->
@@ -2478,7 +2494,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=307"></script>
+    <script src="app.js?v=308"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
