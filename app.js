@@ -2180,7 +2180,7 @@ function loadData() {
     const savedSalaryDay = localStorage.getItem('despesas_salary_day');
     salaryDay = savedSalaryDay ? parseInt(savedSalaryDay) : null;
     const savedSalaryMode = localStorage.getItem('despesas_salary_mode');
-    salaryMode = savedSalaryMode || 'fixed-day';
+    salaryMode = savedSalaryMode || 'last-working-day';
 }
 
 function saveData() {
@@ -17816,7 +17816,7 @@ if (document.readyState === 'loading') {
 function renderSalaryDayPrompt() {
     const card = document.getElementById('salary-day-setup-card');
     if (!card) return;
-    card.style.display = salaryDay ? 'none' : 'flex';
+    card.style.display = isSalaryConfigured() ? 'none' : 'flex';
 }
 
 function saveSalaryDayQuick() {
