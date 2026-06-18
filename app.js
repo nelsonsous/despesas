@@ -5725,26 +5725,40 @@ function renderExpenseItem(e) {
     const splitsPaidCount = splitsArr.filter(s => s.paid).length;
     const splitsAllPaid = splitsArr.length > 0 && splitsPaidCount === splitsArr.length;
     const splitsAnyPaid = splitsPaidCount > 0;
+    // Legacy paid splits (no linked income) reduce the expense; new-style have a separate income record.
+    const splitsAnyLegacyPaid = splitsArr.some(s => s.paid && !s.incomeId);
     // Partner "Dividir" + paid reduces the user's net by her attributed share.
     const mixPartnerDeduction = (e.mixPartnerPct && e.mixPartnerSplit && e.mixPartnerPaid)
         ? (fullAmt * parseFloat(e.mixPartnerPct) / 100) : 0;
     const netAmount = e.amount - mixPartnerDeduction;
     const hasDeduction = (e.paidByFather && e.split)
         || (e.spousePaid && e.splitSpouse)
-        || splitsAnyPaid
+        || splitsAnyLegacyPaid
         || (e.splitWithName && e.splitWithReceived)
         || mixPartnerDeduction > 0;
     const amountDisplay = hasDeduction
         ? `<span style="text-decoration:line-through;font-size:0.7rem;color:var(--text-light);margin-right:2px">${formatCurrency(fullAmt)}</span>${formatCurrency(netAmount)}`
         : formatCurrency(e.amount);
+    // Helper: short date for reimbursement badge
+    const _fmtSplitDate = (ds) => { const [,m,d] = ds.split('-').map(Number); return `${d} ${MONTHS_PT_LC[m-1]}`; };
     // Split badge: one per person when few, or a summary chip when many.
     let splitWithBadge = '';
     if (splitsArr.length) {
         if (splitsArr.length === 1) {
             const s = splitsArr[0];
-            splitWithBadge = `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',0)" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${s.paid ? `<i class="fas fa-check"></i> ${s.name} ${formatCurrency(s.amount)}` : `<i class="fas fa-clock"></i> ${s.name} ${formatCurrency(s.amount)}?`}</button>`;
+            const lbl = s.paid
+                ? (s.incomeId && s.paidDate
+                    ? `<i class="fas fa-check"></i> ${s.name} · ${_fmtSplitDate(s.paidDate)}`
+                    : `<i class="fas fa-check"></i> ${s.name} ${formatCurrency(s.amount)}`)
+                : `<i class="fas fa-clock"></i> ${s.name} ${formatCurrency(s.amount)}?`;
+            splitWithBadge = `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',0)" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${lbl}</button>`;
         } else if (splitsArr.length <= 3) {
-            splitWithBadge = splitsArr.map((s, i) => `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',${i})" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${s.paid ? '<i class="fas fa-check"></i>' : '<i class="fas fa-clock"></i>'} ${s.name}</button>`).join('');
+            splitWithBadge = splitsArr.map((s, i) => {
+                const lbl2 = s.paid
+                    ? `<i class="fas fa-check"></i>${s.incomeId && s.paidDate ? ' · ' + _fmtSplitDate(s.paidDate) : ''} ${s.name}`
+                    : `<i class="fas fa-clock"></i> ${s.name}`;
+                return `<button onclick="event.stopPropagation();toggleExpenseSplitPaid('${e.id}',${i})" class="fixed-status-badge ${s.paid ? 'status-pago' : 'status-pendente'}" style="border:none;cursor:pointer;font-size:0.65rem">${lbl2}</button>`;
+            }).join('');
         } else {
             splitWithBadge = `<span class="fixed-status-badge ${splitsAllPaid ? 'status-pago' : 'status-pendente'}" style="font-size:0.65rem"><i class="fas fa-user-group"></i> ${splitsPaidCount}/${splitsArr.length} pagos</span>`;
         }
@@ -11077,10 +11091,14 @@ function populateSplitsUI(e) {
 function adjustExpenseForCustomSplit(e) {
     const splits = Array.isArray(e.splits) ? e.splits : null;
     if (splits && splits.length) {
-        const received = splits.filter(s => s.paid).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-        if (received <= 0) return e;
+        // Only deduct legacy paid splits (no incomeId). When incomeId is set, a
+        // separate income record was created on the actual receipt date, so the
+        // expense stays at its full amount and each month's cash-flow is correct.
+        const legacyReceived = splits.filter(s => s.paid && !s.incomeId)
+            .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (legacyReceived <= 0) return e;
         const fullAmount = e.fullAmount || e.amount;
-        return { ...e, amount: Math.max(0, fullAmount - received), fullAmount };
+        return { ...e, amount: Math.max(0, fullAmount - legacyReceived), fullAmount };
     }
     // Legacy single split by pct — kept for old data.
     if (!e.splitWithName || !e.splitWithReceived) return e;
@@ -11090,19 +11108,91 @@ function adjustExpenseForCustomSplit(e) {
     return { ...e, amount: fullAmount * (1 - pct / 100), fullAmount };
 }
 
-// Toggles a single split entry's paid status from the expense list row.
+// Toggles a split reimbursement: marking as paid opens a date modal and creates
+// a matching income record; un-marking removes that income record.
 function toggleExpenseSplitPaid(expenseId, splitIndex) {
+    const exp = expenses.find(e => e.id === expenseId);
+    if (!exp) return;
+    const split = (exp.splits || [])[splitIndex];
+    if (!split) return;
+    if (split.paid) {
+        undoSplitReimbursement(expenseId, splitIndex);
+    } else {
+        openSplitReimbursementModal(expenseId, splitIndex);
+    }
+}
+
+function openSplitReimbursementModal(expenseId, splitIndex) {
+    const exp = expenses.find(e => e.id === expenseId);
+    if (!exp) return;
+    const split = (exp.splits || [])[splitIndex];
+    if (!split) return;
+    const todayStr = toLocalDateStr(new Date());
+    const el = document.getElementById('modal-confirm');
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:340px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:3px"><i class="fas fa-rotate-left" style="color:var(--success);margin-right:6px"></i>Reembolso recebido</div>
+        <div style="font-size:0.78rem;color:var(--text-light);margin-bottom:14px">${split.name} · ${exp.description} · <b>${formatCurrency(split.amount)}</b></div>
+        <label style="font-size:0.75rem;font-weight:600;color:var(--text-light);display:block;margin-bottom:4px">Quando recebeste o dinheiro?</label>
+        <input type="date" id="split-reimb-date" value="${todayStr}" max="${todayStr}"
+            style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--font);font-size:0.9rem;box-sizing:border-box;margin-bottom:12px">
+        <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:12px">Será registado como receita "Reembolso" na data selecionada.</div>
+        <div style="display:flex;gap:8px">
+            <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active')"
+                style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Cancelar</button>
+            <button onclick="confirmSplitReimbursement('${expenseId}',${splitIndex},document.getElementById('split-reimb-date').value)"
+                style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--success);color:#fff;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer">Confirmar receita</button>
+        </div>
+    </div>`;
+    el.classList.add('active');
+}
+
+function confirmSplitReimbursement(expenseId, splitIndex, date) {
     const idx = expenses.findIndex(e => e.id === expenseId);
     if (idx < 0) return;
-    const splits = Array.isArray(expenses[idx].splits) ? expenses[idx].splits : [];
-    if (splits[splitIndex]) {
-        splits[splitIndex].paid = !splits[splitIndex].paid;
-        expenses[idx].splits = splits;
-        expenses[idx].updatedAt = new Date().toISOString();
-        saveData();
-        updateAll();
-        showToast(splits[splitIndex].paid ? 'Pago!' : 'Marcado por receber');
+    const exp = expenses[idx];
+    const splits = Array.isArray(exp.splits) ? [...exp.splits] : [];
+    const split = splits[splitIndex];
+    if (!split) return;
+    const receivedDate = date || toLocalDateStr(new Date());
+    const incomeId = generateId();
+    incomes.push({
+        id: incomeId,
+        description: `Reembolso ${split.name} · ${exp.description}`,
+        amount: parseFloat(split.amount) || 0,
+        date: receivedDate,
+        category: 'reembolso',
+        accountId: exp.accountId || null,
+        notes: '',
+        isReimbursement: true,
+        refExpenseId: expenseId,
+        createdAt: new Date().toISOString()
+    });
+    splits[splitIndex] = { ...split, paid: true, paidDate: receivedDate, incomeId };
+    exp.splits = splits;
+    exp.updatedAt = new Date().toISOString();
+    saveData();
+    document.getElementById('modal-confirm').innerHTML = '';
+    document.getElementById('modal-confirm').classList.remove('active');
+    updateAll();
+    showToast('Reembolso registado como receita!');
+}
+
+function undoSplitReimbursement(expenseId, splitIndex) {
+    const idx = expenses.findIndex(e => e.id === expenseId);
+    if (idx < 0) return;
+    const splits = Array.isArray(expenses[idx].splits) ? [...expenses[idx].splits] : [];
+    const split = splits[splitIndex];
+    if (!split) return;
+    if (split.incomeId) {
+        const incIdx = incomes.findIndex(i => i.id === split.incomeId);
+        if (incIdx >= 0) incomes.splice(incIdx, 1);
     }
+    splits[splitIndex] = { name: split.name, amount: split.amount, paid: false };
+    expenses[idx].splits = splits;
+    expenses[idx].updatedAt = new Date().toISOString();
+    saveData();
+    updateAll();
+    showToast('Reembolso removido');
 }
 
 // ===== Fixed-expense split helpers (mirror of the one-off expense flow,
