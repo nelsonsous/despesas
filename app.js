@@ -2557,6 +2557,15 @@ function getFixedCashOutDate(fe, s) {
     return toLocalDateStr(getFixedExpensePaymentDate(fe, y, m - 1));
 }
 
+// Mirror for fixed incomes: real receivedDate wins, else the scheduled payment
+// day for that month. (Dating at month-01 misplaced salaries around account
+// initial-balance dates and snapshot windows.)
+function getFixedIncomeCashInDate(fi, s) {
+    if (s.receivedDate) return s.receivedDate;
+    const [y, m] = s.month.split('-').map(Number);
+    return toLocalDateStr(getFixedIncomePaymentDate(fi, y, m - 1));
+}
+
 function getEffectiveFixedIncomeStatus(fi, date) {
     const explicit = getFixedIncomeStatusForMonth(fi.id, date);
     if (explicit) return explicit;
@@ -3182,7 +3191,6 @@ function updateDashboard() {
     // Spending pace
     renderSpendingPace(monthExp, totalIncome, totalExpenses);
     // Budget alerts
-    renderBudgetAlerts(monthExp);
 
     renderCategoryChart(monthExp);
     renderMonthComparison(monthExp);
@@ -4403,55 +4411,6 @@ function renderCycleExpensesByCategory(all, cats, todayStr) {
     }).join('');
 }
 
-function renderBudgetAlerts(monthExp) {
-    const container = document.getElementById('budget-alerts');
-    if (!container) return;
-
-    const budgetKeys = Object.keys(categoryBudgets);
-    if (budgetKeys.length === 0) {
-        container.style.display = 'none';
-        return;
-    }
-
-    const cats = getEffectiveCategories();
-    const grouped = {};
-    monthExp.forEach(e => { grouped[e.category] = (grouped[e.category] || 0) + e.amount; });
-
-    const alerts = budgetKeys
-        .map(cat => {
-            const spent = grouped[cat] || 0;
-            const budget = categoryBudgets[cat];
-            const pct = (spent / budget * 100);
-            return { cat, spent, budget, pct, label: cats[cat]?.label || cat, color: cats[cat]?.color || '#607D8B', icon: cats[cat]?.icon || 'fa-circle' };
-        })
-        .filter(a => a.pct > 0)
-        .sort((a, b) => b.pct - a.pct);
-
-    if (alerts.length === 0) {
-        container.style.display = 'none';
-        return;
-    }
-
-    container.style.display = 'block';
-    container.innerHTML = `
-        <h3 class="card-title"><i class="fas fa-bullseye"></i> Limites de Categoria</h3>
-        ${alerts.map(a => {
-            const barPct = Math.min(a.pct, 100);
-            const barColor = a.pct >= 100 ? 'var(--danger)' : a.pct >= 80 ? 'var(--warning)' : 'var(--success)';
-            const icon = a.pct >= 100 ? '<i class="fas fa-exclamation-triangle" style="color:var(--danger)"></i> ' : a.pct >= 80 ? '<i class="fas fa-exclamation-circle" style="color:var(--warning)"></i> ' : '';
-            return `<div style="margin-bottom:8px">
-                <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px">
-                    <span>${icon}<i class="fas ${a.icon}" style="color:${a.color}"></i> ${a.label}</span>
-                    <span style="font-weight:600;color:${barColor}">${formatCurrency(a.spent)} / ${formatCurrency(a.budget)}</span>
-                </div>
-                <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
-                    <div style="width:${barPct}%;height:100%;background:${barColor};border-radius:4px;transition:width 0.3s"></div>
-                </div>
-            </div>`;
-        }).join('')}
-    `;
-}
-
 // ===== CATEGORY CHART =====
 function renderCategoryChart(monthExp) {
     const totals = {};
@@ -4473,7 +4432,7 @@ function renderCategoryChart(monthExp) {
     chartEl.innerHTML = sorted.map(([cat, val]) => {
         const pct = (val / total * 100).toFixed(1);
         const color = getEffectiveCategories()[cat]?.color || '#607D8B';
-        return `<div class="chart-segment" style="width:${pct}%;background:${color}" title="${getEffectiveCategories()[cat]?.label}: ${formatCurrency(val)} (${pct}%)"></div>`;
+        return `<div class="chart-segment" style="width:${pct}%;background:${color}" title="${getEffectiveCategories()[cat]?.label || cat}: ${formatCurrency(val)} (${pct}%)"></div>`;
     }).join('');
 
     legendEl.innerHTML = sorted.map(([cat, val]) => {
@@ -10487,10 +10446,10 @@ function renderUnnecessaryExpenses() {
     const total = nonEssential.reduce((s, e) => s + e.amount, 0);
     container.innerHTML = nonEssential.map(e => `
         <div class="unnecessary-item">
-            <i class="fas ${getEffectiveCategories()[e.category]?.icon || 'fa-circle'}" style="color:${getEffectiveCategories()[e.category]?.color}"></i>
+            <i class="fas ${getEffectiveCategories()[e.category]?.icon || 'fa-circle'}" style="color:${getEffectiveCategories()[e.category]?.color || '#607D8B'}"></i>
             <div style="flex:1">
                 <div style="font-weight:600">${e.description}</div>
-                <div style="font-size:0.75rem;color:var(--text-light)">${formatDate(e.date)} &middot; ${getEffectiveCategories()[e.category]?.label}</div>
+                <div style="font-size:0.75rem;color:var(--text-light)">${formatDate(e.date)} &middot; ${getEffectiveCategories()[e.category]?.label || e.category}</div>
             </div>
             <div class="unnecessary-amount">${formatCurrency(e.amount)}</div>
         </div>
@@ -13894,30 +13853,35 @@ function importData(event) {
                 if (Array.isArray(data)) {
                     // Very old format (just expenses array)
                     expenses = data;
-                } else if (data.expenses) {
-                    // Backup with data
-                    expenses = data.expenses || [];
-                    incomes = data.incomes || [];
+                } else if (Array.isArray(data.expenses)) {
+                    // Backup with data. Type-guard every field so a malformed
+                    // (hand-edited / foreign) backup can't poison localStorage
+                    // — a truthy non-array here used to persist and break every
+                    // render with .forEach errors.
+                    const arr = (v) => Array.isArray(v) ? v : null;
+                    const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+                    expenses = data.expenses;
+                    incomes = arr(data.incomes) || [];
                     // v2 format: full backup
-                    if (data.fixedExpenses) fixedExpenses = data.fixedExpenses;
-                    if (data.fixedStatus) fixedStatus = data.fixedStatus;
-                    if (data.fixedIncomes) fixedIncomes = data.fixedIncomes;
-                    if (data.fixedIncomeStatus) fixedIncomeStatus = data.fixedIncomeStatus;
-                    if (data.children) children = data.children;
-                    if (data.customCategories) customCategories = data.customCategories;
-                    if (data.customIncCategories) customIncCategories = data.customIncCategories;
-                    if (data.expenseTemplates) expenseTemplates = data.expenseTemplates;
-                    if (data.categoryBudgets) categoryBudgets = data.categoryBudgets;
+                    if (arr(data.fixedExpenses)) fixedExpenses = data.fixedExpenses;
+                    if (arr(data.fixedStatus)) fixedStatus = data.fixedStatus;
+                    if (arr(data.fixedIncomes)) fixedIncomes = data.fixedIncomes;
+                    if (arr(data.fixedIncomeStatus)) fixedIncomeStatus = data.fixedIncomeStatus;
+                    if (arr(data.children)) children = data.children;
+                    if (arr(data.customCategories)) customCategories = data.customCategories;
+                    if (arr(data.customIncCategories)) customIncCategories = data.customIncCategories;
+                    if (arr(data.expenseTemplates)) expenseTemplates = data.expenseTemplates;
+                    if (obj(data.categoryBudgets)) categoryBudgets = data.categoryBudgets;
                     // v3 format: accounts, transfers, goals, snapshots, prepaid, cycle config
-                    if (data.accounts) accounts = data.accounts;
-                    if (data.transfers) transfers = data.transfers;
-                    if (data.savingsGoals) savingsGoals = data.savingsGoals;
-                    if (data.balanceSnapshots) balanceSnapshots = data.balanceSnapshots;
-                    if (data.prepaidCards) prepaidCards = data.prepaidCards;
-                    if (data.cycleOpeningOverrides) cycleOpeningOverrides = data.cycleOpeningOverrides;
-                    if (data.forecastCfg) forecastCfg = { categories: data.forecastCfg.categories || [], months: data.forecastCfg.months || 3, aiOverrides: data.forecastCfg.aiOverrides || {}, aiAutoAttempted: data.forecastCfg.aiAutoAttempted || {} };
-                    if (data.netWorth) netWorth = data.netWorth;
-                    if (data.bankMappings) bankMappings = data.bankMappings;
+                    if (arr(data.accounts)) accounts = data.accounts;
+                    if (arr(data.transfers)) transfers = data.transfers;
+                    if (arr(data.savingsGoals)) savingsGoals = data.savingsGoals;
+                    if (arr(data.balanceSnapshots)) balanceSnapshots = data.balanceSnapshots;
+                    if (arr(data.prepaidCards)) prepaidCards = data.prepaidCards;
+                    if (obj(data.cycleOpeningOverrides)) cycleOpeningOverrides = data.cycleOpeningOverrides;
+                    if (obj(data.forecastCfg)) forecastCfg = { categories: data.forecastCfg.categories || [], months: data.forecastCfg.months || 3, aiOverrides: data.forecastCfg.aiOverrides || {}, aiAutoAttempted: data.forecastCfg.aiAutoAttempted || {} };
+                    if (obj(data.netWorth)) netWorth = data.netWorth;
+                    if (arr(data.bankMappings)) bankMappings = data.bankMappings;
                     if (data.settings) {
                         const s = data.settings;
                         if (s.userName) localStorage.setItem(USER_NAME_KEY, s.userName);
@@ -14013,7 +13977,7 @@ function getAccountBalance(accId) {
     fixedIncomes.forEach(fi => {
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
             if ((s.accountId || fi.accountId) !== accId) return;
-            const d = s.month + '-01';
+            const d = getFixedIncomeCashInDate(fi, s);
             if (d > since) bal += (s.amount || fi.amount || 0);
         });
     });
@@ -14127,7 +14091,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     fixedIncomes.forEach(fi => {
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
             if ((s.accountId || fi.accountId) !== accountId) return;
-            if (inWindow(s.month + '-01')) paidIncome += (s.amount || fi.amount || 0);
+            if (inWindow(getFixedIncomeCashInDate(fi, s))) paidIncome += (s.amount || fi.amount || 0);
         });
     });
 
@@ -16807,6 +16771,9 @@ function deleteCategory(id, type) {
     const isExp = type === 'expense';
     if (isExp) customCategories = customCategories.filter(x => x.id !== id);
     else customIncCategories = customIncCategories.filter(x => x.id !== id);
+    // Drop the category's budget too — a stale entry kept rendering an
+    // "undefined" alert row after the category was gone.
+    if (isExp && categoryBudgets && categoryBudgets[id] != null) delete categoryBudgets[id];
     saveData();
     renderCatList(type);
     populateCategorySelects();
@@ -17584,7 +17551,8 @@ function _driveBuildPayload() {
         householdMode: (typeof getHouseholdMode === 'function') ? getHouseholdMode() : '',
         spouseName: localStorage.getItem(typeof SPOUSE_NAME_KEY !== 'undefined' ? SPOUSE_NAME_KEY : 'despesas_spouse_name') || '',
         spousePct: (typeof getSpousePct === 'function') ? getSpousePct() : 50,
-        salaryDay: localStorage.getItem('despesas_salary_day') || ''
+        salaryDay: localStorage.getItem('despesas_salary_day') || '',
+        salaryMode: localStorage.getItem('despesas_salary_mode') || ''
     };
     return {
         version: 2,
@@ -17599,10 +17567,18 @@ function _driveBuildPayload() {
         customCategories: typeof customCategories !== 'undefined' ? customCategories : [],
         customIncCategories: typeof customIncCategories !== 'undefined' ? customIncCategories : [],
         expenseTemplates: typeof expenseTemplates !== 'undefined' ? expenseTemplates : [],
-        categoryBudgets: typeof categoryBudgets !== 'undefined' ? categoryBudgets : [],
+        categoryBudgets: typeof categoryBudgets !== 'undefined' ? categoryBudgets : {},
         savingsGoals: typeof savingsGoals !== 'undefined' ? savingsGoals : [],
         netWorth: typeof netWorth !== 'undefined' ? netWorth : null,
         prepaidCards: typeof prepaidCards !== 'undefined' ? prepaidCards : [],
+        // Keep in lockstep with exportToJSON — anything backed up locally must
+        // also survive a cross-device Drive restore.
+        accounts: typeof accounts !== 'undefined' ? accounts : [],
+        transfers: typeof transfers !== 'undefined' ? transfers : [],
+        balanceSnapshots: typeof balanceSnapshots !== 'undefined' ? balanceSnapshots : [],
+        cycleOpeningOverrides: typeof cycleOpeningOverrides !== 'undefined' ? cycleOpeningOverrides : {},
+        forecastCfg: typeof forecastCfg !== 'undefined' ? forecastCfg : null,
+        bankMappings: typeof bankMappings !== 'undefined' ? bankMappings : [],
         settings
     };
     // NOTE intentionally excluded from sync payload:
@@ -17762,12 +17738,31 @@ function _driveApplyRemote(remote) {
     if (Array.isArray(remote.customCategories)) { customCategories = remote.customCategories; localStorage.setItem(CUSTOM_CAT_KEY, JSON.stringify(customCategories)); }
     if (Array.isArray(remote.customIncCategories)) { customIncCategories = remote.customIncCategories; localStorage.setItem(CUSTOM_INC_CAT_KEY, JSON.stringify(customIncCategories)); }
     if (Array.isArray(remote.expenseTemplates)) { expenseTemplates = remote.expenseTemplates; localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates)); }
-    if (Array.isArray(remote.categoryBudgets)) { categoryBudgets = remote.categoryBudgets; localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets)); }
+    if (remote.categoryBudgets && typeof remote.categoryBudgets === 'object' && !Array.isArray(remote.categoryBudgets)) { categoryBudgets = remote.categoryBudgets; localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets)); }
     if (Array.isArray(remote.savingsGoals)) { savingsGoals = remote.savingsGoals; localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals)); }
     if (Array.isArray(remote.prepaidCards)) { prepaidCards = remote.prepaidCards; localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards)); }
     if (remote.netWorth) { netWorth = remote.netWorth; localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth)); }
-    if (remote.settings && typeof remote.settings.salaryDay !== 'undefined') {
-        if (remote.settings.salaryDay) localStorage.setItem('despesas_salary_day', remote.settings.salaryDay);
+    if (Array.isArray(remote.accounts)) { accounts = remote.accounts; localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); }
+    if (Array.isArray(remote.transfers)) { transfers = remote.transfers; localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers)); }
+    if (Array.isArray(remote.balanceSnapshots)) { balanceSnapshots = remote.balanceSnapshots; localStorage.setItem(BALANCE_SNAPSHOTS_KEY, JSON.stringify(balanceSnapshots)); }
+    if (remote.cycleOpeningOverrides && typeof remote.cycleOpeningOverrides === 'object' && !Array.isArray(remote.cycleOpeningOverrides)) {
+        cycleOpeningOverrides = remote.cycleOpeningOverrides;
+        localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
+    }
+    if (remote.forecastCfg && typeof remote.forecastCfg === 'object') {
+        forecastCfg = remote.forecastCfg;
+        localStorage.setItem(FORECAST_CFG_KEY, JSON.stringify(forecastCfg));
+    }
+    if (Array.isArray(remote.bankMappings)) { bankMappings = remote.bankMappings; localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings)); }
+    if (remote.settings && typeof remote.settings === 'object') {
+        const s = remote.settings;
+        if (s.salaryDay) localStorage.setItem('despesas_salary_day', s.salaryDay);
+        if (s.salaryMode) localStorage.setItem('despesas_salary_mode', s.salaryMode);
+        if (s.userName) localStorage.setItem(USER_NAME_KEY, s.userName);
+        if (s.appTitle) localStorage.setItem(APP_TITLE_KEY, s.appTitle);
+        if (s.householdMode) localStorage.setItem(HOUSEHOLD_MODE_KEY, s.householdMode);
+        if (s.spouseName) localStorage.setItem(SPOUSE_NAME_KEY, s.spouseName);
+        if (s.spousePct != null) localStorage.setItem(SPOUSE_PCT_KEY, String(s.spousePct));
     }
     // TODO v2: implement field-level merge instead of overwrite. For now
     // conflict policy is "pick a side" (Carregar do Drive | Manter local).
