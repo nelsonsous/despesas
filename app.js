@@ -2378,7 +2378,15 @@ function getFixedPendingTotal(date) {
 function markFixedPaid(fixedId, date, paid) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
-    const todayStr = toLocalDateStr(new Date());
+    // Cash-out date: today only when marking the current month; for past/future
+    // months use the expense's scheduled day in THAT month, otherwise the payment
+    // lands in the wrong month and distorts that cycle's balance.
+    const now = new Date();
+    const sameMonth = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    const f = fixedExpenses.find(x => x.id === fixedId);
+    const todayStr = (sameMonth || !f)
+        ? toLocalDateStr(now)
+        : toLocalDateStr(getFixedExpensePaymentDate(f, date.getFullYear(), date.getMonth()));
     if (idx >= 0) {
         fixedStatus[idx].status = paid ? 'pago' : 'pendente';
         if (paid) {
@@ -6644,6 +6652,10 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
 
     incomes.forEach(i => {
         if (!i.date || !inCycle(i.date) || !isRealized(i.date)) return;
+        // Mirror the expense-side rule: money landing in savings accounts is
+        // not salary cash-flow (e.g. reimbursements of savings-paid expenses).
+        const incAcc = accounts.find(a => a.id === i.accountId);
+        if (incAcc && incAcc.isSavings) return;
         incReceivedVariable += i.amount;
     });
     expenses.forEach(e => {
@@ -11665,6 +11677,24 @@ function saveExpense(event) {
     const spousePaid = splitSpouse && document.getElementById('spouse-paid')?.checked;
     const splitWithOther = document.getElementById('split-with-other')?.checked;
     const splits = splitWithOther ? collectSplitsFromModal() : [];
+    // Reimbursement linkage survives the edit modal: the DOM rows only carry
+    // name/amount/paid, so re-attach incomeId/paidDate from the stored splits.
+    // Linked incomes whose split was unchecked or removed are deleted here —
+    // same rule as undoSplitReimbursement.
+    if (id) {
+        const prevSplits = expenses.find(x => x.id === id)?.splits || [];
+        const keptIncomeIds = new Set();
+        splits.forEach(s => {
+            if (!s.paid) return;
+            const old = prevSplits.find(p => p.incomeId && !keptIncomeIds.has(p.incomeId) && p.name === s.name);
+            if (old) { s.incomeId = old.incomeId; s.paidDate = old.paidDate; keptIncomeIds.add(old.incomeId); }
+        });
+        prevSplits.forEach(p => {
+            if (p.incomeId && !keptIncomeIds.has(p.incomeId)) {
+                incomes = incomes.filter(inc => inc.id !== p.incomeId);
+            }
+        });
+    }
     // Per-expense % override (separated mode only). Stored when the user
     // explicitly enables the toggle and supplies a value in (0, 100).
     const splitPctOverrideOn = !!document.getElementById('split-pct-override-on')?.checked;
@@ -13281,6 +13311,9 @@ function deleteExpense() {
             card.transactions = (card.transactions || []).filter(t => t.id !== target.prepaidTxId);
         }
     }
+    // Cascade to reimbursement incomes linked to this expense's splits —
+    // otherwise the credit survives as phantom income after the debit is gone.
+    incomes = incomes.filter(i => !(i.isReimbursement && i.refExpenseId === pendingDeleteId));
     expenses = expenses.filter(e => e.id !== pendingDeleteId);
     saveData();
     closeConfirm();
