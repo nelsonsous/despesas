@@ -2525,35 +2525,25 @@ function getFixedIncomeStatusForMonth(fixedIncomeId, date) {
     return fixedIncomeStatus.find(s => s.fixedIncomeId === fixedIncomeId && s.month === monthKey);
 }
 
-// Returns the actual payment date for a fixed income in the given calendar
-// month, honouring its paymentMode (fixed-day / last-working-day /
-// working-day-after), same 3 modes as the global salary configuration.
-function getFixedIncomePaymentDate(fi, year, month) {
-    const mode = fi.paymentMode || 'fixed-day';
-    if (mode === 'last-working-day') {
-        const lastDay = new Date(year, month + 1, 0);
-        return shiftBackwardToWorkingDay(lastDay);
+// Single source of truth for scheduled payment dates. Honours the 3 payment
+// modes shared by fixed incomes, fixed expenses and the global salary config:
+// fixed-day / last-working-day / working-day-after.
+function computePaymentDate(mode, day, year, month) {
+    if ((mode || 'fixed-day') === 'last-working-day') {
+        return shiftBackwardToWorkingDay(new Date(year, month + 1, 0));
     }
     const maxDay = new Date(year, month + 1, 0).getDate();
-    const clampedDay = Math.min(fi.dayOfMonth || 1, maxDay);
-    const target = new Date(year, month, clampedDay);
+    const target = new Date(year, month, Math.min(day || 1, maxDay));
     if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
     return target;
 }
 
-// Returns the actual payment date for a fixed expense in the given calendar
-// month, honouring its paymentMode (same 3 modes as fixed income).
+function getFixedIncomePaymentDate(fi, year, month) {
+    return computePaymentDate(fi.paymentMode, fi.dayOfMonth, year, month);
+}
+
 function getFixedExpensePaymentDate(f, year, month) {
-    const mode = f.paymentMode || 'fixed-day';
-    if (mode === 'last-working-day') {
-        const lastDay = new Date(year, month + 1, 0);
-        return shiftBackwardToWorkingDay(lastDay);
-    }
-    const maxDay = new Date(year, month + 1, 0).getDate();
-    const clampedDay = Math.min(f.dayOfMonth || 1, maxDay);
-    const target = new Date(year, month, clampedDay);
-    if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
-    return target;
+    return computePaymentDate(f.paymentMode, f.dayOfMonth, year, month);
 }
 
 // Effective cash-out date of a paid fixed-status record: the explicit
@@ -3202,9 +3192,6 @@ function updateDashboard() {
     renderSalaryCycle();
     renderCycleExpenses();
     renderPartnerSummary();
-    // Balance snapshot section is now merged into the cycle strip — keep hidden
-    const balSnapSec = document.getElementById('balance-snapshot-section');
-    if (balSnapSec) balSnapSec.style.display = 'none';
     renderThirdPartySplits();
     renderInsights();
     renderAiInsightsCard();
@@ -6572,16 +6559,8 @@ function shiftBackwardToWorkingDay(date) {
 // configured salary mode. Returns null when no mode/day is configured.
 function getSalaryDateForMonth(year, month) {
     const mode = salaryMode || 'fixed-day';
-    if (mode === 'last-working-day') {
-        const lastDay = new Date(year, month + 1, 0);
-        return shiftBackwardToWorkingDay(lastDay);
-    }
-    if (!salaryDay) return null;
-    const maxDay = new Date(year, month + 1, 0).getDate();
-    const clampedDay = Math.min(salaryDay, maxDay);
-    const target = new Date(year, month, clampedDay);
-    if (mode === 'working-day-after') return shiftForwardToWorkingDay(target);
-    return target; // fixed-day
+    if (mode !== 'last-working-day' && !salaryDay) return null;
+    return computePaymentDate(mode, salaryDay, year, month);
 }
 
 // Start/end dates of the salary cycle that begins in the given calendar month.
@@ -14066,7 +14045,9 @@ function getAccountBalance(accId) {
     if (acc.isSavings) {
         (savingsGoals || []).forEach(g => {
             (g.transactions || []).forEach(t => {
-                if (!t.date || t.date < since) return;
+                // Strict "> since": movements ON the initial-balance day are
+                // already inside initialBalance (same rule as incomes/expenses).
+                if (!t.date || t.date <= since) return;
                 if (t.type === 'add') bal += t.amount || 0;
                 else if (t.type === 'remove') bal -= t.amount || 0;
             });
@@ -14080,14 +14061,14 @@ function getAccountBalance(accId) {
         (savingsGoals || []).forEach(g => {
             (g.transactions || []).forEach(t => {
                 if (t.accountId !== accId) return;
-                if (!t.date || t.date < since) return;
+                if (!t.date || t.date <= since) return;
                 if (t.type === 'remove') bal += t.amount || 0;
                 else if (t.type === 'add') bal -= t.amount || 0;
             });
         });
     }
     (transfers || []).forEach(t => {
-        if (!t.date || t.date < since) return;
+        if (!t.date || t.date <= since) return;
         if (t.fromAccountId === accId) bal -= t.amount || 0;
         if (t.toAccountId === accId) bal += t.amount || 0;
     });
@@ -14403,39 +14384,6 @@ function removeDuplicateAdjustment(expenseId) {
     updateAll();
     renderBalanceSnapshotModal();
     showToast('Ajuste duplicado removido');
-}
-
-function renderBalanceSnapshotButtons() {
-    const container = document.getElementById('balance-snapshot-btns');
-    if (!container) return;
-    if (!accounts.length) { container.innerHTML = ''; return; }
-    container.innerHTML = accounts.map(acc => {
-        const snaps = balanceSnapshots.filter(s => s.accountId === acc.id).sort((a, b) => b.date.localeCompare(a.date));
-        const latest = snaps[0];
-        const calc = getAccountBalance(acc.id);
-        let diffChip = '';
-        let borderColor = 'var(--border)';
-        if (latest) {
-            const diff = latest.amount - calc;
-            const absDiff = Math.abs(diff);
-            if (absDiff < 0.02) {
-                borderColor = '#A5D6A7';
-                diffChip = `<span style="font-size:0.6rem;color:#2E7D32;font-weight:700">✓</span>`;
-            } else {
-                const sign = diff > 0 ? '+' : '−';
-                const color = diff > 0 ? '#2E7D32' : '#C62828';
-                borderColor = diff > 0 ? '#A5D6A7' : '#EF9A9A';
-                diffChip = `<span style="font-size:0.6rem;color:${color};font-weight:700">${sign}${formatCurrency(absDiff)}</span>`;
-            }
-        }
-        const calcLabel = `<span style="color:var(--text-light);font-size:0.72rem">${formatCurrency(calc)}</span>`;
-        const snapLabel = (latest && Math.abs(latest.amount - calc) >= 0.02) ? `<span style="font-size:0.65rem;color:var(--text-light)">· banco: ${formatCurrency(latest.amount)}</span>` : '';
-        return `<button onclick="openBalanceSnapshotModal('${acc.id}')" style="display:flex;align-items:center;gap:5px;padding:6px 12px;background:var(--card-bg);border:1.5px solid ${borderColor};border-radius:12px;font-family:var(--font);font-size:0.78rem;cursor:pointer;color:var(--text)">
-            <i class="fas fa-wallet" style="color:${acc.color || 'var(--primary)'};font-size:0.75rem"></i>
-            <span style="font-weight:600">${acc.name}</span>
-            ${calcLabel}${snapLabel}${diffChip}
-        </button>`;
-    }).join('');
 }
 
 function renderTransfersList() {
