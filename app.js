@@ -15659,9 +15659,13 @@ function extractInterAccountTransfers(txs) {
         if (used.has(d)) return;
         const dAmt = parseFloat(d.amount) || 0;
         if (dAmt <= 0) return;
-        const c = credits.find(c2 => !used.has(c2) && c2._acc !== d._acc
-            && Math.abs((parseFloat(c2.amount) || 0) - dAmt) < 0.02
-            && Math.abs(ms(c2.date) - ms(d.date)) <= 2 * dayMs);
+        // Prefer the CLOSEST-dated credit — recurring same-amount transfers
+        // (e.g. several 200€ CGD→Moey in one week) must pair day-to-day.
+        const c = credits
+            .filter(c2 => !used.has(c2) && c2._acc !== d._acc
+                && Math.abs((parseFloat(c2.amount) || 0) - dAmt) < 0.02
+                && Math.abs(ms(c2.date) - ms(d.date)) <= 2 * dayMs)
+            .sort((a, b) => Math.abs(ms(a.date) - ms(d.date)) - Math.abs(ms(b.date) - ms(d.date)))[0];
         if (!c) return;
         used.add(d); used.add(c);
         const fromName = accounts.find(a => a.id === d._acc)?.name || '?';
