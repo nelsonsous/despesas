@@ -2187,7 +2187,10 @@ function loadData() {
     salaryMode = savedSalaryMode || 'last-working-day';
 }
 
+// Bumped on every persist — cheap invalidation key for render-time memos.
+let _dataRev = 0;
 function saveData() {
+    _dataRev++;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
     localStorage.setItem(INCOME_KEY, JSON.stringify(incomes));
     localStorage.setItem(FIXED_KEY, JSON.stringify(fixedExpenses));
@@ -2852,15 +2855,20 @@ function getPaidFixedIncomesAsIncome(date) {
 }
 
 function getCarryOver(date) {
-    const prev = new Date(date.getFullYear(), date.getMonth() - 1, 1);
-    const prevInc = [...getMonthIncomes(prev), ...getPaidFixedIncomesAsIncome(prev)];
-    const prevExp = [...getMonthExpenses(prev).map(adjustExpenseForCoParent), ...getPaidFixedAsExpenses(prev)];
-    // Recursively include previous carry-over
-    const prevCarry = getCarryOverStored(prev);
-    const totalInc = prevInc.reduce((s, e) => s + e.amount, 0) + prevCarry;
-    const totalExp = prevExp.reduce((s, e) => s + e.amount, 0);
-    const balance = totalInc - totalExp;
-    return Math.max(0, balance);
+    // Fold the chain forward over the last 24 months in memory. Reading the
+    // previous month's STORED value truncated accumulation to a single month
+    // whenever an intermediate month had never been rendered (stored=0), and
+    // retroactive edits never propagated past unvisited months.
+    let carry = 0;
+    for (let i = 24; i >= 1; i--) {
+        const m = new Date(date.getFullYear(), date.getMonth() - i, 1);
+        const inc = [...getMonthIncomes(m), ...getPaidFixedIncomesAsIncome(m)]
+            .reduce((s, e) => s + e.amount, 0);
+        const exp = [...getMonthExpenses(m).map(adjustExpenseForCoParent), ...getPaidFixedAsExpenses(m)]
+            .reduce((s, e) => s + e.amount, 0);
+        carry = Math.max(0, inc + carry - exp);
+    }
+    return carry;
 }
 
 function getCarryOverStored(date) {
@@ -5795,8 +5803,10 @@ function renderExpenseItem(e) {
             ${[...e.entries].sort((a,b)=>b.date.localeCompare(a.date)).map((entry, idx) => {
                 const tLabel = entryTypeLabel(entry.type || e.type);
                 const showTag = tLabel && children.length >= 2;
-                // Prefer the stable eid; fall back to index if (legacy) eid missing.
-                const ref = entry.eid ? `'${entry.eid}'` : `${e.entries.indexOf(entry)}`;
+                // Prefer the stable eid; legacy fallback resolves the index
+                // against the REAL record — on a partial (cross-month) copy
+                // e.entries is a subset and its index would splice the wrong entry.
+                const ref = entry.eid ? `'${entry.eid}'` : `${(expenses.find(x => x.id === e.id)?.entries || e.entries).indexOf(entry)}`;
                 return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:0.78rem;border-bottom:1px solid var(--border)">
                     <span style="color:var(--text-light)">${formatDate(entry.date)}${entry.notes ? ` · ${entry.notes}` : ''}${showTag ? ` · <span style="color:var(--primary);font-weight:600">${tLabel}</span>` : ''}</span>
                     <span style="display:flex;align-items:center;gap:4px">
@@ -7242,7 +7252,15 @@ function renderSmartInsights() {
     const container = document.getElementById('smart-insights');
     if (!container) return;
     let items;
-    try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
+    // computeInsights is today-based (same output for any viewed month), so
+    // memoize on day + data revision instead of re-scanning on every render.
+    const memoKey = `${toLocalDateStr(new Date())}|${typeof _dataRev !== 'undefined' ? _dataRev : 0}`;
+    if (window._insightsMemo?.key === memoKey) {
+        items = window._insightsMemo.items;
+    } else {
+        try { items = computeInsights(); } catch (err) { console.warn('computeInsights failed', err); items = []; }
+        window._insightsMemo = { key: memoKey, items };
+    }
     const dismissed = new Set(getDismissedInsights());
     const shownMap = getShownInsightsMap();
     const visible = items.filter(i => !dismissed.has(i.id) && !_isInsightExpired(i.id, shownMap));
@@ -7260,6 +7278,11 @@ function renderSmartInsights() {
     capped.forEach(i => { if (!shownMap[i.id]) { shownMap[i.id] = Date.now(); mapChanged = true; } });
     Object.keys(shownMap).forEach(k => { if (!liveIds.has(k)) { delete shownMap[k]; mapChanged = true; } });
     if (mapChanged) _saveShownInsightsMap(shownMap);
+    // Same hygiene for dismissals: ids embed week/month keys, so dead ones
+    // accumulate forever unless dropped once their insight stops being live.
+    const dismissedArr = [...dismissed];
+    const prunedDismissed = dismissedArr.filter(id => liveIds.has(id));
+    if (prunedDismissed.length !== dismissedArr.length) setDismissedInsights(prunedDismissed);
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     container.style.display = 'block';
     container.innerHTML = `
@@ -12086,9 +12109,43 @@ function confirmDelete(id) {
     pendingDeleteId = id;
     pendingDeleteType = 'expense';
     const e = expenses.find(x => x.id === id);
-    document.getElementById('confirm-message').textContent = `Apagar "${e?.description}"?`;
-    document.getElementById('confirm-btn').onclick = deleteExpense;
+    // Cross-month group seen from one month's list: delete ONLY that month's
+    // entries — the row the user sees is a partial view, and nuking the whole
+    // group would silently destroy other months' data.
+    const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const entryMonth = (en) => (en.date || '').slice(0, 7);
+    const isCrossMonthGroup = !!(e?.isGrouped && Array.isArray(e.entries) && e.entries.length > 0
+        && e.entries.some(en => entryMonth(en) === monthKey)
+        && e.entries.some(en => entryMonth(en) !== monthKey));
+    if (isCrossMonthGroup) {
+        const inMonth = e.entries.filter(en => entryMonth(en) === monthKey).length;
+        const others = e.entries.length - inMonth;
+        document.getElementById('confirm-message').textContent =
+            `Apagar os ${inMonth} lançamento${inMonth === 1 ? '' : 's'} de "${e.description}" deste mês? O grupo mantém ${others} noutros meses.`;
+        document.getElementById('confirm-btn').onclick = () => deleteExpenseMonthEntries(id, monthKey);
+    } else {
+        document.getElementById('confirm-message').textContent = `Apagar "${e?.description}"?`;
+        document.getElementById('confirm-btn').onclick = deleteExpense;
+    }
     document.getElementById('modal-confirm').classList.add('active');
+}
+
+function deleteExpenseMonthEntries(id, monthKey) {
+    const idx = expenses.findIndex(x => x.id === id);
+    if (idx < 0) return;
+    const e = expenses[idx];
+    e.entries = (e.entries || []).filter(en => (en.date || '').slice(0, 7) !== monthKey);
+    if (!e.entries.length) {
+        expenses.splice(idx, 1);
+    } else {
+        e.amount = e.entries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+        e.date = e.entries.map(en => en.date).sort().pop();
+        e.updatedAt = new Date().toISOString();
+    }
+    saveData();
+    closeConfirm();
+    updateAll();
+    showToast('Lançamentos do mês apagados');
 }
 // Converts an existing variable expense into a recurring fixed expense.
 // Opens the fixed-expense modal pre-filled from this expense and remembers
@@ -17504,7 +17561,10 @@ function computeInsights() {
     const monthIncAll = (typeof getEffectiveMonthIncomes === 'function')
         ? getEffectiveMonthIncomes(today) : [];
     const totalExpMonth = monthExpAll.reduce((s, e) => s + e.amount, 0);
-    const totalIncMonth = monthIncAll.reduce((s, e) => s + e.amount, 0);
+    // Exclude the synthetic "Saldo transitado" — counting last month's balance
+    // as new earnings inflated the savings rate (the income tab already
+    // excludes it for the same metric).
+    const totalIncMonth = monthIncAll.filter(e => !e.isCarryOver).reduce((s, e) => s + e.amount, 0);
     const weekendExp = monthExpAll.filter(e => { const d = new Date(e.date).getDay(); return d === 0 || d === 6; });
     const weekendTotal = weekendExp.reduce((s, e) => s + e.amount, 0);
     if (weekendTotal > 0 && totalExpMonth > 0) {
