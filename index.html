@@ -33,7 +33,7 @@
                 <div class="header-overflow-wrap">
                     <button id="header-overflow-btn" onclick="toggleHeaderOverflow(event)" class="btn-icon" title="Mais opções" aria-haspopup="true" aria-expanded="false"><i class="fas fa-ellipsis-vertical"></i></button>
                     <div id="header-overflow-menu" class="header-overflow-menu" role="menu">
-                        <button class="overflow-item" role="menuitem" onclick="closeHeaderOverflow();document.getElementById('ai-pdf-input-global').click()"><i class="fas fa-file-pdf"></i> Importar extrato PDF</button>
+                        <button class="overflow-item" role="menuitem" onclick="closeHeaderOverflow();openBankImportModal()"><i class="fas fa-file-import"></i> Validar / Importar extrato</button>
                         <button class="overflow-item" role="menuitem" onclick="closeHeaderOverflow();showExportMenu()"><i class="fas fa-file-export"></i> Exportar</button>
                         <button class="overflow-item" role="menuitem" onclick="closeHeaderOverflow();showImportDialog()"><i class="fas fa-file-import"></i> Importar</button>
                         <div class="overflow-sep"></div>
@@ -62,8 +62,6 @@
             </button>
         </nav>
 
-        <!-- Global hidden file input for PDF statement import (used from multiple places) -->
-        <input type="file" id="ai-pdf-input-global" accept="application/pdf" style="display:none" onchange="handlePdfSelected(event)">
 
         <!-- Dashboard Tab -->
         <section id="tab-dashboard" class="tab-content active">
@@ -458,8 +456,8 @@
                 <button id="ai-dup-btn" onclick="runAiDuplicateCheck()" class="action-chip action-chip-ai" title="Analisar mês com IA">
                     <i class="fas fa-wand-magic-sparkles"></i><span>Analisar</span>
                 </button>
-                <button onclick="document.getElementById('ai-pdf-input-global').click()" class="action-chip action-chip-pdf" title="Importar extrato PDF">
-                    <i class="fas fa-file-pdf"></i><span>Extrato</span>
+                <button onclick="openBankImportModal()" class="action-chip action-chip-pdf" title="Validar / Importar extrato">
+                    <i class="fas fa-file-import"></i><span>Extrato</span>
                 </button>
             </div>
 
@@ -1811,13 +1809,11 @@
                     </button>
 
                     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
-                        <div style="font-size:0.9rem;font-weight:700;margin-bottom:6px"><i class="fas fa-file-pdf" style="color:var(--primary)"></i> Extrato bancário (PDF)</div>
-                        <p class="settings-desc" style="margin-bottom:10px">Carrega o extrato descarregado do homebanking. A IA extrai os débitos e adiciona-os à lista de "Despesas detetadas pela IA".</p>
-                        <input type="file" id="ai-pdf-input" accept="application/pdf" style="display:none" onchange="handlePdfSelected(event)">
-                        <button onclick="document.getElementById('ai-pdf-input').click()" class="btn btn-secondary btn-block">
-                            <i class="fas fa-file-import"></i> Escolher PDF do extrato
+                        <div style="font-size:0.9rem;font-weight:700;margin-bottom:6px"><i class="fas fa-file-import" style="color:var(--primary)"></i> Extratos bancários</div>
+                        <p class="settings-desc" style="margin-bottom:10px">Junta PDFs e fotos dos extratos das tuas contas — o sistema identifica a conta de cada um, cruza transferências e nivela os saldos.</p>
+                        <button onclick="document.getElementById('modal-settings')?.classList.remove('active');openBankImportModal()" class="btn btn-secondary btn-block">
+                            <i class="fas fa-file-import"></i> Validar / Importar extratos
                         </button>
-                        <div id="ai-pdf-status" style="font-size:0.78rem;color:var(--text-light);text-align:center;margin-top:8px;min-height:18px;line-height:1.4"></div>
                     </div>
                 </div>
 
@@ -2496,7 +2492,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=340"></script>
+    <script src="app.js?v=341"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
