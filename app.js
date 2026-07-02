@@ -11809,8 +11809,19 @@ function saveIncome(event) {
         updatedAt: new Date().toISOString()
     };
 
-    if (id) {
-        const idx = incomes.findIndex(e => e.id === id);
+    // New manual income that looks like a configured fixed income for that
+    // month → ask before creating a duplicate (mirror of the bank-import
+    // "mark fixed as received" suggestion, applied to manual entry).
+    if (!id && income.date && isFinite(income.amount) && income.amount > 0) {
+        const match = findFixedIncomeMatchForManual(income);
+        if (match) { openIncomeFixedMatchModal(match, income); return; }
+    }
+    _commitIncomeSave(income, !!id);
+}
+
+function _commitIncomeSave(income, isEdit) {
+    if (isEdit) {
+        const idx = incomes.findIndex(e => e.id === income.id);
         if (idx >= 0) {
             income.createdAt = incomes[idx].createdAt;
             incomes[idx] = income;
@@ -11829,7 +11840,82 @@ function saveIncome(event) {
     closeIncomeModal();
     pendingIncomeAttachment = null;
     updateAll();
-    showToast(id ? 'Receita atualizada!' : 'Receita adicionada!');
+    showToast(isEdit ? 'Receita atualizada!' : 'Receita adicionada!');
+}
+
+// Does this manual income look like one of the month's configured fixed
+// incomes? Match on amount (±15%) or description containment (accent-free).
+function findFixedIncomeMatchForManual(income) {
+    const d = new Date(income.date + 'T12:00:00');
+    const active = getActiveFixedIncomesForMonth(d);
+    if (!active.length) return null;
+    const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    const incDesc = norm(income.description);
+    for (const fi of active) {
+        const fiAmt = getEffectiveFixedIncomeAmount(fi, d);
+        const amtClose = fiAmt > 0 && Math.abs(income.amount - fiAmt) <= fiAmt * 0.15;
+        const fiDesc = norm(fi.description);
+        const descSimilar = incDesc.length >= 4 && fiDesc.length >= 4 && (incDesc.includes(fiDesc) || fiDesc.includes(incDesc));
+        if (amtClose || descSimilar) {
+            return { fi, fiAmt, received: getEffectiveFixedIncomeStatus(fi, d).status === 'recebido' };
+        }
+    }
+    return null;
+}
+
+function openIncomeFixedMatchModal(match, income) {
+    window._pendingIncomeSave = income;
+    const { fi, fiAmt, received } = match;
+    const el = document.getElementById('modal-confirm');
+    const body = received
+        ? `<div style="font-size:0.82rem;color:var(--text-light);line-height:1.5;margin-bottom:14px">A receita fixa <b>${fi.description}</b> (${formatCurrency(fiAmt)}) <b>já está marcada como recebida</b> este mês. Criar esta receita vai contá-la duas vezes.</div>
+           <div style="display:flex;gap:8px">
+               <button onclick="document.getElementById('modal-confirm').classList.remove('active');document.getElementById('modal-confirm').innerHTML=''"
+                   style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Cancelar</button>
+               <button onclick="confirmIncomeCreateAnyway()"
+                   style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--warning);color:#5D4037;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer">Criar mesmo assim</button>
+           </div>`
+        : `<div style="font-size:0.82rem;color:var(--text-light);line-height:1.5;margin-bottom:14px">Isto parece ser a tua receita fixa <b>${fi.description}</b> (${formatCurrency(fiAmt)}), ainda por receber este mês. Marcar essa como recebida com o valor e data que inseriste, em vez de criar uma receita nova?</div>
+           <div style="display:flex;gap:8px">
+               <button onclick="confirmIncomeCreateAnyway()"
+                   style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Criar nova</button>
+               <button onclick="confirmIncomeMarkFixed('${fi.id}')"
+                   style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--success);color:#fff;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer"><i class="fas fa-check"></i> Marcar como recebida</button>
+           </div>`;
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:360px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:8px"><i class="fas fa-circle-info" style="color:var(--primary);margin-right:6px"></i>Receita fixa correspondente</div>
+        ${body}
+    </div>`;
+    el.classList.add('active');
+}
+
+function confirmIncomeCreateAnyway() {
+    const income = window._pendingIncomeSave;
+    window._pendingIncomeSave = null;
+    document.getElementById('modal-confirm').classList.remove('active');
+    document.getElementById('modal-confirm').innerHTML = '';
+    if (income) _commitIncomeSave(income, false);
+}
+
+function confirmIncomeMarkFixed(fixedIncomeId) {
+    const income = window._pendingIncomeSave;
+    window._pendingIncomeSave = null;
+    document.getElementById('modal-confirm').classList.remove('active');
+    document.getElementById('modal-confirm').innerHTML = '';
+    if (!income) return;
+    // Same shape the bank-import path writes: real amount + real receivedDate.
+    const month = income.date.slice(0, 7);
+    const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === fixedIncomeId && fs.month === month);
+    const entry = { fixedIncomeId, month, status: 'recebido', amount: income.amount,
+        receivedDate: income.date, receivedAt: new Date().toISOString(),
+        ...(income.accountId ? { accountId: income.accountId } : {}) };
+    if (idx >= 0) fixedIncomeStatus[idx] = { ...fixedIncomeStatus[idx], ...entry };
+    else fixedIncomeStatus.push(entry);
+    saveData();
+    closeIncomeModal();
+    pendingIncomeAttachment = null;
+    updateAll();
+    showToast('Receita fixa marcada como recebida!');
 }
 
 function confirmDeleteIncome(id) {
