@@ -5634,6 +5634,10 @@ function duplicateIncome(id) {
     const newDesc = hasCopyTag ? orig.description : `(copia) ${orig.description}`;
     const dup = { ...orig, id: generateId(), description: newDesc, date: orig.date, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     delete dup.attachment;
+    // A copy was not reconciled with the bank nor linked to any expense.
+    delete dup.bankValidated;
+    delete dup.isReimbursement;
+    delete dup.refExpenseId;
     incomes.push(dup);
     saveData();
     updateAll();
@@ -11887,7 +11891,12 @@ function saveIncome(event) {
     event.preventDefault();
     const id = document.getElementById('income-id').value;
 
+    // Spread the existing record first so flags the form doesn't carry
+    // (isReimbursement, refExpenseId, isCarryOver, …) survive an edit —
+    // rebuilding from scratch silently broke the reimbursement linkage.
+    const prev = id ? (incomes.find(x => x.id === id) || {}) : {};
     const income = {
+        ...prev,
         id: id || generateId(),
         description: document.getElementById('income-desc').value.trim(),
         amount: parseFloat(document.getElementById('income-amount').value),
@@ -11896,7 +11905,7 @@ function saveIncome(event) {
         notes: document.getElementById('income-notes').value.trim(),
         accountId: document.getElementById('income-account')?.value || null,
         attachment: pendingIncomeAttachment || null,
-        bankValidated: id ? (incomes.find(x => x.id === id)?.bankValidated || false) : false,
+        bankValidated: prev.bankValidated || false,
         updatedAt: new Date().toISOString()
     };
 
@@ -11929,6 +11938,18 @@ function confirmDeleteIncome(id) {
     const e = incomes.find(x => x.id === id);
     document.getElementById('confirm-message').textContent = `Apagar receita "${e?.description}"?`;
     document.getElementById('confirm-btn').onclick = () => {
+        // Reverse cascade: if this income was a reimbursement, un-mark the
+        // expense split that points at it — otherwise the split stays "paid"
+        // forever with a dangling incomeId.
+        expenses.forEach(exp => {
+            if (!Array.isArray(exp.splits)) return;
+            exp.splits.forEach((sp, i) => {
+                if (sp.incomeId === pendingDeleteId) {
+                    exp.splits[i] = { name: sp.name, amount: sp.amount, paid: false };
+                    exp.updatedAt = new Date().toISOString();
+                }
+            });
+        });
         incomes = incomes.filter(e => e.id !== pendingDeleteId);
         saveData();
         closeConfirm();
@@ -12770,7 +12791,7 @@ function renderNetWorthEditor() {
     container.innerHTML = `
         <div style="margin-bottom:14px">
             <h4 style="margin:0 0 6px;color:#2E7D32"><i class="fas fa-arrow-up"></i> Ativos (o que tens)</h4>
-            <small style="color:var(--text-light);font-size:0.78rem;display:block;margin-bottom:6px">Conta-poupança, ações/ETFs, criptomoedas, casa, carro, certificados de aforro, etc.</small>
+            <small style="color:var(--text-light);font-size:0.78rem;display:block;margin-bottom:6px">Ações/ETFs, criptomoedas, casa, carro, certificados de aforro, etc. As contas registadas na app já contam automaticamente — não as repitas aqui.</small>
             <div id="nw-assets">${renderList(netWorth.assets || [], 'asset') || '<p class="empty-state" style="padding:6px 0;font-size:0.85rem">Sem ativos</p>'}</div>
             <button type="button" onclick="addNwRow('asset')" class="btn btn-sm btn-block" style="background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9;margin-top:6px"><i class="fas fa-plus"></i> Adicionar ativo</button>
         </div>
@@ -17071,19 +17092,35 @@ function showToast(message) {
 // explicitly marking them). Each unread entry shows up as a bell-icon
 // notification so the user can confirm against the bank or revert.
 
+// Parsed-inbox cache: getInbox runs inside hot status functions on every
+// render — re-JSON.parsing localStorage each call scaled with inbox size.
+let _inboxCache = null;
 function getInbox() {
+    if (_inboxCache) return _inboxCache;
     try {
         const raw = localStorage.getItem(INBOX_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
+        _inboxCache = raw ? JSON.parse(raw) : [];
+    } catch { _inboxCache = []; }
+    return _inboxCache;
 }
 
 function saveInbox(arr) {
-    // Prune confirmed entries older than 2 months to keep inbox lean
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - 2);
-    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}`;
-    const pruned = arr.filter(e => e.status !== 'confirmed' || (e.month || '') >= cutoffKey);
+    // Prune confirmed entries older than 2 months and ANY entry older than
+    // 6 months — unread ones used to accumulate forever, growing localStorage
+    // and the O(n) dedup scan that runs on every render.
+    const monthKeyAgo = (n) => {
+        const c = new Date();
+        c.setMonth(c.getMonth() - n);
+        return `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}`;
+    };
+    const confirmedCutoff = monthKeyAgo(2);
+    const anyCutoff = monthKeyAgo(6);
+    const pruned = arr.filter(e => {
+        const m = e.month || '';
+        if (m < anyCutoff) return false;
+        return e.status !== 'confirmed' || m >= confirmedCutoff;
+    });
+    _inboxCache = pruned;
     try { localStorage.setItem(INBOX_KEY, JSON.stringify(pruned)); } catch {}
 }
 
