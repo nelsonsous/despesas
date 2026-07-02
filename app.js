@@ -14078,18 +14078,24 @@ function populateFilterCategories() {
 }
 
 // ===== ACCOUNTS / CARDS MANAGEMENT =====
-function getAccountBalance(accId) {
+// asOf (optional, YYYY-MM-DD): balance AS OF that date — movements after it
+// are excluded. Used to compare against a statement's final balance, which
+// refers to the statement date, not today. Omitted → today's semantics
+// (identical to before; future-dated regular entries still count, as always).
+function getAccountBalance(accId, asOf) {
     const acc = accounts.find(a => a.id === accId);
     if (!acc) return 0;
     const since = acc.initialBalanceDate || '1970-01-01';
     const todayStr = toLocalDateStr(new Date());
+    const upTo = asOf || null;
+    const inRange = (d) => d && d > since && (!upTo || d <= upTo);
     let bal = acc.initialBalance || 0;
-    incomes.forEach(inc => { if (inc.accountId === accId && inc.date > since) bal += inc.amount || 0; });
+    incomes.forEach(inc => { if (inc.accountId === accId && inRange(inc.date)) bal += inc.amount || 0; });
     fixedIncomes.forEach(fi => {
         fixedIncomeStatus.filter(s => s.fixedIncomeId === fi.id && s.status === 'recebido').forEach(s => {
             if ((s.accountId || fi.accountId) !== accId) return;
             const d = getFixedIncomeCashInDate(fi, s);
-            if (d > since) bal += (s.amount || fi.amount || 0);
+            if (inRange(d)) bal += (s.amount || fi.amount || 0);
         });
     });
     expenses.forEach(exp => {
@@ -14100,22 +14106,23 @@ function getAccountBalance(accId) {
         if (exp.isGrouped && Array.isArray(exp.entries) && exp.entries.length > 0) {
             exp.entries.forEach(en => {
                 if ((en.accountId || exp.accountId) !== accId) return;
-                if (en.date && en.date > since) bal -= parseFloat(en.amount) || 0;
+                if (inRange(en.date)) bal -= parseFloat(en.amount) || 0;
             });
             return;
         }
         if (exp.accountId !== accId) return;
-        if (exp.date > since) bal -= exp.amount || 0;
+        if (inRange(exp.date)) bal -= exp.amount || 0;
     });
     // For each fixed expense on this account, iterate month-by-month using
     // getEffectiveFixedStatus so that auto-approved items (shown as paid in the
     // UI but not yet written to fixedStatus) are also deducted.
+    const cutoff = upTo && upTo < todayStr ? upTo : todayStr;
     fixedExpenses.forEach(fe => {
         if (fe.accountId !== accId) return;
         const feStart = (fe.startDate || '2000-01').substring(0, 7);
         const feEnd   = (fe.endDate   || '9999-12').substring(0, 7);
         const rangeFrom = since.substring(0, 7);
-        const rangeTo   = todayStr.substring(0, 7);
+        const rangeTo   = cutoff.substring(0, 7);
         if (feEnd < rangeFrom || feStart > rangeTo) return;
         const [sy0, sm0] = (feStart > rangeFrom ? feStart : rangeFrom).split('-').map(Number);
         const [ey0, em0] = (feEnd   < rangeTo   ? feEnd   : rangeTo  ).split('-').map(Number);
@@ -14126,7 +14133,7 @@ function getAccountBalance(accId) {
             if (eff.status === 'pago') {
                 const explicit = fixedStatus.find(s => s.fixedId === fe.id && s.month === `${sy}-${String(sm).padStart(2,'0')}`);
                 const d = explicit?.paidDate || toLocalDateStr(getFixedExpensePaymentDate(fe, sy, sm - 1));
-                if (d > since && d <= todayStr) bal -= (explicit?.amount || fe.amount || 0);
+                if (d > since && d <= cutoff) bal -= (explicit?.amount || fe.amount || 0);
             }
             sm++; if (sm > 12) { sm = 1; sy++; }
         }
@@ -14136,7 +14143,7 @@ function getAccountBalance(accId) {
             (g.transactions || []).forEach(t => {
                 // Strict "> since": movements ON the initial-balance day are
                 // already inside initialBalance (same rule as incomes/expenses).
-                if (!t.date || t.date <= since) return;
+                if (!inRange(t.date)) return;
                 if (t.type === 'add') bal += t.amount || 0;
                 else if (t.type === 'remove') bal -= t.amount || 0;
             });
@@ -14150,14 +14157,14 @@ function getAccountBalance(accId) {
         (savingsGoals || []).forEach(g => {
             (g.transactions || []).forEach(t => {
                 if (t.accountId !== accId) return;
-                if (!t.date || t.date <= since) return;
+                if (!inRange(t.date)) return;
                 if (t.type === 'remove') bal += t.amount || 0;
                 else if (t.type === 'add') bal -= t.amount || 0;
             });
         });
     }
     (transfers || []).forEach(t => {
-        if (!t.date || t.date <= since) return;
+        if (!inRange(t.date)) return;
         if (t.fromAccountId === accId) bal -= t.amount || 0;
         if (t.toAccountId === accId) bal += t.amount || 0;
     });
@@ -14672,12 +14679,14 @@ function getBankStatementRules() {
     return `Data de hoje: ${today}. Quando o ano não estiver explícito no extrato, usa ${year}.
 Devolve APENAS um array JSON (sem qualquer outro texto). O PRIMEIRO elemento deve ser um objeto _meta com informação sobre a conta:
 [
-  { "_meta": true, "last4": "4424", "bank": "Santander" },
+  { "_meta": true, "last4": "4424", "bank": "Santander", "saldoFinal": 1234.56, "saldoData": "YYYY-MM-DD" },
   { "date": "YYYY-MM-DD", "description": "nome do beneficiário/entidade", "amount": 12.34, "type": "debit" }
 ]
 O objeto _meta deve ter:
 - last4: últimos 4 dígitos do cartão/conta visíveis no extrato (null se não visível)
 - bank: nome do banco ou emissor (ex: "Santander", "CGD", "BIG", "Moey", "Inetum")
+- saldoFinal: o saldo atual/final da conta visível no extrato ("Saldo contabilístico", "SALDO FINAL", ou o saldo no topo da app) como número, null se não visível
+- saldoData: a data a que esse saldo se refere (data de emissão, do último movimento, ou de hoje se for o saldo atual da app), null se desconhecida
 Regras para as transações:
 - type "debit": dinheiro SAI da conta (compras, pagamentos, levantamentos, transferências saída)
 - type "credit": dinheiro ENTRA na conta (salários, reembolsos, transferências entrada, depósitos)
@@ -15443,6 +15452,8 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     if (fromEl) fromEl.value = fromDate || '';
     if (toEl) toEl.value = toDate || '';
     _bankImportScopeNote = '';
+    _bankImportBalances = [];
+    window._bankImportBatch = null;
     // Tell the user which month gates the import when no explicit range is set.
     const hintEl = document.getElementById('bank-import-month-hint');
     if (hintEl) hintEl.textContent = getMonthLabel(currentDate);
@@ -15607,7 +15618,7 @@ async function handleBankStatementFile(event) {
             // Multiple statements + multiple accounts: confirm which account
             // each file belongs to before matching — this is what lets
             // inter-account MBWay movements pair up as transfers.
-            window._bankImportBatch = { kept, usedSrcs, fileAccs, fileNames };
+            window._bankImportBatch = { kept, usedSrcs, fileAccs, fileNames, fileMetas };
             renderBankFileAccountStep();
             return;
         }
@@ -15621,7 +15632,7 @@ async function handleBankStatementFile(event) {
         }
         const accountId = sel?.value || null;
         kept.forEach(t => { t._acc = fileAccs[t._src] || accountId || null; });
-        _finishBankImport(kept, accountId);
+        _finishBankImport(kept, accountId, _statementBalances(usedSrcs, fileMetas, fileAccs, kept, accountId));
     } catch (e) {
         console.error('Bank import error', e);
         setStatus('⚠ ' + (e.message || 'Erro ao processar ficheiro').slice(0, 100));
@@ -15659,7 +15670,26 @@ function confirmBankFileAccounts() {
     window._bankImportBatch = null;
     const status = document.getElementById('bank-import-status');
     if (status) status.textContent = '';
-    _finishBankImport(batch.kept, document.getElementById('bank-import-account-sel')?.value || null);
+    const globalAcc = document.getElementById('bank-import-account-sel')?.value || null;
+    _finishBankImport(batch.kept, globalAcc,
+        _statementBalances(batch.usedSrcs, batch.fileMetas || {}, batch.fileAccs, batch.kept, globalAcc));
+}
+
+// Statement-declared final balances, one per file: { accountId, balance, date }.
+// date = the balance's own as-of date when the AI extracted it, else the
+// file's latest movement date.
+function _statementBalances(usedSrcs, fileMetas, fileAccs, kept, globalAcc) {
+    return usedSrcs.map(fi => {
+        const m = fileMetas[fi];
+        const raw = m && m.saldoFinal != null ? parseFloat(m.saldoFinal) : NaN;
+        if (!isFinite(raw)) return null;
+        const maxDate = kept.filter(t => t._src === fi && t.date).map(t => t.date).sort().pop() || null;
+        return {
+            accountId: fileAccs[fi] || globalAcc || null,
+            balance: raw,
+            date: normalizeStatementDate(m.saldoData) || maxDate || toLocalDateStr(new Date())
+        };
+    }).filter(b => b && b.accountId);
 }
 
 // Learn the user's own MBWay number from a CONFIRMED inter-account pair:
@@ -15724,8 +15754,10 @@ function extractInterAccountTransfers(txs) {
 }
 
 // Common tail: pair inter-account transfers, build the reconciliation for the
-// remaining lines, and show step 2.
-function _finishBankImport(kept, accountId) {
+// remaining lines, and show step 2. `balances` are the statements' declared
+// final balances — used after Apply to level app balances to the bank.
+function _finishBankImport(kept, accountId, balances) {
+    _bankImportBalances = balances || [];
     const pairs = extractInterAccountTransfers(kept);
     bankImportSuggestions = [
         ...pairs.suggestions,
@@ -15736,6 +15768,71 @@ function _finishBankImport(kept, accountId) {
     const step2 = document.getElementById('bank-import-step2');
     if (step1) step1.style.display = 'none';
     if (step2) step2.style.display = 'flex';
+}
+
+// ── Balance leveling ──
+// After Apply, compare each statement's declared final balance with the
+// app's balance AS OF that same date. Statement balances are recorded as
+// snapshots; residual gaps are offered as one-tap adjustments.
+let _bankImportBalances = [];
+
+function offerBalanceLeveling() {
+    const items = (_bankImportBalances || []).filter(b => b.accountId && isFinite(b.balance) && b.date);
+    _bankImportBalances = [];
+    if (!items.length) return;
+    const gaps = [];
+    items.forEach(b => {
+        // Refresh (don't duplicate) the snapshot for that account+day.
+        balanceSnapshots = balanceSnapshots.filter(s => !(s.accountId === b.accountId && s.date === b.date));
+        balanceSnapshots.push({ id: generateId(), accountId: b.accountId, date: b.date, amount: b.balance, notes: 'Saldo do extrato', createdAt: new Date().toISOString() });
+        const calc = getAccountBalance(b.accountId, b.date);
+        const diff = Math.round((b.balance - calc) * 100) / 100;
+        if (Math.abs(diff) >= 0.02) gaps.push({ ...b, calc, diff });
+    });
+    balanceSnapshots.sort((a, b2) => a.date.localeCompare(b2.date));
+    saveData();
+    if (!gaps.length) { showToast('✓ Saldos batem certo com o extrato'); return; }
+    window._pendingLeveling = gaps;
+    const el = document.getElementById('modal-confirm');
+    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-width:380px">
+        <div style="font-weight:800;font-size:0.95rem;margin-bottom:4px"><i class="fas fa-scale-balanced" style="color:var(--primary);margin-right:6px"></i>Nivelar saldos ao extrato</div>
+        <div style="font-size:0.75rem;color:var(--text-light);margin-bottom:12px">O banco e a app divergem nestas contas à data do extrato. Nivelar cria um acerto pela diferença.</div>
+        ${gaps.map(g => {
+            const acc = accounts.find(a => a.id === g.accountId);
+            return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:0.8rem">
+                <div style="min-width:0">
+                    <div style="font-weight:700">${acc?.name || '?'} <span style="font-weight:400;color:var(--text-muted);font-size:0.68rem">(${formatDate(g.date)})</span></div>
+                    <div style="font-size:0.7rem;color:var(--text-light)">app ${formatCurrency(g.calc)} · banco ${formatCurrency(g.balance)}</div>
+                </div>
+                <div style="font-weight:800;color:${g.diff > 0 ? 'var(--success)' : 'var(--danger)'};white-space:nowrap">${g.diff > 0 ? '+' : ''}${formatCurrency(g.diff)}</div>
+            </div>`;
+        }).join('')}
+        <div style="display:flex;gap:8px;margin-top:14px">
+            <button onclick="window._pendingLeveling=null;document.getElementById('modal-confirm').classList.remove('active');document.getElementById('modal-confirm').innerHTML=''"
+                style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-family:var(--font);font-size:0.82rem;cursor:pointer">Agora não</button>
+            <button onclick="applyBalanceLeveling()"
+                style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.82rem;font-weight:700;cursor:pointer"><i class="fas fa-check"></i> Nivelar saldos</button>
+        </div>
+    </div>`;
+    el.classList.add('active');
+}
+
+function applyBalanceLeveling() {
+    const gaps = window._pendingLeveling || [];
+    window._pendingLeveling = null;
+    document.getElementById('modal-confirm').classList.remove('active');
+    document.getElementById('modal-confirm').innerHTML = '';
+    if (!gaps.length) return;
+    gaps.forEach(g => {
+        const base = { id: generateId(), date: g.date, description: 'Acerto ao extrato', category: 'outros',
+            notes: `Nivelamento: app ${formatCurrency(g.calc)} → banco ${formatCurrency(g.balance)}`,
+            accountId: g.accountId, bankValidated: true, isBalanceAdjust: true, createdAt: new Date().toISOString() };
+        if (g.diff > 0) incomes.push({ ...base, amount: g.diff });
+        else expenses.push({ ...base, amount: Math.abs(g.diff), type: 'personal', status: 'pago' });
+    });
+    saveData();
+    updateAll();
+    showToast(`${gaps.length} saldo${gaps.length === 1 ? '' : 's'} nivelado${gaps.length === 1 ? '' : 's'} ao extrato`);
 }
 
 function bankSelectAll(select) {
@@ -16122,6 +16219,8 @@ async function applyBankImportSelections() {
     // this import added (they auto-apply in future months).
     const learned = bankMappings.length - _mappingsBefore;
     showToast(`${count} movimento${count !== 1 ? 's' : ''} importado${count !== 1 ? 's' : ''}${learned > 0 ? ` · ${learned} nome${learned === 1 ? '' : 's'} do banco memorizado${learned === 1 ? '' : 's'}` : ''}`);
+    // Statement-declared balances: record snapshots and offer to level any gap.
+    offerBalanceLeveling();
 }
 
 // ===== SETTINGS MODAL =====
