@@ -15787,6 +15787,56 @@ function _finishBankImport(kept, accountId, balances) {
     const step2 = document.getElementById('bank-import-step2');
     if (step1) step1.style.display = 'none';
     if (step2) step2.style.display = 'flex';
+    // Async, non-blocking: let the AI refine the leftover "outros" rows.
+    aiRefineCreateSuggestions();
+}
+
+// After deterministic matching, the create-rows whose category fell through
+// to 'outros' (keyword guess failed) get ONE AI call suggesting a category
+// and a clean name. Deterministic results are never touched — this only
+// polishes the residue the rules couldn't classify.
+async function aiRefineCreateSuggestions() {
+    if (!hasAnyAiKey()) return;
+    if (_aiInFlight.refine) return;
+    const rows = bankImportSuggestions.filter(s =>
+        s.action === 'create-expense' && s.category === 'outros' && !s.mappedFrom);
+    if (!rows.length) return;
+    _aiInFlight.refine = true;
+    try {
+        const cats = getEffectiveCategories();
+        const catList = Object.entries(cats).map(([id, c]) => `${id}: ${c.label}`).join('\n');
+        const items = rows.map((s, i) => ({ i, desc: (s.tx?.description || '').slice(0, 60), valor: s.tx?.amount }));
+        const prompt = `És um classificador de movimentos bancários portugueses. Para cada item, sugere a categoria mais provável (usa APENAS as chaves da lista) e um nome curto e limpo do comerciante (sem códigos, referências ou datas).
+Devolve APENAS um array JSON: [{"i":0,"categoria":"chave","nome":"Nome Limpo"}]
+
+CATEGORIAS (chave: nome):
+${catList}
+
+MOVIMENTOS:
+${JSON.stringify(items)}`;
+        const raw = await callAIText(prompt);
+        const parsed = extractJsonArray(raw);
+        if (!Array.isArray(parsed) || !parsed.length) return;
+        let changed = 0;
+        parsed.forEach(p => {
+            const row = rows[p.i];
+            // The user may have applied/closed or edited meanwhile — only touch
+            // rows still present and still untouched.
+            if (!row || !bankImportSuggestions.includes(row)) return;
+            if (row.action !== 'create-expense') return;
+            if (p.categoria && cats[p.categoria] && row.category === 'outros') { row.category = p.categoria; changed++; }
+            if (p.nome && row.suggestedDesc == null) row.suggestedDesc = String(p.nome).slice(0, 40);
+        });
+        if (changed && document.getElementById('bank-import-step2')?.style.display !== 'none'
+            && document.getElementById('modal-bank-import')?.classList.contains('active')) {
+            renderBankReconciliation();
+            showToast(`IA sugeriu categorias para ${changed} movimento${changed === 1 ? '' : 's'}`);
+        }
+    } catch (e) {
+        console.warn('aiRefineCreateSuggestions failed', e?.message || e);
+    } finally {
+        _aiInFlight.refine = false;
+    }
 }
 
 // ── Balance leveling ──
