@@ -2937,10 +2937,23 @@ function updateMonthLabels() {
 function getMonthExpenses(date) {
     const month = date.getMonth();
     const year = date.getFullYear();
-    return expenses.filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === month && d.getFullYear() === year;
-    });
+    const inMonth = (ds) => { const d = new Date(ds); return d.getMonth() === month && d.getFullYear() === year; };
+    return expenses.reduce((out, e) => {
+        // Grouped expenses can span months: attribute each entry to ITS month,
+        // not the parent's single date (which is just the latest entry's date).
+        // When entries cross a month boundary a partial virtual copy is
+        // returned; edits still resolve by id against the real record.
+        if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
+            const monthEntries = e.entries.filter(en => en.date && inMonth(en.date));
+            if (!monthEntries.length) return out;
+            if (monthEntries.length === e.entries.length) { out.push(e); return out; }
+            const partial = monthEntries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
+            out.push({ ...e, amount: partial, entries: monthEntries, _partialGroup: true });
+            return out;
+        }
+        if (inMonth(e.date)) out.push(e);
+        return out;
+    }, []);
 }
 
 function getMonthIncomes(date) {
@@ -12378,7 +12391,22 @@ function submitGoalTx() {
 function deleteGoal(id) {
     const g = savingsGoals.find(x => x.id === id);
     if (!g) return;
-    if (!confirm(`Apagar objetivo "${g.name}"? Histórico de transações perdido.`)) return;
+    const txs = (g.transactions || []).filter(t => (parseFloat(t.amount) || 0) > 0);
+    if (!confirm(`Apagar objetivo "${g.name}"?${txs.length ? ' Os movimentos passam a transferências, para os saldos das contas não mudarem.' : ' Histórico de transações perdido.'}`)) return;
+    // Converting each goal movement into an equivalent transfer keeps every
+    // account balance identical after the goal is gone — deleting used to
+    // silently re-credit the source account and drain the savings account.
+    const savingsAcc = accounts.find(a => a.isSavings);
+    txs.forEach(t => {
+        const isAdd = t.type === 'add';
+        const from = isAdd ? (t.accountId || null) : (savingsAcc?.id || null);
+        const to   = isAdd ? (savingsAcc?.id || null) : (t.accountId || null);
+        if (!from && !to) return;
+        transfers.push({ id: generateId(), date: t.date, amount: parseFloat(t.amount) || 0,
+            fromAccountId: from, toAccountId: to,
+            notes: `Objetivo "${g.name}" apagado${t.note ? ' · ' + t.note : ''}` });
+    });
+    transfers.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     savingsGoals = savingsGoals.filter(x => x.id !== id);
     saveData();
     updateAll();
@@ -12468,7 +12496,7 @@ function renderSavingsGoals() {
 
     list.innerHTML = savingsGoals.map(g => {
         const balance = getGoalBalance(g);
-        const pct = Math.min(100, Math.max(0, (balance / g.target) * 100));
+        const pct = g.target > 0 ? Math.min(100, Math.max(0, (balance / g.target) * 100)) : 0;
         const remaining = Math.max(0, g.target - balance);
         // This-month contribution for this goal (for the per-goal "este mês")
         const thisMonthForGoal = (g.transactions || [])
@@ -13300,8 +13328,10 @@ async function shareWithCoParentById(childId) {
     if (monthExp.length === 0) { showToast('Sem despesas partilhadas'); return; }
 
     const total = monthExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
-    const coParentShare = total * (child.splitPct / 100);
-    const paid = monthExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
+    // Per-expense pct (splitPctOverride) — the booked net amounts already use
+    // it, so the share billed to the co-parent must match.
+    const coParentShare = monthExp.reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
+    const paid = monthExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
     const pending = coParentShare - paid;
 
     const fallback = `Despesas de ${child.name} - ${getMonthLabel(currentDate)}\n\n` +
@@ -13339,8 +13369,10 @@ function shareWithCoParentWithAttachmentsById(childId) {
     if (monthExp.length === 0) { showToast('Sem despesas partilhadas'); return; }
 
     const total = monthExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
-    const coParentShare = total * (child.splitPct / 100);
-    const paid = monthExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
+    // Per-expense pct (splitPctOverride) — the booked net amounts already use
+    // it, so the share billed to the co-parent must match.
+    const coParentShare = monthExp.reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
+    const paid = monthExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
     const pending = coParentShare - paid;
 
     let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Despesas ${child.name} - ${getMonthLabel(currentDate)}</title>
@@ -13444,8 +13476,8 @@ function exportChildReportById(childId) {
     const splitExp = monthExp.filter(e => e.split);
     const total = monthExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
     const splitTotal = splitExp.reduce((s, e) => s + (e.fullAmount || e.amount), 0);
-    const coParentShare = splitTotal * (child.splitPct / 100);
-    const coParentPaid = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (child.splitPct / 100), 0);
+    const coParentShare = splitExp.reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
+    const coParentPaid = splitExp.filter(e => e.paidByFather).reduce((s, e) => s + (e.fullAmount || e.amount) * (getEffectiveSplitPct(e, child) / 100), 0);
 
     let report = `RELATORIO DE DESPESAS DE ${child.name.toUpperCase()}\n`;
     report += `${'='.repeat(45)}\n`;
@@ -13987,7 +14019,17 @@ function getAccountBalance(accId) {
             if (d > since) bal += (s.amount || fi.amount || 0);
         });
     });
-    expenses.forEach(exp => { if (exp.accountId === accId && exp.date > since && exp.status !== 'ignorado') bal -= exp.amount || 0; });
+    expenses.forEach(exp => {
+        if (exp.accountId !== accId || exp.status === 'ignorado') return;
+        // Grouped expenses: each entry leaves the account on ITS date — the
+        // parent date is just the latest entry and misattributes cross-month
+        // groups around the initial-balance boundary.
+        if (exp.isGrouped && Array.isArray(exp.entries) && exp.entries.length > 0) {
+            exp.entries.forEach(en => { if (en.date && en.date > since) bal -= parseFloat(en.amount) || 0; });
+            return;
+        }
+        if (exp.date > since) bal -= exp.amount || 0;
+    });
     // For each fixed expense on this account, iterate month-by-month using
     // getEffectiveFixedStatus so that auto-approved items (shown as paid in the
     // UI but not yet written to fixedStatus) are also deducted.
@@ -18067,12 +18109,16 @@ function renderFixasTab() {
     const skipped = activeFixed.filter(f => isFixedSkipped(f.id, currentDate));
 
     // ── Balance strip ──
+    // Same pipeline as the dashboard (co-parent/mix adjustments, prepaid
+    // filter, savings deduction) so "Livre" here matches the saldo there.
     const totalIncome = getEffectiveMonthIncomes(currentDate).reduce((s, e) => s + e.amount, 0);
-    const varExp = getMonthExpenses(currentDate).filter(expenseAffectsBalance);
+    const varExp = getEffectiveMonthExpenses(currentDate).filter(e => !e.isFixedExpense).filter(expenseAffectsBalance);
     const totalVar = varExp.reduce((s, e) => s + e.amount, 0);
     let totalFixed = 0;
     notSkipped.forEach(f => { totalFixed += getEffectiveFixedAmount(f, currentDate); });
-    const free = totalIncome - totalFixed - totalVar;
+    const fixasMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const savingsThisMonth = Math.max(0, getGoalsMonthlyContribution(fixasMonthKey));
+    const free = totalIncome - totalFixed - totalVar - savingsThisMonth;
 
     const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     setEl('mensal-bal-income', totalIncome > 0 ? formatCurrency(totalIncome) : '—');
