@@ -2047,21 +2047,26 @@ function dedupFixedRecords() {
 }
 
 function showDedupReport() {
+    // Non-blocking banner on the dashboard — the old #modal-confirm overlay
+    // intercepted the user's first tap on every boot until dismissed.
     const rep = window._pendingDedupReport;
-    const el = document.getElementById('modal-confirm');
-    if (!rep || !el) return;
+    if (!rep) return;
     window._pendingDedupReport = null;
-    el.innerHTML = `<div class="modal-content modal-small" style="padding:20px;max-height:80vh;overflow-y:auto">
-        <div style="font-weight:800;font-size:1rem;margin-bottom:8px">🧹 Limpeza de duplicados</div>
-        <div style="font-size:0.78rem;color:var(--text-light);line-height:1.45;margin-bottom:10px">Encontrei despesas/receitas fixas duplicadas (criadas ao reatribuir contas) e fundi-as numa só, mantendo o histórico de pagamentos. Os meses passados e futuros deixam de contar a dobrar.</div>
-        ${rep.merged.length ? `<div style="font-size:0.72rem;font-weight:700;color:var(--text-light);text-transform:uppercase;margin-bottom:4px">Fundidas (${rep.merged.length})</div>
-        <div style="font-size:0.78rem;line-height:1.6;margin-bottom:10px">${rep.merged.map(m => `✓ ${m}`).join('<br>')}</div>` : ''}
-        ${rep.review.length ? `<div style="font-size:0.72rem;font-weight:700;color:#E65100;text-transform:uppercase;margin-bottom:4px">Para rever manualmente</div>
-        <div style="font-size:0.76rem;line-height:1.55;margin-bottom:6px;color:var(--text-light)">Nomes iguais com valores diferentes — confirma em Definições → Despesas fixas qual queres manter:</div>
-        <div style="font-size:0.78rem;line-height:1.6;margin-bottom:10px">${rep.review.map(m => `⚠️ ${m}`).join('<br>')}</div>` : ''}
-        <button onclick="document.getElementById('modal-confirm').innerHTML='';document.getElementById('modal-confirm').classList.remove('active');updateAll()" style="width:100%;padding:10px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-family:var(--font);font-size:0.85rem;font-weight:700;cursor:pointer">Entendido</button>
-    </div>`;
-    el.classList.add('active');
+    const anchor = document.querySelector('#tab-dashboard .month-selector');
+    if (!anchor || document.getElementById('dedup-report-banner')) return;
+    const div = document.createElement('div');
+    div.id = 'dedup-report-banner';
+    div.style.cssText = 'background:#FFF8E1;border:1px solid #FFE082;border-radius:14px;padding:12px 14px;margin-bottom:12px;font-size:0.78rem;line-height:1.5';
+    div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-weight:800">🧹 Limpeza de duplicados</span>
+            <button onclick="document.getElementById('dedup-report-banner')?.remove()" style="background:none;border:none;color:#8D6E63;cursor:pointer;font-size:0.9rem;padding:2px 6px">✕</button>
+        </div>
+        <div style="color:var(--text-light);margin-bottom:8px">Encontrei fixas duplicadas (criadas ao reatribuir contas) e fundi-as numa só, mantendo o histórico. Deixam de contar a dobrar.</div>
+        ${rep.merged.length ? `<div style="margin-bottom:8px">${rep.merged.map(m => `✓ ${m}`).join('<br>')}</div>` : ''}
+        ${rep.review.length ? `<div style="color:#E65100;font-weight:700;margin-bottom:4px">Para rever (nomes iguais, valores diferentes):</div>
+        <div>${rep.review.map(m => `⚠️ ${m}`).join('<br>')}</div>` : ''}`;
+    anchor.after(div);
 }
 
 function loadData() {
