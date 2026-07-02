@@ -8336,7 +8336,7 @@ function resizeImageForOcr(file, maxDim = 1024, quality = 0.85) {
     });
 }
 
-async function callGeminiVision(base64Data, mimeType, prompt) {
+async function callGeminiVision(base64Data, mimeType, prompt, maxTokens = 600) {
     if (!aiCfg.geminiKey) throw new Error('Chave Gemini não configurada');
     // flash-lite is ~5× cheaper in free-tier quota and handles receipts fine.
     // If it 404s on older deployments we fall through to flash.
@@ -8350,7 +8350,7 @@ async function callGeminiVision(base64Data, mimeType, prompt) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [ { text: prompt }, { inline_data: { mime_type: mimeType, data: base64Data } } ] }],
-                    generationConfig: { temperature: 0.1, maxOutputTokens: 600 }
+                    generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens }
                 })
             }
         );
@@ -8364,7 +8364,7 @@ async function callGeminiVision(base64Data, mimeType, prompt) {
 
 // Groq and xAI both expose OpenAI-compatible multimodal calls: image as
 // an image_url content part with a data URL.
-async function callOpenAIVision(label, url, key, model, base64Data, mimeType, prompt) {
+async function callOpenAIVision(label, url, key, model, base64Data, mimeType, prompt, maxTokens = 600) {
     const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
@@ -8378,7 +8378,7 @@ async function callOpenAIVision(label, url, key, model, base64Data, mimeType, pr
                 ]
             }],
             temperature: 0.1,
-            max_tokens: 600
+            max_tokens: maxTokens
         })
     });
     const data = await res.json().catch(() => ({}));
@@ -8390,17 +8390,17 @@ async function callOpenAIVision(label, url, key, model, base64Data, mimeType, pr
     }
     return data?.choices?.[0]?.message?.content || '';
 }
-function callGroqVision(b64, mime, prompt) {
+function callGroqVision(b64, mime, prompt, maxTokens) {
     // Llama 4 Scout is Groq's current multimodal model in the free tier.
-    return callOpenAIVision('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, 'meta-llama/llama-4-scout-17b-16e-instruct', b64, mime, prompt);
+    return callOpenAIVision('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, 'meta-llama/llama-4-scout-17b-16e-instruct', b64, mime, prompt, maxTokens);
 }
-function callGrokVision(b64, mime, prompt) {
-    return callOpenAIVision('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, 'grok-2-vision-latest', b64, mime, prompt);
+function callGrokVision(b64, mime, prompt, maxTokens) {
+    return callOpenAIVision('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, 'grok-2-vision-latest', b64, mime, prompt, maxTokens);
 }
-function callMistralVision(b64, mime, prompt) {
+function callMistralVision(b64, mime, prompt, maxTokens) {
     // Pixtral is Mistral's multimodal line; the small variant is in the
     // free tier and has no trouble with receipts.
-    return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt);
+    return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt, maxTokens);
 }
 
 // Mistral's dedicated OCR model — purpose-built for document/receipt text
@@ -8443,15 +8443,15 @@ async function callMistralOcr(base64Data, mimeType, prompt) {
 // selected one; on quota/failure falls back to another provider that has
 // a key. Matters because Gemini free tier runs out, Groq/Mistral are
 // generous.
-async function runReceiptOcr(base64Data, mimeType, prompt) {
+async function runReceiptOcr(base64Data, mimeType, prompt, maxTokens) {
     const order = aiProviderFallbackOrder();
     if (!order.length) throw new Error('Sem chave de IA configurada (Gemini, Groq, Mistral ou Grok).');
     const tried = [];
     for (const provider of order) {
         try {
-            if (provider === 'gemini')  return { text: await callGeminiVision(base64Data, mimeType, prompt), provider };
-            if (provider === 'groq')    return { text: await callGroqVision(base64Data, mimeType, prompt), provider };
-            if (provider === 'grok')    return { text: await callGrokVision(base64Data, mimeType, prompt), provider };
+            if (provider === 'gemini')  return { text: await callGeminiVision(base64Data, mimeType, prompt, maxTokens), provider };
+            if (provider === 'groq')    return { text: await callGroqVision(base64Data, mimeType, prompt, maxTokens), provider };
+            if (provider === 'grok')    return { text: await callGrokVision(base64Data, mimeType, prompt, maxTokens), provider };
             if (provider === 'mistral') return { text: await callMistralOcr(base64Data, mimeType, prompt), provider };
         } catch (e) {
             tried.push(`${provider}: ${e?.message || e}`);
@@ -14568,23 +14568,21 @@ function autoDetectBankAccount(meta) {
     return null;
 }
 
-const BANK_STATEMENT_AI_PROMPT = (content) => {
-    const fromEl = document.getElementById('bank-import-from');
-    const toEl = document.getElementById('bank-import-to');
-    const rangeHint = (fromEl?.value && toEl?.value)
-        ? `\nFoca-te nas transações entre ${fromEl.value} e ${toEl.value} (inclui ambas as datas).`
-        : '';
-    return `Analisa este extrato bancário português e extrai TODAS as transações.${rangeHint}\n${getBankStatementRules()}\n\nEXTRATO:\n${content}`;
-};
+// Shared scope hint: explicit De/Até range wins; otherwise the app's selected
+// month (which is also enforced as a hard post-parse filter).
+function _bankImportRangeHint() {
+    const from = document.getElementById('bank-import-from')?.value;
+    const to = document.getElementById('bank-import-to')?.value;
+    if (from && to) return `\nFoca-te nas transações entre ${from} e ${to} (inclui ambas as datas).`;
+    const mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    return `\nFoca-te nas transações do mês ${mk} (as restantes serão ignoradas).`;
+}
 
-const BANK_STATEMENT_IMAGE_PROMPT = () => {
-    const fromEl = document.getElementById('bank-import-from');
-    const toEl = document.getElementById('bank-import-to');
-    const rangeHint = (fromEl?.value && toEl?.value)
-        ? `\nFoca-te nas transações entre ${fromEl.value} e ${toEl.value} (inclui ambas as datas).`
-        : '';
-    return `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.${rangeHint}\n${getBankStatementRules()}`;
-};
+const BANK_STATEMENT_AI_PROMPT = (content) =>
+    `Analisa este extrato bancário português e extrai TODAS as transações.${_bankImportRangeHint()}\n${getBankStatementRules()}\n\nEXTRATO:\n${content}`;
+
+const BANK_STATEMENT_IMAGE_PROMPT = () =>
+    `Analisa a imagem do extrato bancário e extrai TODAS as transações visíveis.${_bankImportRangeHint()}\n${getBankStatementRules()}`;
 
 function guessCategoryFromDesc(desc) {
     const d = (desc || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -14624,12 +14622,14 @@ function normalizeBankDesc(desc) {
 }
 
 function recordBankMapping(bankRaw, cleanName, category) {
-    if (!bankRaw || !cleanName) return;
-    if (bankRaw.toLowerCase().trim() === cleanName.toLowerCase().trim()) return; // nothing to map
+    if (!bankRaw || !cleanName) return false;
+    if (bankRaw.toLowerCase().trim() === cleanName.toLowerCase().trim()) return false; // nothing to map
     const bankNorm = normalizeBankDesc(bankRaw);
     const idx = bankMappings.findIndex(m => m.bankNorm === bankNorm);
+    const isNew = idx < 0;
     const entry = { bankNorm, bankRaw, cleanName, category: category || 'outros', lastUsed: new Date().toISOString() };
     if (idx >= 0) bankMappings[idx] = entry; else bankMappings.push(entry);
+    return isNew;
 }
 
 function savePendingBankTx(tx, accountId) {
@@ -15280,6 +15280,10 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     const toEl = document.getElementById('bank-import-to');
     if (fromEl) fromEl.value = fromDate || '';
     if (toEl) toEl.value = toDate || '';
+    _bankImportScopeNote = '';
+    // Tell the user which month gates the import when no explicit range is set.
+    const hintEl = document.getElementById('bank-import-month-hint');
+    if (hintEl) hintEl.textContent = getMonthLabel(currentDate);
     modal.classList.add('active');
 }
 
@@ -15288,52 +15292,125 @@ function closeBankImportModal() {
     bankImportSuggestions = [];
 }
 
+// Note appended to the reconciliation summary when out-of-scope transactions
+// were dropped by the month/range gate (set by handleBankStatementFile).
+let _bankImportScopeNote = '';
+
+// Dedupe statement lines captured in overlapping excerpts. The same line
+// (date+amount+type+normalized description) appearing in DIFFERENT source
+// files is one physical transaction photographed twice; WITHIN a single file
+// duplicates are legitimate (two identical coffees). The true count of a line
+// is therefore the MAX occurrences any single source shows — each excerpt
+// displays every physical occurrence it covers.
+function dedupeStatementTxs(all) {
+    const keyOf = t => `${t.date || ''}|${(parseFloat(t.amount) || 0).toFixed(2)}|${t.type || ''}|${normalizeBankDesc(t.description || '')}`;
+    const perSrc = new Map(); // key -> Map(src -> count)
+    all.forEach(t => {
+        const key = keyOf(t);
+        let m = perSrc.get(key);
+        if (!m) { m = new Map(); perSrc.set(key, m); }
+        m.set(t._src, (m.get(t._src) || 0) + 1);
+    });
+    const quota = new Map(); // key -> max count across sources
+    perSrc.forEach((m, key) => quota.set(key, Math.max(...m.values())));
+    const emitted = new Map();
+    const out = [];
+    all.forEach(t => {
+        const key = keyOf(t);
+        const e = emitted.get(key) || 0;
+        if (e < quota.get(key)) { emitted.set(key, e + 1); out.push(t); }
+    });
+    return out;
+}
+
+// Hard month/range gate. Returns {kept, dropped}. Undated lines are kept —
+// they can't be scope-judged and matching may still resolve them.
+function filterStatementTxsToScope(txs, fromDate, toDate, monthKey) {
+    const inScope = (fromDate || toDate)
+        ? (t) => (!fromDate || t.date >= fromDate) && (!toDate || t.date <= toDate)
+        : (t) => (t.date || '').startsWith(monthKey);
+    const kept = txs.filter(t => !t.date || inScope(t));
+    return { kept, dropped: txs.length - kept.length };
+}
+
 async function handleBankStatementFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
     event.target.value = '';
     if (!hasAnyAiKey()) { showToast('Requer chave Gemini, Groq, Mistral ou Grok nas definições'); return; }
     const setStatus = t => { const el = document.getElementById('bank-import-status'); if (el) el.textContent = t; };
     setStatus('A processar…');
     try {
-        let transactions = [];
-        const isImage = /\.(png|jpe?g|webp)$/i.test(file.name) || file.type.startsWith('image/');
-        const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
-        if (isImage) {
-            setStatus('A enviar imagem para análise IA…');
-            const base64 = await new Promise((res, rej) => {
-                const r = new FileReader();
-                r.onload = e => res(e.target.result.split(',')[1]);
-                r.onerror = rej;
-                r.readAsDataURL(file);
-            });
-            const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT());
-            transactions = extractJsonArray(text);
-        } else if (isPdf) {
-            setStatus('A extrair texto do PDF…');
-            const text = await extractPdfText(file);
-            if (!text || text.length < 30) { setStatus('Não foi possível extrair texto do PDF (tenta com uma foto).'); return; }
-            setStatus(`Texto extraído. A analisar com IA…`);
-            const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
-            transactions = extractJsonArray(raw);
-        } else {
-            // CSV or plain text
-            setStatus('A ler ficheiro…');
-            const text = await new Promise((res, rej) => {
-                const r = new FileReader();
-                r.onload = e => res(e.target.result);
-                r.onerror = rej;
-                r.readAsText(file, 'utf-8');
-            });
-            setStatus('A analisar com IA…');
-            const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
-            transactions = extractJsonArray(raw);
+        // ---- Extract transactions from every selected file (statements can
+        // arrive as several photos/excerpts and/or PDFs at once) ----
+        let all = [];
+        let meta = null;
+        for (let fi = 0; fi < files.length; fi++) {
+            const file = files[fi];
+            const prefix = files.length > 1 ? `Ficheiro ${fi + 1}/${files.length} — ` : '';
+            let transactions = [];
+            const isImage = /\.(png|jpe?g|webp)$/i.test(file.name) || file.type.startsWith('image/');
+            const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+            if (isImage) {
+                setStatus(prefix + 'A enviar imagem para análise IA…');
+                const base64 = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = e => res(e.target.result.split(',')[1]);
+                    r.onerror = rej;
+                    r.readAsDataURL(file);
+                });
+                // Statement images hold many lines — needs a bigger output
+                // budget than a shop receipt (default 600 truncates).
+                const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT(), 2000);
+                transactions = extractJsonArray(text);
+            } else if (isPdf) {
+                setStatus(prefix + 'A extrair texto do PDF…');
+                const text = await extractPdfText(file);
+                if (!text || text.length < 30) { setStatus(prefix + 'Não foi possível extrair texto do PDF (tenta com uma foto).'); continue; }
+                setStatus(prefix + 'Texto extraído. A analisar com IA…');
+                const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                transactions = extractJsonArray(raw);
+            } else {
+                // CSV or plain text
+                setStatus(prefix + 'A ler ficheiro…');
+                const text = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = e => res(e.target.result);
+                    r.onerror = rej;
+                    r.readAsText(file, 'utf-8');
+                });
+                setStatus(prefix + 'A analisar com IA…');
+                const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                transactions = extractJsonArray(raw);
+            }
+            // Pull the _meta entry (account hint) out of this batch; first wins.
+            const mIdx = transactions.findIndex(t => t._meta);
+            if (mIdx >= 0) {
+                const m = transactions.splice(mIdx, 1)[0];
+                if (!meta) meta = m;
+            }
+            transactions.forEach(t => { t._src = fi; });
+            all = all.concat(transactions);
         }
-        if (!transactions.length) { setStatus('Nenhuma transação encontrada. Verifica o ficheiro.'); return; }
-        // Extract and remove the _meta entry injected by the AI
-        const metaIdx = transactions.findIndex(t => t._meta);
-        if (metaIdx >= 0) {
-            const meta = transactions.splice(metaIdx, 1)[0];
+
+        // Dedupe overlapping excerpts, then hard month/range gate: explicit
+        // De/Até range wins; otherwise only the app's currently selected month
+        // is imported, even when the uploads span several months.
+        const deduped = dedupeStatementTxs(all);
+        const fromDate = document.getElementById('bank-import-from')?.value || '';
+        const toDate = document.getElementById('bank-import-to')?.value || '';
+        const mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        const scopeLabel = (fromDate || toDate) ? `${fromDate || '…'} → ${toDate || '…'}` : getMonthLabel(currentDate);
+        const { kept, dropped } = filterStatementTxsToScope(deduped, fromDate, toDate, mk);
+        _bankImportScopeNote = dropped > 0 ? `${dropped} movimento${dropped === 1 ? '' : 's'} fora de ${scopeLabel} ignorado${dropped === 1 ? '' : 's'}` : '';
+
+        if (!kept.length) {
+            setStatus(dropped > 0
+                ? `Nenhum movimento em ${scopeLabel} (${dropped} fora do período).`
+                : 'Nenhuma transação encontrada. Verifica o ficheiro.');
+            return;
+        }
+        if (meta) {
             const sel = document.getElementById('bank-import-account-sel');
             if (sel && !sel.value) {
                 const detectedId = autoDetectBankAccount(meta);
@@ -15345,7 +15422,7 @@ async function handleBankStatementFile(event) {
             }
         }
         const accountId = document.getElementById('bank-import-account-sel')?.value || null;
-        bankImportSuggestions = buildBankReconciliationSuggestions(transactions, accountId);
+        bankImportSuggestions = buildBankReconciliationSuggestions(kept, accountId);
         renderBankReconciliation();
         const step1 = document.getElementById('bank-import-step1');
         const step2 = document.getElementById('bank-import-step2');
@@ -15379,7 +15456,7 @@ function renderBankReconciliation() {
     const selectedCount    = bankImportSuggestions.filter(s => s.selected).length;
     const selectableCount  = bankImportSuggestions.filter(s => s.action !== 'no-match').length;
 
-    if (summary) summary.innerHTML = `<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; ${suggestGroup.length > 0 ? `<span style="color:#F57C00;font-weight:600">${suggestGroup.length} a confirmar</span> &nbsp;·&nbsp; ` : ''}<span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
+    if (summary) summary.innerHTML = `${_bankImportScopeNote ? `<div style="font-size:0.7rem;color:#F57C00;margin-bottom:3px"><i class="fas fa-filter"></i> ${_bankImportScopeNote}</div>` : ''}<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; ${suggestGroup.length > 0 ? `<span style="color:#F57C00;font-weight:600">${suggestGroup.length} a confirmar</span> &nbsp;·&nbsp; ` : ''}<span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
         <span style="margin-left:8px;white-space:nowrap">
             <button onclick="bankSelectAll(true)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Selecionar todos">☑ todos</button>
             <button onclick="bankSelectAll(false)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer;margin-left:3px" title="Desselecionar todos">☐ nenhum</button>
@@ -15532,6 +15609,7 @@ async function applyBankImportSelections() {
     }
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A aplicar…'; }
     let count = 0;
+    const _mappingsBefore = bankMappings.length;
     selected.forEach((s, si) => {
         const tx = s.tx;
         const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
@@ -15704,7 +15782,10 @@ async function applyBankImportSelections() {
     saveData();
     updateAll();
     closeBankImportModal();
-    showToast(`${count} movimento${count !== 1 ? 's' : ''} importado${count !== 1 ? 's' : ''} com sucesso`);
+    // Learned-name feedback: how many new cryptic-name→description mappings
+    // this import added (they auto-apply in future months).
+    const learned = bankMappings.length - _mappingsBefore;
+    showToast(`${count} movimento${count !== 1 ? 's' : ''} importado${count !== 1 ? 's' : ''}${learned > 0 ? ` · ${learned} nome${learned === 1 ? '' : 's'} do banco memorizado${learned === 1 ? '' : 's'}` : ''}`);
 }
 
 // ===== SETTINGS MODAL =====

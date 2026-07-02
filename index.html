@@ -2414,7 +2414,7 @@
 
                 <!-- Step 1: file pick + account -->
                 <div id="bank-import-step1">
-                    <p style="font-size:0.82rem;color:var(--text-light);margin-bottom:12px">Importa um extrato CSV, PDF ou foto e o sistema sugere como registar cada movimento.</p>
+                    <p style="font-size:0.82rem;color:var(--text-light);margin-bottom:12px">Importa um extrato CSV, PDF ou fotos (podes escolher várias de uma vez) e o sistema sugere como registar cada movimento.</p>
                     <div class="form-group">
                         <label>Conta bancária (opcional)</label>
                         <select id="bank-import-account-sel"><option value="">— Sem conta —</option></select>
@@ -2431,10 +2431,11 @@
                     </div>
                     <label for="bank-import-file" style="display:flex;flex-direction:column;align-items:center;padding:24px;border:2px dashed var(--border);border-radius:12px;cursor:pointer;gap:8px;text-align:center">
                         <i class="fas fa-file-arrow-up" style="font-size:2rem;color:var(--primary)"></i>
-                        <span style="font-weight:600">Clica para escolher ficheiro</span>
-                        <span style="font-size:0.75rem;color:var(--text-light)">CSV · PDF · PNG · JPG</span>
-                        <input type="file" id="bank-import-file" style="display:none" accept=".csv,.pdf,.png,.jpg,.jpeg,.webp" onchange="handleBankStatementFile(event)">
+                        <span style="font-weight:600">Clica para escolher ficheiro(s)</span>
+                        <span style="font-size:0.75rem;color:var(--text-light)">CSV · PDF · PNG · JPG — vários excertos de uma vez</span>
+                        <input type="file" id="bank-import-file" style="display:none" accept=".csv,.pdf,.png,.jpg,.jpeg,.webp" multiple onchange="handleBankStatementFile(event)">
                     </label>
+                    <div style="margin-top:8px;font-size:0.7rem;color:var(--text-muted);text-align:center">Sem datas "De/Até", só são importados movimentos de <b id="bank-import-month-hint" style="text-transform:capitalize"></b>.</div>
                     <div id="bank-import-status" style="margin-top:10px;font-size:0.82rem;color:var(--text-light);text-align:center;min-height:20px"></div>
                 </div>
 
@@ -2493,7 +2494,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=316"></script>
+    <script src="app.js?v=317"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
