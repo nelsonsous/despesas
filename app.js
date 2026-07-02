@@ -15467,6 +15467,9 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     _bankImportScopeNote = '';
     _bankImportBalances = [];
     window._bankImportBatch = null;
+    _bankImportStagedFiles = [];
+    const stagedEl = document.getElementById('bank-import-staged');
+    if (stagedEl) stagedEl.innerHTML = '';
     // Tell the user which month gates the import when no explicit range is set.
     const hintEl = document.getElementById('bank-import-month-hint');
     if (hintEl) hintEl.textContent = getMonthLabel(currentDate);
@@ -15533,10 +15536,64 @@ function filterStatementTxsToScope(txs, fromDate, toDate, monthKey) {
     return { kept, dropped: txs.length - kept.length };
 }
 
-async function handleBankStatementFile(event) {
+// ── File staging ──
+// iOS pickers can't mix sources in one session (Files app vs Photos), so
+// statements are STAGED across as many picker sessions as needed and analyzed
+// together — that's what enables cross-account pairing over the whole batch.
+let _bankImportStagedFiles = [];
+
+function stageBankFiles(event) {
     const files = Array.from(event.target.files || []);
-    if (!files.length) return;
     event.target.value = '';
+    if (!files.length) return;
+    // Skip exact duplicates (same name+size) from double-picking.
+    files.forEach(f => {
+        if (!_bankImportStagedFiles.some(s => s.name === f.name && s.size === f.size)) {
+            _bankImportStagedFiles.push(f);
+        }
+    });
+    renderStagedFiles();
+}
+
+function removeStagedFile(i) {
+    _bankImportStagedFiles.splice(i, 1);
+    renderStagedFiles();
+}
+
+function renderStagedFiles() {
+    const el = document.getElementById('bank-import-staged');
+    if (!el) return;
+    if (!_bankImportStagedFiles.length) { el.innerHTML = ''; return; }
+    const icon = (f) => /pdf$/i.test(f.name) ? 'fa-file-pdf' : /\.(png|jpe?g|webp)$/i.test(f.name) ? 'fa-image' : 'fa-file-csv';
+    el.innerHTML = `<div style="margin-top:8px">
+        ${_bankImportStagedFiles.map((f, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;margin-bottom:4px">
+            <i class="fas ${icon(f)}" style="color:var(--primary);width:16px;text-align:center"></i>
+            <span style="flex:1;font-size:0.75rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</span>
+            <button onclick="removeStagedFile(${i})" style="background:none;border:none;color:var(--text-light);cursor:pointer;padding:2px 6px;font-size:0.8rem">✕</button>
+        </div>`).join('')}
+        <button onclick="startBankImportAnalysis()" class="btn btn-primary" style="width:100%;margin-top:4px;padding:10px;font-size:0.85rem">
+            <i class="fas fa-magnifying-glass-chart"></i> Analisar ${_bankImportStagedFiles.length} extrato${_bankImportStagedFiles.length === 1 ? '' : 's'}
+        </button>
+    </div>`;
+}
+
+function startBankImportAnalysis() {
+    const files = _bankImportStagedFiles.slice();
+    if (!files.length) return;
+    _bankImportStagedFiles = [];
+    renderStagedFiles();
+    analyzeBankStatementFiles(files);
+}
+
+// Kept as a thin wrapper for any legacy caller.
+function handleBankStatementFile(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length) analyzeBankStatementFiles(files);
+}
+
+async function analyzeBankStatementFiles(files) {
+    if (!files.length) return;
     if (!hasAnyAiKey()) { showToast('Requer chave Gemini, Groq, Mistral ou Grok nas definições'); return; }
     const setStatus = t => { const el = document.getElementById('bank-import-status'); if (el) el.textContent = t; };
     setStatus('A processar…');
