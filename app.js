@@ -2400,16 +2400,6 @@ function getFixedSplitsPaidForMonth(f, date) {
     return Array.isArray(st?.splitsPaid) ? st.splitsPaid : [];
 }
 
-function getFixedPendingTotal(date) {
-    const active = getActiveFixedForMonth(date);
-    return active
-        .filter(f => {
-            const st = getEffectiveFixedStatus(f, date).status;
-            return st !== 'pago' && st !== 'ignorado';
-        })
-        .reduce((s, f) => s + getEffectiveFixedAmount(f, date), 0);
-}
-
 function markFixedPaid(fixedId, date, paid) {
     const monthKey = getFixedMonthKey(date);
     const idx = fixedStatus.findIndex(s => s.fixedId === fixedId && s.month === monthKey);
@@ -8386,60 +8376,6 @@ function showAiDuplicatesModal(items) {
     document.getElementById('modal-ai-duplicates')?.classList.add('active');
 }
 
-// ----- Suggest recurring expenses to promote to fixed -----
-async function runAiFixedSuggestion() {
-    if (!hasAnyAiKey()) { showToast('Configura uma chave de IA'); return; }
-    const btn = document.getElementById('ai-fixed-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A analisar…'; }
-    try {
-        // Candidates: same description (normalized) appearing on ~monthly cadence
-        // over the last 4 months. Let the AI decide which are genuine fixed.
-        const cats = getEffectiveCategories();
-        const candidates = {};
-        for (let i = 0; i < 4; i++) {
-            const d = new Date(currentDate); d.setDate(1); d.setMonth(d.getMonth() - i);
-            const exp = getEffectiveMonthExpenses(d).filter(e => !e.isFixedExpense);
-            exp.forEach(e => {
-                const key = (e.description || '').toLowerCase().trim().slice(0, 30);
-                if (!key) return;
-                if (!candidates[key]) candidates[key] = { desc: (e.description || '').slice(0, 40), categoria: cats[e.category]?.label || e.category, meses: new Set(), total: 0, n: 0 };
-                candidates[key].meses.add(`${d.getFullYear()}-${d.getMonth()}`);
-                candidates[key].total += e.amount;
-                candidates[key].n += 1;
-            });
-        }
-        const shortlist = Object.values(candidates)
-            .filter(c => c.meses.size >= 2)
-            .map(c => ({ desc: c.desc, categoria: c.categoria, meses_com_entradas: c.meses.size, media: Math.round((c.total / c.n) * 100) / 100, total_ocorrencias: c.n }))
-            .slice(0, 20);
-        if (!shortlist.length) { showToast('Sem padrões suficientes'); return; }
-        const prompt = `Com base nestas despesas recorrentes, devolve APENAS JSON array com candidatos a "despesa fixa" (recorrência mensal estável, mesmo valor ou próximo). Formato: {"desc":"…","media":N,"motivo":"…"}. Ignora compras variáveis (supermercado, restaurantes). Máx. 6. Sem markdown.
-Candidatos: ${JSON.stringify(shortlist)}`;
-        const raw = await callAIText(prompt);
-        const parsed = extractJsonArray(raw);
-        showAiFixedModal(parsed);
-    } catch (e) {
-        showToast(`IA falhou: ${e?.message || e}`);
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Detetar fixas com IA'; }
-    }
-}
-
-function showAiFixedModal(items) {
-    const container = document.getElementById('ai-fixed-results');
-    if (!container) return;
-    if (!items || !items.length) {
-        container.innerHTML = '<p class="empty-state" style="padding:20px">Nenhum candidato a fixa identificado.</p>';
-    } else {
-        container.innerHTML = items.map(it => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
-            <div style="font-weight:600">${it.desc || 'Sem descrição'}</div>
-            <div style="font-size:0.78rem;color:var(--text-light)">~${formatCurrency(it.media || 0)}/mês</div>
-            <div style="font-size:0.78rem;margin-top:4px;color:#5A3BD8"><i class="fas fa-sparkles"></i> ${it.motivo || ''}</div>
-        </div>`).join('');
-    }
-    document.getElementById('modal-ai-fixed')?.classList.add('active');
-}
-
 // ----- Draft a partner/co-parent settlement message -----
 async function aiDraftShareMessage(context) {
     if (!hasAnyAiKey()) return null;
@@ -8537,11 +8473,6 @@ function callGroqVision(b64, mime, prompt, maxTokens) {
 function callGrokVision(b64, mime, prompt, maxTokens) {
     return callOpenAIVision('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, 'grok-2-vision-latest', b64, mime, prompt, maxTokens);
 }
-function callMistralVision(b64, mime, prompt, maxTokens) {
-    // Pixtral is Mistral's multimodal line; the small variant is in the
-    // free tier and has no trouble with receipts.
-    return callOpenAIVision('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, 'pixtral-12b-2409', b64, mime, prompt, maxTokens);
-}
 
 // Mistral's dedicated OCR model — purpose-built for document/receipt text
 // extraction. Returns the raw markdown text from all pages joined together.
@@ -8598,162 +8529,6 @@ async function runReceiptOcr(base64Data, mimeType, prompt, maxTokens) {
         }
     }
     throw new Error(tried.join(' | ') || 'OCR falhou');
-}
-
-async function onReceiptImageSelected(input) {
-    const file = input?.files?.[0];
-    if (!file) return;
-    if (!hasAnyAiKey()) {
-        showToast('Scan de recibo requer chave Gemini, Groq, Mistral ou Grok');
-        input.value = '';
-        return;
-    }
-    const btn = document.getElementById('receipt-scan-btn');
-    const originalHtml = btn?.innerHTML;
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A ler recibo…'; }
-    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-    try {
-        // Branch by file type so the chip works for both photos and the
-        // PDF faturas the user gets via email (EDP, Meo, NOS, seguros…).
-        // For PDFs we extract the text via pdf.js and ask the text AI;
-        // for images we keep the vision flow.
-        const cats = getEffectiveCategories();
-        const catList = Object.entries(cats).map(([id, c]) => ({ id, label: c.label }));
-        const today = toLocalDateStr(new Date());
-        if (isPdf) {
-            // If Mistral key is available, use the dedicated OCR API first —
-            // it handles both text-based and image/scanned PDFs without pdf.js.
-            if (aiCfg.mistralKey) {
-                try {
-                    const b64pdf = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result.split(',')[1]);
-                        reader.onerror = reject;
-                        reader.readAsDataURL(file);
-                    });
-                    const ocrText = await callMistralOcrExtract(b64pdf, 'application/pdf');
-                    if (ocrText && ocrText.length >= 30) {
-                        const promptPdf = `${AI_SYSTEM_PROMPT}
-Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility, combustivel, farmacia, ivaDetalhado, restaurante). combustivel:{litros,precoPorLitro,tipoCombustivel} só para postos; farmacia:{numeroPrescricao,medicamentos:[{nome,quantidade,pvp,comReceita}]} só para farmácias; ivaDetalhado:[{taxa,base,valor}] só quando há múltiplas taxas IVA; restaurante:{numeroPessoas,mesaNumero} para restaurantes. Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
-
-TEXTO:
-${ocrText.slice(0, 8000)}`;
-                        const _d = await callMistralOnce(promptPdf);
-                        const raw = _d?.choices?.[0]?.message?.content || '';
-                        const obj = extractJsonObject(raw);
-                        if (obj && !obj.erro) {
-                            prefillExpenseFromReceipt(obj);
-                            showToast('PDF lido (Mistral OCR) — verifica os campos');
-                            return;
-                        }
-                    }
-                } catch (e) {
-                    // fall through to pdf.js
-                }
-            }
-            // Read raw bytes for pdf.js
-            const buf = await file.arrayBuffer();
-            await waitForPdfLib();
-            const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-            const out = [];
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                let prevY = null;
-                const line = [];
-                for (const it of content.items) {
-                    const y = it.transform?.[5];
-                    if (prevY !== null && Math.abs(y - prevY) > 3) { out.push(line.join(' ')); line.length = 0; }
-                    line.push(it.str);
-                    prevY = y;
-                }
-                if (line.length) out.push(line.join(' '));
-                out.push('');
-            }
-            const text = out.join('\n').trim();
-            if (!text || text.length < 30) { showToast('PDF parece vazio ou ilegível'); return; }
-            const promptPdf = `${AI_SYSTEM_PROMPT}
-Tens o TEXTO desta fatura/recibo PT. Devolve APENAS o JSON com o shape de fatura (descricao, valor, data, hora, estabelecimento, categoria, essencial, confianca, notas, nifVendedor, nifCliente, ivaBase, ivaValor, ivaTaxa, metodoPagamento, cartaoUltimos4, tipoDocumento, atcud, numeroDocumento, moradaVendedor, cidadeVendedor, desconto, programaFidelidade, pontosFidelidade, tipoServico, gorjeta, itens, utility, combustivel, farmacia, ivaDetalhado, restaurante). combustivel:{litros,precoPorLitro,tipoCombustivel} só para postos; farmacia:{numeroPrescricao,medicamentos:[{nome,quantidade,pvp,comReceita}]} só para farmácias; ivaDetalhado:[{taxa,base,valor}] só quando há múltiplas taxas IVA; restaurante:{numeroPessoas,mesaNumero} para restaurantes. Usa null quando não encontrares. Hoje é ${today}. Categorias: ${JSON.stringify(catList)}.${userProfilePromptBlock()}
-
-TEXTO:
-${text.slice(0, 8000)}`;
-            const raw = await callAIText(promptPdf);
-            const obj = extractJsonObject(raw);
-            if (!obj || obj.erro) { showToast(obj?.erro || 'Não consegui ler o PDF'); return; }
-            prefillExpenseFromReceipt(obj);
-            showToast('PDF lido — verifica os campos');
-            return;
-        }
-        const { data, type } = await resizeImageForOcr(file);
-        const prompt = `Extrai os dados deste recibo/fatura em Português de Portugal. Devolve APENAS JSON com este shape (usa null quando não for legível):
-{
-  "descricao": "nome próprio do estabelecimento em 1-3 palavras (ex: 'Olímpico', 'Pizza Roma', 'Galp Expo') — NUNCA o título do documento como 'Fatura Simplificada do Restaurante X'",
-  "valor": N,
-  "data": "YYYY-MM-DD",
-  "hora": "HH:MM" | null,
-  "estabelecimento": "…",
-  "categoria": "<id exato da lista>",
-  "essencial": true|false,
-  "confianca": 0..1,
-  "notas": "…",
-  "nifVendedor": "9 dígitos sem espaços" | null,
-  "nifCliente": "9 dígitos sem espaços, se aparecer o NIF do comprador" | null,
-  "ivaBase": N | null,
-  "ivaValor": N | null,
-  "ivaTaxa": 6 | 13 | 23 | null,
-  "metodoPagamento": "cartao" | "mbway" | "dinheiro" | "transferencia" | "cheque" | "outro" | null,
-  "cartaoUltimos4": "4 dígitos" | null,
-  "tipoDocumento": "fatura" | "fatura-recibo" | "recibo" | "nota-credito" | null,
-  "atcud": "código ATCUD (formato XXXXXXXX-NNNNN)" | null,
-  "numeroDocumento": "nº do documento como aparece" | null,
-  "moradaVendedor": "morada completa do estabelecimento" | null,
-  "cidadeVendedor": "cidade extraída da morada" | null,
-  "desconto": N | null,
-  "programaFidelidade": "nome do programa (ex: Cartão Continente, Lidl Plus)" | null,
-  "pontosFidelidade": N | null,
-  "tipoServico": "mesa" | "take-away" | "esplanada" | "balcao" | "delivery" | null,
-  "gorjeta": N | null,
-  "itens": [{ "nome": "produto/prato normalizado", "qtd": N, "unidade": "un|kg|L|g|ml|dose" | null, "precoUnitario": N | null, "total": N, "iva": 6|13|23 | null }] | null,
-  "utility": {
-    "tipo": "eletricidade" | "agua" | "gas" | "telecom" | null,
-    "periodoInicio": "YYYY-MM-DD" | null,
-    "periodoFim": "YYYY-MM-DD" | null,
-    "consumoKwh": N | null,
-    "consumoM3": N | null,
-    "potenciaKva": N | null,
-    "tarifa": "simples" | "bi-horaria" | "tri-horaria" | null,
-    "consumoVazio": N | null,
-    "consumoCheias": N | null,
-    "consumoPonta": N | null
-  } | null,
-  "combustivel": { "litros": N | null, "precoPorLitro": N | null, "tipoCombustivel": "gasolina95" | "gasolina98" | "gasoleo" | "gpl" | "eletrico" | null } | null,
-  "farmacia": { "numeroPrescricao": "..." | null, "medicamentos": [{ "nome": "...", "quantidade": N, "pvp": N | null, "comReceita": bool }] | null } | null,
-  "ivaDetalhado": [{ "taxa": 6 | 13 | 23, "base": N, "valor": N }] | null,
-  "restaurante": { "numeroPessoas": N | null, "mesaNumero": "..." | null } | null
-Para "itens": extrai cada linha da factura que represente um produto ou prato. Normaliza o nome (ex: "LEITE MIMOSA M.G. 1L" → "Leite Mimosa 1L"; "Prato do dia carne" → "Prato do dia"). Se a factura só tem o total agregado (ex: recibo de restauração sem linhas), devolve null ou []. Máximo 30 itens.
-Para "combustivel": preenche apenas se for uma fatura/recibo de combustível (Galp, BP, Repsol, Cepsa, Prio…). Inclui litros abastecidos, preço/litro e tipo.
-Para "farmacia": preenche se for recibo de farmácia. Lista cada medicamento com nome normalizado, quantidade, PVP e se tem receita médica.
-Para "ivaDetalhado": só preenche se existirem MÚLTIPLAS taxas de IVA no mesmo documento (ex: supermercado com 6% e 23%). Omite se só há uma taxa.
-Para "restaurante": extrai número de pessoas/mesa se aparecer no recibo (útil para split de conta).
-Se não conseguires ler o essencial, devolve {"erro":"razão"}. Sem markdown, sem texto fora do objeto.
-
-${CATEGORY_HINTS_BLOCK}
-Categorias (usa o id exato): ${JSON.stringify(catList)}
-Hoje é ${today}. Se a data não for legível, usa hoje.${userProfilePromptBlock()}`;
-        const { text, provider } = await runReceiptOcr(data, type, prompt);
-        const obj = extractJsonObject(text);
-        if (!obj || obj.erro) {
-            showToast(obj?.erro || 'Não consegui ler o recibo');
-            return;
-        }
-        prefillExpenseFromReceipt(obj);
-        showToast(`Recibo lido via ${provider} — verifica os campos`);
-    } catch (e) {
-        showToast(`Erro: ${e?.message || e}`);
-    } finally {
-        if (btn && originalHtml != null) { btn.disabled = false; btn.innerHTML = originalHtml; }
-        input.value = '';
-    }
 }
 
 // Opens the "Nova despesa" modal and drops the extracted fields into it.
@@ -10839,18 +10614,6 @@ function applyOcrFieldsToOpenModal(obj) {
     openFormExtra();
 }
 
-function removePendingAttachment() {
-    pendingAttachment = null;
-    document.getElementById('expense-attachment').value = '';
-    document.getElementById('attachment-preview').innerHTML = '';
-}
-
-function removePendingIncomeAttachment() {
-    pendingIncomeAttachment = null;
-    document.getElementById('income-attachment').value = '';
-    document.getElementById('income-attachment-preview').innerHTML = '';
-}
-
 function triggerDownload(attachment) {
     const a = document.createElement('a');
     a.href = attachment.data;
@@ -11402,11 +11165,6 @@ function updateFixedMixChildUI(f) {
 function toggleFixedMixPartner() {
     const cb = document.getElementById('fixed-mix-with-partner');
     const fields = document.getElementById('fixed-mix-partner-fields');
-    if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
-}
-function toggleFixedMixPartnerSplit() {
-    const cb = document.getElementById('fixed-mix-partner-split');
-    const fields = document.getElementById('fixed-mix-partner-split-fields');
     if (cb && fields) fields.style.display = cb.checked ? 'block' : 'none';
 }
 function updateFixedMixPartnerUI(f) {
@@ -13148,28 +12906,6 @@ function addPrepaidSpend(cardId, amount, description, date, expenseId) {
     return txId;
 }
 
-function createPrepaidCard(name, initialBalance, icon, color) {
-    const card = {
-        id: generateId(),
-        name: name.trim(),
-        icon: icon || 'fa-credit-card',
-        color: color || '#5A3BD8',
-        createdAt: new Date().toISOString(),
-        transactions: []
-    };
-    prepaidCards.push(card);
-    // Same accounting fix as submitNewPrepaid: a non-zero initial balance
-    // has to flow through addPrepaidTopup so the matching "Carregamento"
-    // expense is created and the dashboard sees the cash out.
-    if (initialBalance && initialBalance > 0) {
-        addPrepaidTopup(card.id, parseFloat(initialBalance), 'Saldo inicial', toLocalDateStr(new Date()));
-    } else {
-        saveData();
-        renderPrepaidCards();
-    }
-    return card;
-}
-
 // Cascade delete: when the card goes away, the dashboard totals must
 // reflect that the top-ups never happened (we delete the linked
 // "Carregamento ..." expenses) and that any consumption paid via the
@@ -13524,9 +13260,6 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// ===== SHARE WITH CO-PARENT =====
-function shareWithCoParent() { shareWithCoParentById(getActiveChild()?.id); }
-function shareWithCoParentWithAttachments() { shareWithCoParentWithAttachmentsById(getActiveChild()?.id); }
 function exportChildReport() { exportChildReportById(getActiveChild()?.id); }
 
 async function shareWithCoParentById(childId) {
@@ -17248,17 +16981,6 @@ function groupByCategory(expenseList) {
     return result;
 }
 
-function getUniqueMonths() {
-    const monthMap = {};
-    expenses.forEach(e => {
-        const d = new Date(e.date);
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        if (!monthMap[key]) monthMap[key] = { date: d, total: 0 };
-        monthMap[key].total += e.amount;
-    });
-    return Object.values(monthMap).sort((a, b) => b.date - a.date);
-}
-
 function downloadFile(content, filename, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -18211,13 +17933,6 @@ function _driveScheduleBackgroundSync() {
         _drivePush().then(() => { _driveLastError = ''; }).catch(e => { _driveLastError = e.message || String(e); })
             .finally(() => { updateDriveCloudIcon(); renderDriveSyncUI(); });
     }, 30000);
-}
-
-function driveCloudIconClicked() {
-    if (typeof showSettingsModal === 'function') {
-        showSettingsModal();
-        setTimeout(() => { if (typeof switchSettingsTab === 'function') switchSettingsTab('profile'); }, 100);
-    }
 }
 
 function updateDriveCloudIcon(forceState) {
