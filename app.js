@@ -570,17 +570,28 @@ EMAILS:
 ${texts.join('\n===\n')}`;
 
 function extractJsonArray(text) {
-    // Strip markdown fences, then match GREEDILY — the non-greedy version
-    // stopped at the first ']' and silently truncated any array whose
-    // strings contained brackets or that nested arrays.
+    // Bracket-balance scan: extracts the first COMPLETE top-level array,
+    // immune to trailing prose (with or without ']') and to nested arrays —
+    // regex approaches truncated or over-captured in those cases.
     const clean = (text || '').replace(/```(?:json)?/gi, '');
-    const m = clean.match(/\[[\s\S]*\]/);
-    if (!m) return [];
-    try { return JSON.parse(m[0]); } catch {}
-    // Fallback: greedy match grabbed trailing text — retry non-greedy.
-    const m2 = clean.match(/\[[\s\S]*?\]/);
-    if (!m2) return [];
-    try { return JSON.parse(m2[0]); } catch { return []; }
+    const start = clean.indexOf('[');
+    if (start < 0) return [];
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < clean.length; i++) {
+        const c = clean[i];
+        if (inStr) {
+            if (esc) esc = false;
+            else if (c === '\\') esc = true;
+            else if (c === '"') inStr = false;
+            continue;
+        }
+        if (c === '"') inStr = true;
+        else if (c === '[') depth++;
+        else if (c === ']' && --depth === 0) {
+            try { return JSON.parse(clean.slice(start, i + 1)); } catch { return []; }
+        }
+    }
+    return [];
 }
 
 // Returns the user's "own contacts" list as trimmed lowercase tokens.
@@ -2887,6 +2898,9 @@ function getCarryOver(date) {
     // The fixed-status helpers we call for past months record inbox
     // auto-approvals as a side effect — a background sweep of 24 old months
     // must not flood the bell with notifications the user never triggered.
+    // Save/restore (not set/clear) so a future nested suppressed context
+    // can't unsuppress this one early.
+    const prevSuppress = _suppressInboxRecording;
     _suppressInboxRecording = true;
     let carry = 0;
     try {
@@ -2899,7 +2913,7 @@ function getCarryOver(date) {
             carry = Math.max(0, inc + carry - exp);
         }
     } finally {
-        _suppressInboxRecording = false;
+        _suppressInboxRecording = prevSuppress;
     }
     _carryMemo = { key: memoKey, val: carry };
     return carry;
@@ -2961,9 +2975,21 @@ function switchTab(tabName) {
 
 // ===== MONTH NAVIGATION =====
 function changeMonth(delta) {
+    if (window._pendingSwReload && !document.querySelector('.modal.active')) {
+        window.location.reload();
+        return;
+    }
     currentDate.setMonth(currentDate.getMonth() + delta);
     updateAll();
 }
+
+// Deferred SW-update reload: also flush when the user returns to the app.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && window._pendingSwReload
+        && !document.querySelector('.modal.active')) {
+        window.location.reload();
+    }
+});
 
 function getMonthLabel(date) {
     return date.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
@@ -14332,8 +14358,21 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     // Expenses — ALL registered (validation tracked separately)
     let paidExpense = 0, pendingExpenses = 0;
     expenses.forEach(e => {
-        if (e.accountId !== accountId || e.status === 'ignorado') return;
-        if (!expenseAffectsBalance(e) || !inWindowMv(e.date, e.createdAt)) return;
+        if (e.status === 'ignorado' || !expenseAffectsBalance(e)) return;
+        // Grouped: per-entry account/date, mirroring getAccountBalance —
+        // summing the lump against the parent produced phantom "+X€"
+        // reconciliation chips (and spurious adjustments if zeroed out).
+        if (e.isGrouped && Array.isArray(e.entries) && e.entries.length > 0) {
+            e.entries.forEach(en => {
+                if ((en.accountId || e.accountId) !== accountId) return;
+                if (!inWindowMv(en.date, e.createdAt)) return;
+                const amt = parseFloat(en.amount) || 0;
+                paidExpense += amt;
+                if (!e.bankValidated) pendingExpenses += amt;
+            });
+            return;
+        }
+        if (e.accountId !== accountId || !inWindowMv(e.date, e.createdAt)) return;
         paidExpense += e.amount || 0;
         if (!e.bankValidated) pendingExpenses += e.amount || 0;
     });
