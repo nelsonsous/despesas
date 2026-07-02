@@ -15082,7 +15082,10 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     // tolerance and DOUBLE-counted the month (create-income +
                     // auto-approved fixed). Small credits from the same payer
                     // (expense reimbursements) stay below 50% and fall through.
-                    return txAmt >= 0.5 * (effAmt || fi.amount || 0);
+                    // expected > 0 guard: an amount-0/missing fixed income
+                    // would make this true for EVERY credit.
+                    const expected = effAmt || fi.amount || 0;
+                    return expected > 0 && txAmt >= 0.5 * expected;
                 });
                 if (mFI) {
                     const effSt0 = getEffectiveFixedIncomeStatus(mFI, txMD0);
@@ -15479,6 +15482,8 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
 function closeBankImportModal() {
     document.getElementById('modal-bank-import')?.classList.remove('active');
     bankImportSuggestions = [];
+    _bankImportStagedFiles = [];
+    window._bankImportBatch = null;
 }
 
 // Note appended to the reconciliation summary when out-of-scope transactions
@@ -15580,6 +15585,9 @@ function renderStagedFiles() {
 function startBankImportAnalysis() {
     const files = _bankImportStagedFiles.slice();
     if (!files.length) return;
+    // Key check BEFORE clearing the queue — a user who staged 5 statements
+    // across several picker sessions must not lose them to a missing key.
+    if (!hasAnyAiKey()) { showToast('Requer chave Gemini, Groq, Mistral ou Grok nas definições'); return; }
     _bankImportStagedFiles = [];
     renderStagedFiles();
     analyzeBankStatementFiles(files);
