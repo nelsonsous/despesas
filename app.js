@@ -1221,6 +1221,10 @@ function renderCategoryDonut() {
     all.forEach(e => { totals[e.category] = (totals[e.category] || 0) + e.amount; });
     const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 6);
     const grandTotal = sorted.reduce((s, [, v]) => s + v, 0);
+    if (grandTotal <= 0) {
+        container.innerHTML = `<div class="donut-empty"><i class="fas fa-chart-pie"></i><p>Sem despesas este mês</p></div>`;
+        return;
+    }
 
     const COLORS = ['#6C5CE7','#fd79a8','#fdcb6e','#00cec9','#e17055','#74b9ff','#a29bfe','#55efc4'];
 
@@ -4449,7 +4453,9 @@ function renderCategoryChart(monthExp) {
 function renderMonthComparison(monthExp) {
     const prevExp = getPrevMonthExpenses();
     const currTotal = monthExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
-    const prevTotal = prevExp.reduce((s, e) => s + e.amount, 0);
+    // Same filter on both sides — an unfiltered previous month made every
+    // comparison skew whenever prepaid-card spends existed.
+    const prevTotal = prevExp.filter(expenseAffectsBalance).reduce((s, e) => s + e.amount, 0);
 
     const container = document.getElementById('month-comparison');
     if (prevTotal === 0 && currTotal === 0) {
@@ -4501,7 +4507,7 @@ function renderTopExpenses(monthExp) {
         return;
     }
     const sorted = [...monthExp].sort((a, b) => b.amount - a.amount).slice(0, 5);
-    const maxAmount = sorted[0].amount;
+    const maxAmount = sorted[0].amount || 1;
     const rankColors = ['#6C5CE7','#a29bfe','#b8adff','#cec9ff','#e0deff'];
     container.innerHTML = sorted.map((e, i) => {
         const barPct = ((e.amount / maxAmount) * 100).toFixed(0);
@@ -14983,6 +14989,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         // non-validated entry takes precedence over a further-dated validated one.
         const _expCands1 = isDebit ? expenses.filter(e =>
             !matchedExpIds.has(e.id) &&
+            !e.isGrouped &&
             Math.abs((e.amount || 0) - txAmt) < 0.02 &&
             Math.abs(new Date(e.date + 'T12:00:00').getTime() - dateMs) <= 3 * 86400000) : [];
         _expCands1.sort((a, b) => {
@@ -15296,6 +15303,20 @@ function closeBankImportModal() {
 // were dropped by the month/range gate (set by handleBankStatementFile).
 let _bankImportScopeNote = '';
 
+// Normalize an AI-extracted date to YYYY-MM-DD. The scope gate and all
+// downstream code compare date strings, so a model drifting to DD/MM/YYYY
+// (or appending a time) must not silently drop every line. Unparseable
+// dates become '' — treated as undated, which the gate keeps.
+function normalizeStatementDate(d) {
+    if (!d) return '';
+    const s = String(d).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return '';
+}
+
 // Dedupe statement lines captured in overlapping excerpts. The same line
 // (date+amount+type+normalized description) appearing in DIFFERENT source
 // files is one physical transaction photographed twice; WITHIN a single file
@@ -15345,43 +15366,50 @@ async function handleBankStatementFile(event) {
         // arrive as several photos/excerpts and/or PDFs at once) ----
         let all = [];
         let meta = null;
+        const fileNotes = []; // per-file failures — surfaced in the summary so a blurry photo can't vanish silently
         for (let fi = 0; fi < files.length; fi++) {
             const file = files[fi];
             const prefix = files.length > 1 ? `Ficheiro ${fi + 1}/${files.length} — ` : '';
             let transactions = [];
             const isImage = /\.(png|jpe?g|webp)$/i.test(file.name) || file.type.startsWith('image/');
             const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
-            if (isImage) {
-                setStatus(prefix + 'A enviar imagem para análise IA…');
-                const base64 = await new Promise((res, rej) => {
-                    const r = new FileReader();
-                    r.onload = e => res(e.target.result.split(',')[1]);
-                    r.onerror = rej;
-                    r.readAsDataURL(file);
-                });
-                // Statement images hold many lines — needs a bigger output
-                // budget than a shop receipt (default 600 truncates).
-                const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT(), 2000);
-                transactions = extractJsonArray(text);
-            } else if (isPdf) {
-                setStatus(prefix + 'A extrair texto do PDF…');
-                const text = await extractPdfText(file);
-                if (!text || text.length < 30) { setStatus(prefix + 'Não foi possível extrair texto do PDF (tenta com uma foto).'); continue; }
-                setStatus(prefix + 'Texto extraído. A analisar com IA…');
-                const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
-                transactions = extractJsonArray(raw);
-            } else {
-                // CSV or plain text
-                setStatus(prefix + 'A ler ficheiro…');
-                const text = await new Promise((res, rej) => {
-                    const r = new FileReader();
-                    r.onload = e => res(e.target.result);
-                    r.onerror = rej;
-                    r.readAsText(file, 'utf-8');
-                });
-                setStatus(prefix + 'A analisar com IA…');
-                const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
-                transactions = extractJsonArray(raw);
+            try {
+                if (isImage) {
+                    setStatus(prefix + 'A enviar imagem para análise IA…');
+                    const base64 = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = e => res(e.target.result.split(',')[1]);
+                        r.onerror = rej;
+                        r.readAsDataURL(file);
+                    });
+                    // Statement images hold many lines — needs a bigger output
+                    // budget than a shop receipt (default 600 truncates).
+                    const { text } = await runReceiptOcr(base64, file.type || 'image/jpeg', BANK_STATEMENT_IMAGE_PROMPT(), 2000);
+                    transactions = extractJsonArray(text);
+                } else if (isPdf) {
+                    setStatus(prefix + 'A extrair texto do PDF…');
+                    const text = await extractPdfText(file);
+                    if (!text || text.length < 30) { fileNotes.push(`"${file.name}" sem texto extraível`); continue; }
+                    setStatus(prefix + 'Texto extraído. A analisar com IA…');
+                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                    transactions = extractJsonArray(raw);
+                } else {
+                    // CSV or plain text
+                    setStatus(prefix + 'A ler ficheiro…');
+                    const text = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = e => res(e.target.result);
+                        r.onerror = rej;
+                        r.readAsText(file, 'utf-8');
+                    });
+                    setStatus(prefix + 'A analisar com IA…');
+                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                    transactions = extractJsonArray(raw);
+                }
+            } catch (fileErr) {
+                // One bad file must not abort the batch — note it and move on.
+                fileNotes.push(`"${file.name}" falhou (${String(fileErr?.message || fileErr).slice(0, 60)})`);
+                continue;
             }
             // Pull the _meta entry (account hint) out of this batch; first wins.
             const mIdx = transactions.findIndex(t => t._meta);
@@ -15389,7 +15417,8 @@ async function handleBankStatementFile(event) {
                 const m = transactions.splice(mIdx, 1)[0];
                 if (!meta) meta = m;
             }
-            transactions.forEach(t => { t._src = fi; });
+            if (!transactions.length) { fileNotes.push(`"${file.name}" sem movimentos extraídos`); continue; }
+            transactions.forEach(t => { t._src = fi; t.date = normalizeStatementDate(t.date); });
             all = all.concat(transactions);
         }
 
@@ -15402,12 +15431,16 @@ async function handleBankStatementFile(event) {
         const mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
         const scopeLabel = (fromDate || toDate) ? `${fromDate || '…'} → ${toDate || '…'}` : getMonthLabel(currentDate);
         const { kept, dropped } = filterStatementTxsToScope(deduped, fromDate, toDate, mk);
-        _bankImportScopeNote = dropped > 0 ? `${dropped} movimento${dropped === 1 ? '' : 's'} fora de ${scopeLabel} ignorado${dropped === 1 ? '' : 's'}` : '';
+        _bankImportScopeNote = [
+            dropped > 0 ? `${dropped} movimento${dropped === 1 ? '' : 's'} fora de ${scopeLabel} ignorado${dropped === 1 ? '' : 's'}` : '',
+            ...fileNotes
+        ].filter(Boolean).join(' · ');
 
         if (!kept.length) {
-            setStatus(dropped > 0
+            const base = dropped > 0
                 ? `Nenhum movimento em ${scopeLabel} (${dropped} fora do período).`
-                : 'Nenhuma transação encontrada. Verifica o ficheiro.');
+                : 'Nenhuma transação encontrada. Verifica o ficheiro.';
+            setStatus(fileNotes.length ? `${base} ${fileNotes.join(' · ')}` : base);
             return;
         }
         if (meta) {
@@ -15727,8 +15760,10 @@ async function applyBankImportSelections() {
             const idx = fixedStatus.findIndex(fs => fs.fixedId === s.matchId && fs.month === month);
             // paidDate = the bank transaction's real date, so account balances
             // and the cycle ledger place the cash-out on the day it happened.
+            // Spread over the existing record — a full replace dropped fields
+            // like splitsPaid.
             const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidDate: tx.date, paidAt: new Date().toISOString() };
-            if (idx >= 0) fixedStatus[idx] = entry; else fixedStatus.push(entry);
+            if (idx >= 0) fixedStatus[idx] = { ...fixedStatus[idx], ...entry, manualPendente: undefined }; else fixedStatus.push(entry);
             if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
         } else if (s.action === 'mark-fixed-income-received') {
