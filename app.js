@@ -6772,7 +6772,12 @@ function getSalaryCycleBreakdown(cycleStart, cycleEnd, refDate) {
         const adj = adjustExpenseForCoParent(e);
         expPaidVariable += adj.amount;
         expByCategory[e.category] = (expByCategory[e.category] || 0) + adj.amount;
-        expByCategoryVar[e.category] = (expByCategoryVar[e.category] || 0) + adj.amount;
+        // Balance-leveling adjustments count as spend for THIS cycle but must
+        // not enter the variable-spend series that feeds forecast averages —
+        // a one-off reconciliation acerto would inflate future projections.
+        if (!e.isBalanceAdjust) {
+            expByCategoryVar[e.category] = (expByCategoryVar[e.category] || 0) + adj.amount;
+        }
     });
 
     const monthKeys = new Set();
@@ -14312,9 +14317,9 @@ function applyBalanceAdjustment(accountId, date, amount, notes) {
     if (Math.abs(amount) < 0.01) return;
     const desc = notes || 'Ajuste de saldo';
     if (amount > 0) {
-        incomes.push({ id: generateId(), date, amount, description: desc, category: 'outros', notes: '', accountId, bankValidated: true, createdAt: new Date().toISOString() });
+        incomes.push({ id: generateId(), date, amount, description: desc, category: 'outros', notes: '', accountId, bankValidated: true, isBalanceAdjust: true, createdAt: new Date().toISOString() });
     } else {
-        expenses.push({ id: generateId(), date, amount: Math.abs(amount), description: desc, category: 'outros', type: 'personal', notes: '', accountId, bankValidated: true, createdAt: new Date().toISOString() });
+        expenses.push({ id: generateId(), date, amount: Math.abs(amount), description: desc, category: 'outros', type: 'personal', notes: '', accountId, bankValidated: true, isBalanceAdjust: true, createdAt: new Date().toISOString() });
     }
     saveData();
     updateAll();
@@ -14408,11 +14413,12 @@ function renderBalanceSnapshotModal() {
     // adjustment was created for money that a registered (but not yet validated)
     // expense already explained — the classic double-count.
     const adjDupes = [];
-    expenses.filter(e => e.accountId === accId && /ajuste de saldo/i.test(e.description || '')).forEach(adj => {
+    const isAdjustDesc = (e) => e.isBalanceAdjust || /ajuste de saldo|acerto ao extrato/i.test(e.description || '');
+    expenses.filter(e => e.accountId === accId && isAdjustDesc(e)).forEach(adj => {
         const twin = expenses.find(e =>
             e.id !== adj.id && e.accountId === accId && e.status !== 'ignorado' &&
             Math.abs((e.amount || 0) - (adj.amount || 0)) < 0.005 &&
-            !/ajuste de saldo/i.test(e.description || '') &&
+            !isAdjustDesc(e) &&
             Math.abs((new Date(e.date) - new Date(adj.date)) / 86400000) <= 5);
         if (twin) adjDupes.push({ adj, twin });
     });
@@ -15434,6 +15440,13 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     if (status) status.textContent = '';
     const fileInput = document.getElementById('bank-import-file');
     if (fileInput) fileInput.value = '';
+    // Re-arm the Apply button — it stays disabled ("A aplicar…") after a
+    // previous import, blocking any second import in the same session.
+    const applyBtn = document.getElementById('bank-import-apply-btn');
+    if (applyBtn) {
+        applyBtn.disabled = false;
+        applyBtn.innerHTML = '<i class="fas fa-check"></i> <span id="bank-import-apply-label">Aplicar</span>';
+    }
     // Populate account selector
     const sel = document.getElementById('bank-import-account-sel');
     if (sel) {
@@ -15677,17 +15690,23 @@ function confirmBankFileAccounts() {
 
 // Statement-declared final balances, one per file: { accountId, balance, date }.
 // date = the balance's own as-of date when the AI extracted it, else the
-// file's latest movement date.
+// file's latest movement date. Iterates fileMetas (NOT the kept txs) — a
+// file whose movements were all outside the month gate still declares a
+// balance, and that balance is the most valuable part for leveling.
 function _statementBalances(usedSrcs, fileMetas, fileAccs, kept, globalAcc) {
-    return usedSrcs.map(fi => {
+    return Object.keys(fileMetas).map(k => {
+        const fi = Number(k);
         const m = fileMetas[fi];
         const raw = m && m.saldoFinal != null ? parseFloat(m.saldoFinal) : NaN;
         if (!isFinite(raw)) return null;
         const maxDate = kept.filter(t => t._src === fi && t.date).map(t => t.date).sort().pop() || null;
+        const date = normalizeStatementDate(m.saldoData) || maxDate;
+        // No as-of date at all → leveling against "today" would be wrong; skip.
+        if (!date) return null;
         return {
-            accountId: fileAccs[fi] || globalAcc || null,
+            accountId: fileAccs[fi] || autoDetectBankAccount(m) || globalAcc || null,
             balance: raw,
-            date: normalizeStatementDate(m.saldoData) || maxDate || toLocalDateStr(new Date())
+            date
         };
     }).filter(b => b && b.accountId);
 }
@@ -15782,8 +15801,10 @@ function offerBalanceLeveling() {
     if (!items.length) return;
     const gaps = [];
     items.forEach(b => {
-        // Refresh (don't duplicate) the snapshot for that account+day.
-        balanceSnapshots = balanceSnapshots.filter(s => !(s.accountId === b.accountId && s.date === b.date));
+        // Refresh (don't duplicate) OUR OWN statement snapshot for that
+        // account+day — a manual same-day snapshot is a different reading
+        // (different time, different meaning) and must survive.
+        balanceSnapshots = balanceSnapshots.filter(s => !(s.accountId === b.accountId && s.date === b.date && s.notes === 'Saldo do extrato'));
         balanceSnapshots.push({ id: generateId(), accountId: b.accountId, date: b.date, amount: b.balance, notes: 'Saldo do extrato', createdAt: new Date().toISOString() });
         const calc = getAccountBalance(b.accountId, b.date);
         const diff = Math.round((b.balance - calc) * 100) / 100;
