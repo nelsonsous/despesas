@@ -15451,7 +15451,8 @@ async function handleBankStatementFile(event) {
         // ---- Extract transactions from every selected file (statements can
         // arrive as several photos/excerpts and/or PDFs at once) ----
         let all = [];
-        let meta = null;
+        const fileMetas = {};
+        const fileNames = {};
         const fileNotes = []; // per-file failures — surfaced in the summary so a blurry photo can't vanish silently
         for (let fi = 0; fi < files.length; fi++) {
             const file = files[fi];
@@ -15497,12 +15498,11 @@ async function handleBankStatementFile(event) {
                 fileNotes.push(`"${file.name}" falhou (${String(fileErr?.message || fileErr).slice(0, 60)})`);
                 continue;
             }
-            // Pull the _meta entry (account hint) out of this batch; first wins.
+            // Pull the _meta entry (account hint) out of this batch — kept
+            // PER FILE so each statement/excerpt can resolve to its own account.
             const mIdx = transactions.findIndex(t => t._meta);
-            if (mIdx >= 0) {
-                const m = transactions.splice(mIdx, 1)[0];
-                if (!meta) meta = m;
-            }
+            if (mIdx >= 0) fileMetas[fi] = transactions.splice(mIdx, 1)[0];
+            fileNames[fi] = file.name;
             if (!transactions.length) { fileNotes.push(`"${file.name}" sem movimentos extraídos`); continue; }
             transactions.forEach(t => { t._src = fi; t.date = normalizeStatementDate(t.date); });
             all = all.concat(transactions);
@@ -15529,28 +15529,120 @@ async function handleBankStatementFile(event) {
             setStatus(fileNotes.length ? `${base} ${fileNotes.join(' · ')}` : base);
             return;
         }
-        if (meta) {
-            const sel = document.getElementById('bank-import-account-sel');
-            if (sel && !sel.value) {
-                const detectedId = autoDetectBankAccount(meta);
-                if (detectedId) {
-                    sel.value = detectedId;
-                    const accName = accounts.find(a => a.id === detectedId)?.name;
-                    if (accName) setStatus(`Conta detectada automaticamente: ${accName}`);
-                }
-            }
+        // Per-file account detection (last4 / bank name from each _meta).
+        const usedSrcs = [...new Set(kept.map(t => t._src))].sort((a, b) => a - b);
+        const fileAccs = {};
+        usedSrcs.forEach(fi => { fileAccs[fi] = autoDetectBankAccount(fileMetas[fi]) || null; });
+
+        if (usedSrcs.length > 1 && accounts.length > 1) {
+            // Multiple statements + multiple accounts: confirm which account
+            // each file belongs to before matching — this is what lets
+            // inter-account MBWay movements pair up as transfers.
+            window._bankImportBatch = { kept, usedSrcs, fileAccs, fileNames };
+            renderBankFileAccountStep();
+            return;
         }
-        const accountId = document.getElementById('bank-import-account-sel')?.value || null;
-        bankImportSuggestions = buildBankReconciliationSuggestions(kept, accountId);
-        renderBankReconciliation();
-        const step1 = document.getElementById('bank-import-step1');
-        const step2 = document.getElementById('bank-import-step2');
-        if (step1) step1.style.display = 'none';
-        if (step2) step2.style.display = 'flex';
+        // Single file (or single account): global selector + autodetect.
+        const sel = document.getElementById('bank-import-account-sel');
+        const det0 = fileAccs[usedSrcs[0]];
+        if (sel && !sel.value && det0) {
+            sel.value = det0;
+            const accName = accounts.find(a => a.id === det0)?.name;
+            if (accName) setStatus(`Conta detectada automaticamente: ${accName}`);
+        }
+        const accountId = sel?.value || null;
+        kept.forEach(t => { t._acc = fileAccs[t._src] || accountId || null; });
+        _finishBankImport(kept, accountId);
     } catch (e) {
         console.error('Bank import error', e);
         setStatus('⚠ ' + (e.message || 'Erro ao processar ficheiro').slice(0, 100));
     }
+}
+
+// Step 1.5 — one dropdown per uploaded statement so the user confirms which
+// account each file belongs to (auto-detected from last4/bank when possible).
+function renderBankFileAccountStep() {
+    const batch = window._bankImportBatch;
+    const holder = document.getElementById('bank-import-status');
+    if (!batch || !holder) return;
+    const accOpts = (selId) => '<option value="">— escolher conta —</option>' + accounts.map(a =>
+        `<option value="${a.id}"${a.id === selId ? ' selected' : ''}>${a.name}${a.last4 ? ` *${a.last4}` : ''}</option>`).join('');
+    holder.innerHTML = `<div style="text-align:left;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:4px;background:var(--card-bg)">
+        <div style="font-weight:700;font-size:0.8rem;margin-bottom:8px"><i class="fas fa-building-columns" style="color:var(--primary)"></i> A que conta pertence cada extrato?</div>
+        ${batch.usedSrcs.map(fi => {
+            const n = batch.kept.filter(t => t._src === fi).length;
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="flex:1;font-size:0.72rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${batch.fileNames[fi] || ''}">${batch.fileNames[fi] || `Ficheiro ${fi + 1}`} <span style="color:var(--text-muted)">(${n} mov.)</span>${batch.fileAccs[fi] ? '' : ' <span style="color:#E65100" title="Conta não detetada automaticamente">⚠</span>'}</span>
+                <select id="bank-file-acc-${fi}" style="font-size:0.75rem;padding:4px 6px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);max-width:150px">${accOpts(batch.fileAccs[fi])}</select>
+            </div>`;
+        }).join('')}
+        <button onclick="confirmBankFileAccounts()" class="btn btn-primary" style="width:100%;margin-top:6px;padding:9px;font-size:0.82rem">Continuar <i class="fas fa-arrow-right"></i></button>
+    </div>`;
+}
+
+function confirmBankFileAccounts() {
+    const batch = window._bankImportBatch;
+    if (!batch) return;
+    batch.usedSrcs.forEach(fi => {
+        batch.fileAccs[fi] = document.getElementById(`bank-file-acc-${fi}`)?.value || null;
+    });
+    batch.kept.forEach(t => { t._acc = batch.fileAccs[t._src] || null; });
+    window._bankImportBatch = null;
+    const status = document.getElementById('bank-import-status');
+    if (status) status.textContent = '';
+    _finishBankImport(batch.kept, document.getElementById('bank-import-account-sel')?.value || null);
+}
+
+// Detect money moving BETWEEN the user's own accounts (e.g. MBWay top-ups):
+// a debit in one account + a credit in another, same amount (±0.02), dates
+// within 2 days → ONE transfer suggestion instead of expense + income.
+function extractInterAccountTransfers(txs) {
+    const suggestions = [];
+    const used = new Set();
+    const dayMs = 86400000;
+    const ms = (d) => new Date(d + 'T12:00:00').getTime();
+    const debits = txs.filter(t => t.type !== 'credit' && t._acc && t.date);
+    const credits = txs.filter(t => t.type === 'credit' && t._acc && t.date);
+    debits.forEach(d => {
+        if (used.has(d)) return;
+        const dAmt = parseFloat(d.amount) || 0;
+        if (dAmt <= 0) return;
+        const c = credits.find(c2 => !used.has(c2) && c2._acc !== d._acc
+            && Math.abs((parseFloat(c2.amount) || 0) - dAmt) < 0.02
+            && Math.abs(ms(c2.date) - ms(d.date)) <= 2 * dayMs);
+        if (!c) return;
+        used.add(d); used.add(c);
+        const fromName = accounts.find(a => a.id === d._acc)?.name || '?';
+        const toName = accounts.find(a => a.id === c._acc)?.name || '?';
+        const isMbway = /mb\s?way/i.test(d.description || '') || /mb\s?way/i.test(c.description || '');
+        const dup = transfers.some(t => t.fromAccountId === d._acc && t.toAccountId === c._acc
+            && Math.abs((t.amount || 0) - dAmt) < 0.02
+            && t.date && Math.abs(ms(t.date) - ms(d.date)) <= 2 * dayMs);
+        suggestions.push({
+            tx: d, txCredit: c,
+            action: dup ? 'ignore' : 'create-transfer',
+            transferFrom: d._acc, transferTo: c._acc,
+            suggestedDesc: `${isMbway ? 'MB WAY' : 'Transferência'} ${fromName} → ${toName}`,
+            selected: !dup,
+            isInterAccount: true
+        });
+    });
+    return { suggestions, rest: txs.filter(t => !used.has(t)) };
+}
+
+// Common tail: pair inter-account transfers, build the reconciliation for the
+// remaining lines, and show step 2.
+function _finishBankImport(kept, accountId) {
+    const pairs = extractInterAccountTransfers(kept);
+    bankImportSuggestions = [
+        ...pairs.suggestions,
+        ...buildBankReconciliationSuggestions(pairs.rest, accountId)
+    ];
+    renderBankReconciliation();
+    const step1 = document.getElementById('bank-import-step1');
+    const step2 = document.getElementById('bank-import-step2');
+    if (step1) step1.style.display = 'none';
+    if (step2) step2.style.display = 'flex';
 }
 
 function bankSelectAll(select) {
@@ -15715,13 +15807,13 @@ function renderBankReconciliation() {
 }
 
 async function applyBankImportSelections() {
-    const accountId = document.getElementById('bank-import-account-sel')?.value || null;
+    const _importAccountId = document.getElementById('bank-import-account-sel')?.value || null;
     const selected = bankImportSuggestions.filter(s => s.selected && s.action !== 'already-exists');
     if (!selected.length) { showToast('Nenhuma linha selecionada'); return; }
     const btn = document.getElementById('bank-import-apply-btn');
-    // Warn if no account selected and there are new expenses/incomes being created
-    if (!accountId) {
-        const hasNew = selected.some(s => ['create-expense','create-income','create-transfer','mark-fixed-paid','mark-fixed-income-received','net-pair','suggest-link'].includes(s.action));
+    // Warn if no account is resolvable and there are new expenses/incomes being created
+    if (!_importAccountId) {
+        const hasNew = selected.some(s => !s.tx?._acc && ['create-expense','create-income','create-transfer','mark-fixed-paid','mark-fixed-income-received','net-pair','suggest-link'].includes(s.action));
         if (hasNew && !confirm('Nenhuma conta selecionada — as despesas/receitas criadas não serão associadas a nenhum cartão/conta.\n\nContinuar mesmo assim?')) {
             return;
         }
@@ -15731,6 +15823,9 @@ async function applyBankImportSelections() {
     const _mappingsBefore = bankMappings.length;
     selected.forEach((s, si) => {
         const tx = s.tx;
+        // Per-transaction account (multi-statement batches tag each line with
+        // its file's account); falls back to the modal's global selector.
+        const accountId = tx?._acc || _importAccountId;
         const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
         if (s.action === 'validate') {
             // Exact matches are within ±0.02 — still snap to the bank's amount
@@ -15910,17 +16005,17 @@ async function applyBankImportSelections() {
             count++;
         }
     });
-    // Always assign accountId to all matched items from this import, even already-validated ones
-    // (those are selected:false by default so the main loop skips them, leaving accountId unset).
-    if (accountId) {
-        bankImportSuggestions.forEach(s => {
-            if (!s.matchId) return;
-            const expIdx = expenses.findIndex(e => e.id === s.matchId);
-            if (expIdx >= 0) { expenses[expIdx] = { ...expenses[expIdx], accountId }; return; }
-            const incIdx = incomes.findIndex(i => i.id === s.matchId);
-            if (incIdx >= 0) incomes[incIdx] = { ...incomes[incIdx], accountId };
-        });
-    }
+    // Always assign the account to all matched items from this import, even
+    // already-validated ones (those are selected:false by default so the main
+    // loop skips them, leaving accountId unset). Per-tx account wins.
+    bankImportSuggestions.forEach(s => {
+        const acc = s.tx?._acc || _importAccountId;
+        if (!s.matchId || !acc) return;
+        const expIdx = expenses.findIndex(e => e.id === s.matchId);
+        if (expIdx >= 0) { expenses[expIdx] = { ...expenses[expIdx], accountId: acc }; return; }
+        const incIdx = incomes.findIndex(i => i.id === s.matchId);
+        if (incIdx >= 0) incomes[incIdx] = { ...incomes[incIdx], accountId: acc };
+    });
     transfers.sort((a, b) => b.date.localeCompare(a.date));
     saveData();
     updateAll();
