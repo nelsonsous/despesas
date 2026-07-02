@@ -1,9 +1,9 @@
-const CACHE_NAME = 'despesas-v324';
+const CACHE_NAME = 'despesas-v325';
 const ASSETS = [
     '/despesas/',
     '/despesas/index.html',
     '/despesas/styles.css?v=309',
-    '/despesas/app.js?v=324',
+    '/despesas/app.js?v=325',
     '/despesas/manifest.json'
 ];
 
@@ -17,21 +17,25 @@ function freshRequest(req) {
 }
 
 self.addEventListener('install', (event) => {
+    // allSettled + ok-guard: one transient fetch failure must not abort the
+    // whole update, and a 404/500 must never be stored as a cached asset.
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache =>
-            Promise.all(ASSETS.map(a => fetch(a, { cache: 'no-store' }).then(r => cache.put(a, r))))
+            Promise.allSettled(ASSETS.map(a =>
+                fetch(a, { cache: 'no-store' }).then(r => { if (r && r.ok) return cache.put(a, r); })
+            ))
         )
     );
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
+    // No forced client navigation here: claim() fires controllerchange in the
+    // page, which reloads itself when safe (not mid-form).
     event.waitUntil(
         caches.keys().then(keys =>
             Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
         ).then(() => self.clients.claim())
-          .then(() => self.clients.matchAll({ type: 'window' }))
-          .then(clients => clients.forEach(c => c.navigate(c.url)))
     );
 });
 
@@ -39,8 +43,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
         fetch(freshRequest(event.request))
             .then(response => {
-                const clone = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                if (response && response.ok) {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                }
                 return response;
             })
             .catch(() => caches.match(event.request))

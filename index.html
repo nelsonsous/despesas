@@ -2495,7 +2495,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=324"></script>
+    <script src="app.js?v=325"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
@@ -2507,6 +2507,12 @@
             let refreshing = false;
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (refreshing) return;
+                // Mid-form safety: defer the update reload while a modal is
+                // open; switchTab flushes the pending reload afterwards.
+                if (document.querySelector('.modal.active')) {
+                    window._pendingSwReload = true;
+                    return;
+                }
                 refreshing = true;
                 window.location.reload();
             });

@@ -570,9 +570,17 @@ EMAILS:
 ${texts.join('\n===\n')}`;
 
 function extractJsonArray(text) {
-    const m = (text || '').match(/\[[\s\S]*?\]/);
+    // Strip markdown fences, then match GREEDILY — the non-greedy version
+    // stopped at the first ']' and silently truncated any array whose
+    // strings contained brackets or that nested arrays.
+    const clean = (text || '').replace(/```(?:json)?/gi, '');
+    const m = clean.match(/\[[\s\S]*\]/);
     if (!m) return [];
-    try { return JSON.parse(m[0]); } catch { return []; }
+    try { return JSON.parse(m[0]); } catch {}
+    // Fallback: greedy match grabbed trailing text — retry non-greedy.
+    const m2 = clean.match(/\[[\s\S]*?\]/);
+    if (!m2) return [];
+    try { return JSON.parse(m2[0]); } catch { return []; }
 }
 
 // Returns the user's "own contacts" list as trimmed lowercase tokens.
@@ -2865,6 +2873,8 @@ function getPaidFixedIncomesAsIncome(date) {
 
 let _carryMemo = null;
 let _suppressInboxRecording = false;
+// Per-action in-flight flags for paid AI calls (double-tap protection).
+const _aiInFlight = {};
 function getCarryOver(date) {
     // Fold the chain forward over the last 24 months in memory. Reading the
     // previous month's STORED value truncated accumulation to a single month
@@ -2936,6 +2946,12 @@ function setDefaultDate() {
 
 // ===== TAB NAVIGATION =====
 function switchTab(tabName) {
+    // A SW update that landed while a modal was open deferred its reload —
+    // flush it now that the user is navigating (no unsaved form state).
+    if (window._pendingSwReload && !document.querySelector('.modal.active')) {
+        window.location.reload();
+        return;
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
@@ -8050,6 +8066,10 @@ function renderAiInsightsCard() {
         if (textEl) { textEl.classList.remove('loading'); textEl.innerHTML = cached.text; }
         return;
     }
+    // In-flight dedup: two renders before the cache fills would both call the
+    // paid API for the same month.
+    if (_aiInFlight[`narrative:${key}`]) return;
+    _aiInFlight[`narrative:${key}`] = true;
     if (textEl) { textEl.classList.add('loading'); textEl.textContent = cycleActive ? 'A IA está a analisar o ciclo salarial…' : 'A IA está a analisar o mês…'; }
     generateAiMonthNarrative(currentDate).then(text => {
         if (aiMonthKey(currentDate) !== key) return; // month switched during call
@@ -8058,6 +8078,8 @@ function renderAiInsightsCard() {
     }).catch(e => {
         console.warn('AI narrative failed:', e?.message || e);
         if (textEl) { textEl.classList.remove('loading'); textEl.textContent = 'Não consegui gerar o resumo agora. Tenta de novo.'; }
+    }).finally(() => {
+        delete _aiInFlight[`narrative:${key}`];
     });
 }
 
@@ -8178,6 +8200,8 @@ async function askAiMoney() {
     const question = input.value.trim();
     if (!question) return;
     if (!hasAnyAiKey()) { ansEl.style.display = 'block'; ansEl.textContent = 'Configura uma chave de IA nas Definições para usar esta funcionalidade.'; return; }
+    if (_aiInFlight.ask) return; // double-tap fires duplicate paid API calls
+    _aiInFlight.ask = true;
     ansEl.style.display = 'block';
     ansEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA está a pensar…';
     try {
@@ -8186,6 +8210,8 @@ async function askAiMoney() {
         input.value = '';
     } catch (e) {
         ansEl.textContent = `Erro: ${e?.message || 'não consegui responder'}`;
+    } finally {
+        _aiInFlight.ask = false;
     }
 }
 
@@ -9479,6 +9505,10 @@ async function runAiSalaryScenario() {
         ans.style.display = 'none';
         return;
     }
+    // dataset.loaded stays '0' while the call is in flight, so the toggle
+    // above doesn't stop a double-tap from firing a second paid call.
+    if (_aiInFlight.scenario) return;
+    _aiInFlight.scenario = true;
     if (ans) { ans.style.display = 'block'; ans.dataset.loaded = '0'; ans.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A simular…'; }
     try {
         const cats = getEffectiveCategories();
@@ -9500,6 +9530,8 @@ ${userProfilePromptBlock()}`;
         ans.dataset.loaded = '1';
     } catch (e) {
         if (ans) { ans.textContent = `Erro: ${e?.message || e}`; ans.dataset.loaded = '1'; }
+    } finally {
+        _aiInFlight.scenario = false;
     }
 }
 
@@ -12697,6 +12729,8 @@ function renderSavingsGoals() {
 async function runAiGoalCoach() {
     const out = document.getElementById('ai-goal-coach-output');
     if (!out) return;
+    if (_aiInFlight.goalCoach) return;
+    _aiInFlight.goalCoach = true;
     out.style.display = 'block';
     out.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A IA a desenhar um plano…';
     try {
@@ -12726,6 +12760,8 @@ ${userProfilePromptBlock()}`;
         </div>`).join('');
     } catch (e) {
         out.textContent = `Erro: ${e?.message || e}`;
+    } finally {
+        _aiInFlight.goalCoach = false;
     }
 }
 
@@ -14166,14 +14202,18 @@ function getAccountBalance(accId) {
         });
     });
     expenses.forEach(exp => {
-        if (exp.accountId !== accId || exp.status === 'ignorado') return;
-        // Grouped expenses: each entry leaves the account on ITS date — the
-        // parent date is just the latest entry and misattributes cross-month
-        // groups around the initial-balance boundary.
+        if (exp.status === 'ignorado') return;
+        // Grouped expenses: each entry leaves the account on ITS date, from
+        // ITS account when tagged (the cycle view already honours per-entry
+        // accountId; balances used to debit everything from the parent).
         if (exp.isGrouped && Array.isArray(exp.entries) && exp.entries.length > 0) {
-            exp.entries.forEach(en => { if (en.date && en.date > since) bal -= parseFloat(en.amount) || 0; });
+            exp.entries.forEach(en => {
+                if ((en.accountId || exp.accountId) !== accId) return;
+                if (en.date && en.date > since) bal -= parseFloat(en.amount) || 0;
+            });
             return;
         }
+        if (exp.accountId !== accId) return;
         if (exp.date > since) bal -= exp.amount || 0;
     });
     // For each fixed expense on this account, iterate month-by-month using
@@ -18443,7 +18483,7 @@ function closeSpeedDial() {
     function onEnd(e) {
         // Ignore swipes inside modals, menus, speed dial, or swipe-to-delete rows
         if (!startEl) return;
-        if (startEl.closest('.modal, .sheet, .overflow-menu, .speed-dial, [data-swipe-delete-fn]')) return;
+        if (startEl.closest('.modal, .sheet, .overflow-menu, .speed-dial, [data-swipe-delete-fn], .quick-add-chips, .heatmap-scroll, .mensal-cat-grid')) return;
         const t = e.changedTouches ? e.changedTouches[0] : e;
         const dx = t.clientX - sx;
         const dy = t.clientY - sy;
