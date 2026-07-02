@@ -1830,8 +1830,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // data never flashes before the user authenticates.
     if (getLockCfg().enabled) showLockScreen();
     installAppLockVisibilityHandler();
-    loadData();
-    loadAiData();
+    // Data-loss circuit breaker: if loading throws, the in-memory arrays stay
+    // empty — a later saveData would then WRITE the empty arrays over the
+    // user's real data. On load failure we block every save and surface the
+    // actual error on screen so it can be reported.
+    try {
+        loadData();
+        loadAiData();
+    } catch (bootErr) {
+        window._bootLoadFailed = true;
+        console.error('BOOT LOAD FAILED', bootErr);
+        try {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#B71C1C;color:#fff;padding:12px 14px;font-size:0.8rem;line-height:1.5;font-family:monospace';
+            div.innerHTML = `<b>⚠ Erro ao carregar dados — gravações bloqueadas para proteger o histórico.</b><br>${String(bootErr && (bootErr.stack || bootErr.message || bootErr)).slice(0, 400).replace(/</g, '&lt;')}<br><i>Envia uma captura deste erro. Os dados guardados NÃO foram alterados.</i>`;
+            document.body.appendChild(div);
+        } catch {}
+    }
     // Kick off a profile build on cold start. Runs async-ish against
     // localStorage-only data — fast enough to not block init.
     try { recomputeUserProfile(); } catch {}
@@ -2164,6 +2179,12 @@ function loadData() {
 // Bumped on every persist — cheap invalidation key for render-time memos.
 let _dataRev = 0;
 function saveData() {
+    // Circuit breaker: never persist over real data after a failed load —
+    // the in-memory arrays would be empty and overwrite the whole history.
+    if (window._bootLoadFailed) {
+        try { showToast('⚠ Gravação bloqueada — dados não carregaram'); } catch {}
+        return;
+    }
     _dataRev++;
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
