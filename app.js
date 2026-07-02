@@ -2863,20 +2863,35 @@ function getPaidFixedIncomesAsIncome(date) {
         });
 }
 
+let _carryMemo = null;
+let _suppressInboxRecording = false;
 function getCarryOver(date) {
     // Fold the chain forward over the last 24 months in memory. Reading the
     // previous month's STORED value truncated accumulation to a single month
     // whenever an intermediate month had never been rendered (stored=0), and
     // retroactive edits never propagated past unvisited months.
+    // Memoized per (month, data revision) — this runs at the top of every
+    // updateAll and scans 24 months of history.
+    const memoKey = `${date.getFullYear()}-${date.getMonth()}|${_dataRev}`;
+    if (_carryMemo?.key === memoKey) return _carryMemo.val;
+    // The fixed-status helpers we call for past months record inbox
+    // auto-approvals as a side effect — a background sweep of 24 old months
+    // must not flood the bell with notifications the user never triggered.
+    _suppressInboxRecording = true;
     let carry = 0;
-    for (let i = 24; i >= 1; i--) {
-        const m = new Date(date.getFullYear(), date.getMonth() - i, 1);
-        const inc = [...getMonthIncomes(m), ...getPaidFixedIncomesAsIncome(m)]
-            .reduce((s, e) => s + e.amount, 0);
-        const exp = [...getMonthExpenses(m).map(adjustExpenseForCoParent), ...getPaidFixedAsExpenses(m)]
-            .reduce((s, e) => s + e.amount, 0);
-        carry = Math.max(0, inc + carry - exp);
+    try {
+        for (let i = 24; i >= 1; i--) {
+            const m = new Date(date.getFullYear(), date.getMonth() - i, 1);
+            const inc = [...getMonthIncomes(m), ...getPaidFixedIncomesAsIncome(m)]
+                .reduce((s, e) => s + e.amount, 0);
+            const exp = [...getMonthExpenses(m).map(adjustExpenseForCoParent), ...getPaidFixedAsExpenses(m)]
+                .reduce((s, e) => s + e.amount, 0);
+            carry = Math.max(0, inc + carry - exp);
+        }
+    } finally {
+        _suppressInboxRecording = false;
     }
+    _carryMemo = { key: memoKey, val: carry };
     return carry;
 }
 
@@ -2965,7 +2980,12 @@ function getMonthExpenses(date) {
             if (!monthEntries.length) return out;
             if (monthEntries.length === e.entries.length) { out.push(e); return out; }
             const partial = monthEntries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
-            out.push({ ...e, amount: partial, entries: monthEntries, _partialGroup: true });
+            // Re-date the copy to its newest in-month entry — the parent date
+            // is the group's latest entry overall and may live in ANOTHER
+            // month, which inflated "por pagar" projections and mis-sorted
+            // CSV exports.
+            const pdate = monthEntries.reduce((mx, en) => en.date > mx ? en.date : mx, monthEntries[0].date);
+            out.push({ ...e, amount: partial, date: pdate, entries: monthEntries, _partialGroup: true });
             return out;
         }
         if (inMonth(e.date)) out.push(e);
@@ -12177,6 +12197,13 @@ function deleteExpenseMonthEntries(id, monthKey) {
     const e = expenses[idx];
     e.entries = (e.entries || []).filter(en => (en.date || '').slice(0, 7) !== monthKey);
     if (!e.entries.length) {
+        // Unreachable from confirmDelete (cross-month guarantees a remainder),
+        // but keep the same cascades as deleteExpense for safety.
+        if (e.prepaidCardId && e.prepaidTxId) {
+            const card = prepaidCards.find(c => c.id === e.prepaidCardId);
+            if (card) card.transactions = (card.transactions || []).filter(t => t.id !== e.prepaidTxId);
+        }
+        incomes = incomes.filter(i => !(i.isReimbursement && i.refExpenseId === e.id));
         expenses.splice(idx, 1);
     } else {
         e.amount = e.entries.reduce((s, en) => s + (parseFloat(en.amount) || 0), 0);
@@ -17232,7 +17259,16 @@ function getFixedMonthKeyForInbox(date) {
 // safe to call from inside hot render paths.
 function recordInboxAutoApproval(kind, item, date) {
     if (!item) return;
+    // Suppressed during background history sweeps (carry-over fold) — those
+    // visit old months whose auto-approvals the user never triggered.
+    if (typeof _suppressInboxRecording !== 'undefined' && _suppressInboxRecording) return;
     const month = getFixedMonthKeyForInbox(date);
+    // Months older than the inbox retention window would be pushed and
+    // immediately pruned by saveInbox — and, never persisting, re-pushed on
+    // every render. Skip them outright.
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 6);
+    if (month < `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}`) return;
     const dedupKey = `${item.id}|${month}`;
     const inbox = getInbox();
     if (inbox.some(e => `${e.refId}|${e.month}` === dedupKey)) return;
