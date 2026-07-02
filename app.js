@@ -186,6 +186,35 @@ function loadAiData() {
         }
         localStorage.setItem('despesas_own_mbway_seed_v2', '1');
     }
+    // One-time bank-mapping hygiene + seeds (cross-referenced amount+date
+    // between the user's manual entries and their real CGD/Moey/BIG
+    // statements). Runs after loadData(), so bankMappings is populated.
+    if (!localStorage.getItem('despesas_bankmap_seed_v1')) {
+        // 1) Prune poison mappings: generic transfer prefixes learned by
+        // accident substring-match EVERY future MBWay/IPS line and rename it
+        // to one old expense (e.g. 'Trf Mbway' → 'Parque diversão Amarante').
+        const GENERIC_NORMS = ['TRF MBWAY', 'TRF MBW', 'TRANSFERENCIA MB WAY', 'TFI', 'IPS', 'TRANSACAO DESCONHECIDA'];
+        bankMappings = bankMappings.filter(m => m.bankNorm
+            && !GENERIC_NORMS.includes(m.bankNorm)
+            && !(m.bankNorm === 'NETFLIX' && m.cleanName === 'Action'));
+        // 2) Seed stable statement-name → manual-name mappings, each one
+        // confirmed by amount+date against real statement lines.
+        [
+            ['OP BX VALOR 03 TRAN', 'Via Verde', 'transportes'],
+            ['COMPRA ANTHROPIC C', 'Licença Claude', 'subscricoes'],
+            ['COMPRA CLAUDE.AI SUBS', 'Licença Claude', 'subscricoes'],
+            ['COBRANCA PRESTACAO', 'Prestação da Casa', 'casa'],
+            ['MANUT CONTA PACOTE CA', 'Manutenção da conta', 'casa'],
+            ['EDP COMERC', 'EDP', 'mo37kzn0yw979'],
+            ['MEO, SA', 'Meo', 'telecomunicacoes'],
+            ['Aguas do N', 'Agua', 'mo37kzn0yw979'],
+            ['TRF INETUM HOLDING BU', 'Salário', 'ordenado']
+        ].forEach(([raw, clean, cat]) => {
+            if (!findBankMapping(raw)) recordBankMapping(raw, clean, cat);
+        });
+        try { localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings)); } catch {}
+        localStorage.setItem('despesas_bankmap_seed_v1', '1');
+    }
 }
 
 function saveAiSettings() {
@@ -15030,7 +15059,15 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     if (fi.description.toLowerCase().trim() !== mapping.cleanName.toLowerCase().trim()) return false;
                     const effAmt = getEffectiveFixedIncomeAmount(fi, txMD0);
                     const tol = fi.isVariable ? Math.min(20, (effAmt || fi.amount || 0) * 0.15) : 0.02;
-                    return Math.abs(effAmt - txAmt) < tol || Math.abs((fi.amount || 0) - txAmt) < tol;
+                    if (Math.abs(effAmt - txAmt) < tol || Math.abs((fi.amount || 0) - txAmt) < tol) return true;
+                    // Salary-like bind: the mapping names this fixed income and
+                    // the deposit is at least half the expected amount — real
+                    // salaries vary (bonuses, reimbursements bundled in). The
+                    // configured 2700€ vs a 4408€ deposit failed every
+                    // tolerance and DOUBLE-counted the month (create-income +
+                    // auto-approved fixed). Small credits from the same payer
+                    // (expense reimbursements) stay below 50% and fall through.
+                    return txAmt >= 0.5 * (effAmt || fi.amount || 0);
                 });
                 if (mFI) {
                     const effSt0 = getEffectiveFixedIncomeStatus(mFI, txMD0);
