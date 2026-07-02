@@ -2191,27 +2191,36 @@ function loadData() {
 let _dataRev = 0;
 function saveData() {
     _dataRev++;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
-    localStorage.setItem(INCOME_KEY, JSON.stringify(incomes));
-    localStorage.setItem(FIXED_KEY, JSON.stringify(fixedExpenses));
-    localStorage.setItem(FIXED_STATUS_KEY, JSON.stringify(fixedStatus));
-    localStorage.setItem(CUSTOM_CAT_KEY, JSON.stringify(customCategories));
-    localStorage.setItem(CUSTOM_INC_CAT_KEY, JSON.stringify(customIncCategories));
-    localStorage.setItem(CHILDREN_KEY, JSON.stringify(children));
-    localStorage.setItem(FIXED_INCOME_KEY, JSON.stringify(fixedIncomes));
-    localStorage.setItem(FIXED_INCOME_STATUS_KEY, JSON.stringify(fixedIncomeStatus));
-    localStorage.setItem(FORECAST_CFG_KEY, JSON.stringify(forecastCfg));
-    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
-    localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
-    localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-    localStorage.setItem(BALANCE_SNAPSHOTS_KEY, JSON.stringify(balanceSnapshots));
-    localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
-    localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
-    localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings));
-    localStorage.setItem(PENDING_BANK_TXS_KEY, JSON.stringify(pendingBankTxs));
-    localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
-    localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+        localStorage.setItem(INCOME_KEY, JSON.stringify(incomes));
+        localStorage.setItem(FIXED_KEY, JSON.stringify(fixedExpenses));
+        localStorage.setItem(FIXED_STATUS_KEY, JSON.stringify(fixedStatus));
+        localStorage.setItem(CUSTOM_CAT_KEY, JSON.stringify(customCategories));
+        localStorage.setItem(CUSTOM_INC_CAT_KEY, JSON.stringify(customIncCategories));
+        localStorage.setItem(CHILDREN_KEY, JSON.stringify(children));
+        localStorage.setItem(FIXED_INCOME_KEY, JSON.stringify(fixedIncomes));
+        localStorage.setItem(FIXED_INCOME_STATUS_KEY, JSON.stringify(fixedIncomeStatus));
+        localStorage.setItem(FORECAST_CFG_KEY, JSON.stringify(forecastCfg));
+        localStorage.setItem(TEMPLATES_KEY, JSON.stringify(expenseTemplates));
+        localStorage.setItem(BUDGETS_KEY, JSON.stringify(categoryBudgets));
+        localStorage.setItem(PREPAID_KEY, JSON.stringify(prepaidCards));
+        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+        localStorage.setItem(BALANCE_SNAPSHOTS_KEY, JSON.stringify(balanceSnapshots));
+        localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
+        localStorage.setItem(CYCLE_OPENING_OVERRIDES_KEY, JSON.stringify(cycleOpeningOverrides));
+        localStorage.setItem(BANK_MAPPINGS_KEY, JSON.stringify(bankMappings));
+        localStorage.setItem(PENDING_BANK_TXS_KEY, JSON.stringify(pendingBankTxs));
+        localStorage.setItem(GOALS_KEY, JSON.stringify(savingsGoals));
+        localStorage.setItem(NETWORTH_KEY, JSON.stringify(netWorth));
+    } catch (err) {
+        // QuotaExceededError here used to abort ALL remaining writes and
+        // propagate unhandled — one oversized photo silently killed every
+        // future save until reload. Surface it instead.
+        const isQuota = err && (err.name === 'QuotaExceededError' || err.code === 22);
+        try { showToast(isQuota ? '⚠ Armazenamento cheio — remove fotos/anexos antigos' : '⚠ Erro ao guardar dados'); } catch {}
+        console.error('saveData failed', err);
+    }
     // Best-effort: refresh the consumption profile after every save so AI
     // analyses reflect the latest habits on the next call.
     try { recomputeUserProfile(); } catch {}
@@ -5629,6 +5638,17 @@ function duplicateExpense(id) {
     delete dup.prepaidCardId;
     delete dup.prepaidTxId;
     delete dup.isPrepaidTopup;
+    // A copy was not reconciled with the bank, and nobody paid it yet:
+    // reset paid state, and give splits FRESH unpaid objects — the shallow
+    // spread shared the array with the original, and a paid split's incomeId
+    // would let the copy delete the original's real reimbursement income.
+    delete dup.bankValidated;
+    if (Array.isArray(dup.splits)) {
+        dup.splits = dup.splits.map(s => ({ name: s.name, amount: s.amount, paid: false }));
+    }
+    dup.paidByFather = false;
+    dup.spousePaid = false;
+    dup.mixPartnerPaid = false;
     expenses.push(dup);
     saveData();
     updateAll();
@@ -5656,6 +5676,8 @@ function duplicateFixed(id) {
     const orig = fixedExpenses.find(f => f.id === id);
     if (!orig) return;
     const dup = { ...orig, id: generateId(), description: `(copia) ${orig.description}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    // Fresh splits array — the spread shares the reference with the original.
+    if (Array.isArray(dup.splits)) dup.splits = dup.splits.map(s => ({ ...s }));
     fixedExpenses.push(dup);
     saveData();
     renderFixedList();
@@ -10508,28 +10530,47 @@ function renderUnnecessaryExpenses() {
 }
 
 // ===== ATTACHMENTS =====
+// Attachments are stored as base64 INSIDE localStorage (~5MB total quota) —
+// a raw phone photo is several MB, so large images are downscaled to
+// max 1280px JPEG before storing. Non-images and small files pass through.
+function prepareAttachment(file, cb) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        const isImage = (file.type || '').startsWith('image/');
+        if (!isImage || dataUrl.length < 600000) { cb({ data: dataUrl, name: file.name, type: file.type }); return; }
+        const img = new Image();
+        img.onload = () => {
+            const MAX = 1280;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            cb({ data: canvas.toDataURL('image/jpeg', 0.8), name: file.name, type: 'image/jpeg' });
+        };
+        img.onerror = () => cb({ data: dataUrl, name: file.name, type: file.type });
+        img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+}
+
 function previewAttachment(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        pendingAttachment = { data: e.target.result, name: file.name, type: file.type };
+    prepareAttachment(file, (att) => {
+        pendingAttachment = att;
         renderAttachmentPreview('attachment-preview', pendingAttachment);
-    };
-    reader.readAsDataURL(file);
+    });
 }
 
 function previewIncomeAttachment(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        pendingIncomeAttachment = { data: e.target.result, name: file.name, type: file.type };
+    prepareAttachment(file, (att) => {
+        pendingIncomeAttachment = att;
         renderAttachmentPreview('income-attachment-preview', pendingIncomeAttachment);
-    };
-    reader.readAsDataURL(file);
+    });
 }
 
 function renderAttachmentPreview(containerId, attachment) {
