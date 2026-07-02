@@ -2437,7 +2437,7 @@
                         <input type="file" id="bank-import-file" style="display:none" accept=".csv,.pdf,.png,.jpg,.jpeg,.webp" multiple onchange="stageBankFiles(event)">
                     </label>
                     <div id="bank-import-staged"></div>
-                    <div style="margin-top:8px;font-size:0.7rem;color:var(--text-muted);text-align:center">Sem datas "De/Até", só são importados movimentos de <b id="bank-import-month-hint" style="text-transform:capitalize"></b>.</div>
+                    <div style="margin-top:8px;font-size:0.7rem;color:var(--text-muted);text-align:center">Sem datas "De/Até", é importado o <b>mês dos próprios extratos</b> (o que tiver mais movimentos).</div>
                     <div id="bank-import-status" style="margin-top:10px;font-size:0.82rem;color:var(--text-light);text-align:center;min-height:20px"></div>
                 </div>
 
@@ -2496,7 +2496,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=338"></script>
+    <script src="app.js?v=339"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

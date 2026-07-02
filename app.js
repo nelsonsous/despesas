@@ -3960,7 +3960,7 @@ function renderCycleExpenses() {
             kind: 'transfer',
             id: t.id,
             date: t.date,
-            description: t.description || 'Transferência',
+            description: t.description || t.notes || 'Transferência',
             category: '_transfer',
             amount: t.amount || 0,
             fromAccountId: t.fromAccountId,
@@ -5943,7 +5943,11 @@ function renderExpenseItem(e) {
         : '';
 
     const catColor = cat.color || '#6C5CE7';
-    const badgesRow = `${mixBadge}${splitWithBadge}${coParentBadge}`;
+    // Reconciliation adjustments must not read as real spending in the list.
+    const adjustBadge = e.isBalanceAdjust
+        ? '<span class="fixed-status-badge" style="background:#ECEFF1;color:#607D8B;font-size:0.6rem"><i class="fas fa-scale-balanced"></i> acerto ao extrato</span>'
+        : '';
+    const badgesRow = `${adjustBadge}${mixBadge}${splitWithBadge}${coParentBadge}`;
     const expAcc = e.accountId ? accounts.find(a => a.id === e.accountId) : null;
     const accChip = expAcc ? `<span style="font-size:0.62rem;color:#546E7A;background:#ECEFF1;padding:1px 5px;border-radius:4px;white-space:nowrap"><i class="fas fa-credit-card" style="font-size:0.55rem"></i> ${expAcc.last4 ? `*${expAcc.last4}` : expAcc.name.slice(0,10)}</span>` : '';
     // Prepaid card visual treatment: top-ups get a purple chip ("Carregamento"),
@@ -14209,8 +14213,14 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     // which side of the boundary the movement belongs to — e.g. purchases
     // registered AFTER the morning's snapshot count toward the NEXT window,
     // even though they share its date.
-    const inWindowMv = (d, createdAt) => {
+    const inWindowMv = (d, createdAt, isAdj) => {
         if (!d) return false;
+        // Balance adjustments dated on a snapshot day belong, by construction,
+        // to THAT snapshot's window — they're created moments after the
+        // snapshot (createdAt later), which the same-day heuristic below would
+        // wrongly push into the next window, leaving a phantom chip equal to
+        // the amount just leveled.
+        if (isAdj) return inWindow(d);
         if (createdAt) {
             if (d === fromDate && fromSnap.createdAt) return createdAt > fromSnap.createdAt;
             if (d === toDate && toSnap.createdAt && createdAt > toSnap.createdAt) return false;
@@ -14221,7 +14231,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
     // Incomes — ALL registered (validation is tracked separately)
     let paidIncome = 0, pendingIncomes = 0;
     incomes.forEach(i => {
-        if (i.accountId !== accountId || !inWindowMv(i.date, i.createdAt)) return;
+        if (i.accountId !== accountId || !inWindowMv(i.date, i.createdAt, i.isBalanceAdjust)) return;
         paidIncome += i.amount || 0;
         if (!i.bankValidated) pendingIncomes += i.amount || 0;
     });
@@ -14249,7 +14259,7 @@ function reconcileAccount(accountId, fromSnap, toSnap) {
             });
             return;
         }
-        if (e.accountId !== accountId || !inWindowMv(e.date, e.createdAt)) return;
+        if (e.accountId !== accountId || !inWindowMv(e.date, e.createdAt, e.isBalanceAdjust)) return;
         paidExpense += e.amount || 0;
         if (!e.bankValidated) pendingExpenses += e.amount || 0;
     });
@@ -14515,7 +14525,7 @@ function renderTransfersList() {
                 <i class="fas fa-exchange-alt"></i>
             </div>
             <div style="flex:1;min-width:0">
-                <div style="font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.description || 'Transferência'}</div>
+                <div style="font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.description || t.notes || 'Transferência'}</div>
                 <div style="font-size:0.7rem;color:var(--text-light)">${fmtD(t.date)} · ${getAccName(t.fromAccountId)} → ${getAccName(t.toAccountId)}</div>
             </div>
             <div style="font-size:0.82rem;font-weight:700;color:#1565C0;flex-shrink:0">${formatCurrency(t.amount)}</div>
@@ -14721,14 +14731,14 @@ function autoDetectBankAccount(meta) {
     return null;
 }
 
-// Shared scope hint: explicit De/Até range wins; otherwise the app's selected
-// month (which is also enforced as a hard post-parse filter).
+// Shared scope hint: explicit De/Até range narrows the AI's focus; without a
+// range the AI extracts EVERYTHING and the post-parse gate scopes to the
+// statements' own dominant month.
 function _bankImportRangeHint() {
     const from = document.getElementById('bank-import-from')?.value;
     const to = document.getElementById('bank-import-to')?.value;
     if (from && to) return `\nFoca-te nas transações entre ${from} e ${to} (inclui ambas as datas).`;
-    const mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-    return `\nFoca-te nas transações do mês ${mk} (as restantes serão ignoradas).`;
+    return '';
 }
 
 const BANK_STATEMENT_AI_PROMPT = (content) =>
@@ -15473,9 +15483,6 @@ function openBankImportModal(preSelectAccountId, fromDate, toDate) {
     _bankImportStagedFiles = [];
     const stagedEl = document.getElementById('bank-import-staged');
     if (stagedEl) stagedEl.innerHTML = '';
-    // Tell the user which month gates the import when no explicit range is set.
-    const hintEl = document.getElementById('bank-import-month-hint');
-    if (hintEl) hintEl.textContent = getMonthLabel(currentDate);
     modal.classList.add('active');
 }
 
@@ -15667,13 +15674,26 @@ async function analyzeBankStatementFiles(files) {
         }
 
         // Dedupe overlapping excerpts, then hard month/range gate: explicit
-        // De/Até range wins; otherwise only the app's currently selected month
-        // is imported, even when the uploads span several months.
+        // De/Até range wins; otherwise the scope is the DOMINANT month of the
+        // statements themselves (the month with the most extracted movements)
+        // — importing June statements while the app sits in July must not
+        // silently drop everything.
         const deduped = dedupeStatementTxs(all);
         const fromDate = document.getElementById('bank-import-from')?.value || '';
         const toDate = document.getElementById('bank-import-to')?.value || '';
-        const mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-        const scopeLabel = (fromDate || toDate) ? `${fromDate || '…'} → ${toDate || '…'}` : getMonthLabel(currentDate);
+        let mk = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        let scopeLabel;
+        if (fromDate || toDate) {
+            scopeLabel = `${fromDate || '…'} → ${toDate || '…'}`;
+        } else {
+            const counts = {};
+            deduped.forEach(t => { const m = (t.date || '').slice(0, 7); if (m.length === 7) counts[m] = (counts[m] || 0) + 1; });
+            const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+            if (dominant) mk = dominant;
+            const [my, mm] = mk.split('-').map(Number);
+            scopeLabel = getMonthLabel(new Date(my, mm - 1, 1));
+            if (dominant) setStatus(`Extratos de ${scopeLabel} detetados`);
+        }
         const { kept, dropped } = filterStatementTxsToScope(deduped, fromDate, toDate, mk);
         _bankImportScopeNote = [
             dropped > 0 ? `${dropped} movimento${dropped === 1 ? '' : 's'} fora de ${scopeLabel} ignorado${dropped === 1 ? '' : 's'}` : '',
@@ -15692,10 +15712,12 @@ async function analyzeBankStatementFiles(files) {
         const fileAccs = {};
         usedSrcs.forEach(fi => { fileAccs[fi] = autoDetectBankAccount(fileMetas[fi]) || null; });
 
-        if (usedSrcs.length > 1 && accounts.length > 1) {
-            // Multiple statements + multiple accounts: confirm which account
-            // each file belongs to before matching — this is what lets
-            // inter-account MBWay movements pair up as transfers.
+        const globalSel0 = document.getElementById('bank-import-account-sel')?.value || null;
+        if (accounts.length > 1 && (usedSrcs.length > 1 || (!fileAccs[usedSrcs[0]] && !globalSel0))) {
+            // Confirm which account each file belongs to before matching —
+            // always with several statements (enables inter-account pairing),
+            // and with a single one when neither autodetect nor the selector
+            // resolved it. This is where "a que banco pertence" gets answered.
             window._bankImportBatch = { kept, usedSrcs, fileAccs, fileNames, fileMetas };
             renderBankFileAccountStep();
             return;
