@@ -171,6 +171,21 @@ function loadAiData() {
     if (s) aiCfg = { ...aiCfg, ...JSON.parse(s) };
     const p = localStorage.getItem(PENDING_KEY);
     pendingExpenses = p ? JSON.parse(p) : [];
+    // One-time seed (v2): the household's own identifiers, as they actually
+    // appear on statements, so self-transfers are recognized from day one.
+    //   932*720   — MBWay number with the MIDDLE masked (CGD style)
+    //   93296672  — Moey cuts the LAST digit: "TRF MBW …93296672(0)"
+    //   nelson sousa — IPS self-credits: "IPS/R…-NELSON SOUSA DI"
+    // Editable/removable in Definições → IA → contactos próprios.
+    if (!localStorage.getItem('despesas_own_mbway_seed_v2')) {
+        const cur = (aiCfg.ownContacts || '');
+        const toAdd = ['932*720', '93296672', 'nelson sousa'].filter(t => !cur.toLowerCase().includes(t));
+        if (toAdd.length) {
+            aiCfg.ownContacts = (cur ? cur + '\n' : '') + toAdd.join('\n');
+            try { localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg)); } catch {}
+        }
+        localStorage.setItem('despesas_own_mbway_seed_v2', '1');
+    }
 }
 
 function saveAiSettings() {
@@ -611,10 +626,12 @@ function descriptionMatchesOwnContact(description) {
     const d = (description || '').toLowerCase();
     return tokens.some(t => {
         if (d.includes(t)) return true;
-        // Wildcard: "932XXX720" matches "932000720" etc.
+        // Wildcard: "932*720" / "932XXX720" matches masked statement numbers
+        // like "932***720", "932 000 720" or "932...720" — banks cut/mask the
+        // middle digits, so the gap must accept digits AND mask characters.
         if (/[x*]/i.test(t)) {
             try {
-                const re = new RegExp(t.replace(/[xX*]+/g, '\\d*'));
+                const re = new RegExp(t.replace(/[xX*]+/g, '[\\d\\sxX*·.•-]{0,9}'));
                 return re.test(d);
             } catch { return false; }
         }
@@ -15298,6 +15315,21 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
+        // 3.95 — own MBWay/self-transfer: an MBWay/IPS/transfer line carrying
+        // one of the user's OWN identifiers (Definições → contactos próprios)
+        // is money moving between their accounts — suggest a transfer, never
+        // an expense/income. Handles the one-sided case where only one
+        // account's statement was uploaded. Real formats seen: "Trf MB WAY…",
+        // "TRF MBW 0193…", "IPS/R316…-NELSON SOUSA DI".
+        if (/mb\s?w(ay)?\b|transf|\btrf\b|ips\//i.test(tx.description || '') && descriptionMatchesOwnContact(tx.description)) {
+            const ownAcc = tx._acc || accountId || '';
+            suggestions.push({ tx, action: 'create-transfer',
+                transferFrom: isDebit ? ownAcc : '',
+                transferTo: isDebit ? '' : ownAcc,
+                suggestedDesc: 'MB WAY entre contas', selected: true, isOwnNumber: true });
+            return;
+        }
+
         // 4 — not found: suggest creating (only use mapping for category, never for name to avoid stale suggestions)
         const cat = mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento');
         const suggestedDesc = null;
@@ -15593,6 +15625,26 @@ function confirmBankFileAccounts() {
     _finishBankImport(batch.kept, document.getElementById('bank-import-account-sel')?.value || null);
 }
 
+// Learn the user's own MBWay number from a CONFIRMED inter-account pair:
+// "MB WAY 932***720" → token "932*720" appended to ownContacts, so future
+// one-sided statements (only one account uploaded) are recognized as
+// self-transfers instead of expenses. Handles masked and full numbers.
+function learnOwnNumberFromPair(...descs) {
+    let added = 0;
+    descs.forEach(desc => {
+        const m = (desc || '').match(/(9\d{2})[\d\s*xX·.•-]{0,8}?(\d{3})(?!\d)/);
+        if (!m) return;
+        const token = `${m[1]}*${m[2]}`;
+        if (descriptionMatchesOwnContact(`${m[1]}${m[2]}`)) return; // already covered
+        aiCfg.ownContacts = (aiCfg.ownContacts ? aiCfg.ownContacts + '\n' : '') + token;
+        added++;
+    });
+    if (added) {
+        try { localStorage.setItem(AI_CFG_KEY, JSON.stringify(aiCfg)); } catch {}
+        showToast('Número MB WAY memorizado como teu');
+    }
+}
+
 // Detect money moving BETWEEN the user's own accounts (e.g. MBWay top-ups):
 // a debit in one account + a credit in another, same amount (±0.02), dates
 // within 2 days → ONE transfer suggestion instead of expense + income.
@@ -15614,7 +15666,7 @@ function extractInterAccountTransfers(txs) {
         used.add(d); used.add(c);
         const fromName = accounts.find(a => a.id === d._acc)?.name || '?';
         const toName = accounts.find(a => a.id === c._acc)?.name || '?';
-        const isMbway = /mb\s?way/i.test(d.description || '') || /mb\s?way/i.test(c.description || '');
+        const isMbway = /mb\s?w(ay)?\b/i.test(d.description || '') || /mb\s?w(ay)?\b/i.test(c.description || '');
         const dup = transfers.some(t => t.fromAccountId === d._acc && t.toAccountId === c._acc
             && Math.abs((t.amount || 0) - dAmt) < 0.02
             && t.date && Math.abs(ms(t.date) - ms(d.date)) <= 2 * dayMs);
@@ -16002,6 +16054,11 @@ async function applyBankImportSelections() {
             const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || accountId;
             const toId = document.getElementById(`bank-row-tto-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferTo || null;
             transfers.push({ id: generateId(), date: tx.date, amount: tx.amount, description: s.suggestedDesc || 'Transferência', fromAccountId: fromId || null, toAccountId: toId || null, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
+            // Confirmed inter-account MBWay pair → remember the user's own
+            // number for future one-sided imports.
+            if (s.isInterAccount && /mb\s?w(ay)?\b/i.test((tx?.description || '') + (s.txCredit?.description || ''))) {
+                learnOwnNumberFromPair(tx?.description, s.txCredit?.description);
+            }
             count++;
         }
     });
