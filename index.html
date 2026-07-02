@@ -2428,7 +2428,7 @@
                     </div>
                     <label for="bank-import-file" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:2px dashed var(--border);border-radius:12px;cursor:pointer;gap:6px;text-align:center">
                         <i class="fas fa-file-circle-plus" style="font-size:1.8rem;color:var(--primary)"></i>
-                        <span style="font-weight:600">Adicionar extratos</span>
+                        <span style="font-weight:600" id="bank-dropzone-label">Adicionar extratos</span>
                         <span style="font-size:0.72rem;color:var(--text-light)">CSV · PDF · fotos — adiciona em várias vezes (PDFs dos Ficheiros + capturas das Fotos) e analisa tudo junto</span>
                         <input type="file" id="bank-import-file" style="display:none" accept=".csv,.pdf,.png,.jpg,.jpeg,.webp" multiple onchange="stageBankFiles(event)">
                     </label>
@@ -2492,7 +2492,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=342"></script>
+    <script src="app.js?v=343"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

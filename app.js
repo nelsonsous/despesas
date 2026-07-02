@@ -455,7 +455,7 @@ function emailToText(msg) {
     return `ID:${msg.id}\nAssunto: ${get('Subject')}\nDe: ${get('From')}\nData: ${get('Date')}\n${body}`;
 }
 
-async function callGeminiOnce(prompt) {
+async function callGeminiOnce(prompt, maxTokens = 2000) {
     // Try primary model first, fall back to lite variant
     const models = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
     let lastErr = null;
@@ -467,7 +467,7 @@ async function callGeminiOnce(prompt) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
+                    generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens }
                 })
             }
         );
@@ -509,7 +509,7 @@ async function callGeminiOnce(prompt) {
 
 // Generic call for OpenAI-compatible providers (xAI/Grok, Groq).
 // Returns the parsed response body or throws with a provider-prefixed message.
-async function callOpenAICompatibleOnce(label, url, key, model, prompt) {
+async function callOpenAICompatibleOnce(label, url, key, model, prompt, maxTokens = 2000) {
     const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -520,7 +520,7 @@ async function callOpenAICompatibleOnce(label, url, key, model, prompt) {
             model,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
-            max_tokens: 2000
+            max_tokens: maxTokens
         })
     });
     const data = await res.json().catch(() => ({}));
@@ -533,14 +533,14 @@ async function callOpenAICompatibleOnce(label, url, key, model, prompt) {
     return data;
 }
 
-function callGrokOnce(prompt) {
-    return callOpenAICompatibleOnce('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, aiCfg.grokModel || 'grok-4-fast', prompt);
+function callGrokOnce(prompt, maxTokens) {
+    return callOpenAICompatibleOnce('Grok', 'https://api.x.ai/v1/chat/completions', aiCfg.grokKey, aiCfg.grokModel || 'grok-4-fast', prompt, maxTokens);
 }
-function callGroqOnce(prompt) {
-    return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt);
+function callGroqOnce(prompt, maxTokens) {
+    return callOpenAICompatibleOnce('Groq', 'https://api.groq.com/openai/v1/chat/completions', aiCfg.groqKey, aiCfg.groqModel || 'llama-3.3-70b-versatile', prompt, maxTokens);
 }
-function callMistralOnce(prompt) {
-    return callOpenAICompatibleOnce('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, aiCfg.mistralModel || 'mistral-small-latest', prompt);
+function callMistralOnce(prompt, maxTokens) {
+    return callOpenAICompatibleOnce('Mistral', 'https://api.mistral.ai/v1/chat/completions', aiCfg.mistralKey, aiCfg.mistralModel || 'mistral-small-latest', prompt, maxTokens);
 }
 
 const CATEGORY_HINTS_BLOCK = `Categorias possíveis e merchants típicos (usa a mais específica):
@@ -615,12 +615,14 @@ ${texts.join('\n===\n')}`;
 
 function extractJsonArray(text) {
     // Bracket-balance scan: extracts the first COMPLETE top-level array,
-    // immune to trailing prose (with or without ']') and to nested arrays —
-    // regex approaches truncated or over-captured in those cases.
+    // immune to trailing prose (with or without ']') and to nested arrays.
+    // If the model's output was TRUNCATED mid-array (token cap), salvage all
+    // complete elements up to the last fully-closed object — a 60-line
+    // statement must not become "0 movimentos" because the tail was cut.
     const clean = (text || '').replace(/```(?:json)?/gi, '');
     const start = clean.indexOf('[');
     if (start < 0) return [];
-    let depth = 0, inStr = false, esc = false;
+    let depth = 0, inStr = false, esc = false, lastElemEnd = -1;
     for (let i = start; i < clean.length; i++) {
         const c = clean[i];
         if (inStr) {
@@ -630,10 +632,18 @@ function extractJsonArray(text) {
             continue;
         }
         if (c === '"') inStr = true;
-        else if (c === '[') depth++;
+        else if (c === '[' || c === '{') depth++;
+        else if (c === '}') {
+            depth--;
+            if (depth === 1) lastElemEnd = i; // top-level array element closed
+        }
         else if (c === ']' && --depth === 0) {
             try { return JSON.parse(clean.slice(start, i + 1)); } catch { return []; }
         }
+    }
+    // Never saw the closing ']' — truncated output. Recover the complete part.
+    if (lastElemEnd > start) {
+        try { return JSON.parse(clean.slice(start, lastElemEnd + 1) + ']'); } catch { return []; }
     }
     return [];
 }
@@ -2574,9 +2584,14 @@ function getEffectiveFixedIncomeStatus(fi, date) {
     // they have to confirm via the badge in the income tab.
     if (fi.manualMark) return { status: 'pendente', auto: false };
     const today = new Date();
-    const isCurrentMonth = date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
-    if (isCurrentMonth) {
-        const payDate = getFixedIncomePaymentDate(fi, today.getFullYear(), today.getMonth());
+    // Auto-approve for any past or current month once the payment day has
+    // arrived — mirroring getEffectiveFixedStatus. Restricting to the current
+    // calendar month left last month's salary (paid on the 22nd, cycle
+    // spanning the month boundary) "por receber" forever after rollover.
+    const dateMonthIdx = date.getFullYear() * 12 + date.getMonth();
+    const todayMonthIdx = today.getFullYear() * 12 + today.getMonth();
+    if (dateMonthIdx <= todayMonthIdx) {
+        const payDate = getFixedIncomePaymentDate(fi, date.getFullYear(), date.getMonth());
         if (today >= payDate) {
             recordInboxAutoApproval('income', fi, date);
             return { status: 'recebido', auto: true };
@@ -7735,26 +7750,26 @@ function hasAnyAiKey() {
 // with a key configured when the preferred one errors (quota, 429, network).
 // Every call site benefits — narrative, savings tips, NL query, auto-cat,
 // scenarios, duplicates, fixas suggestion, share-message drafting.
-async function callAIText(prompt) {
+async function callAIText(prompt, maxTokens) {
     const order = aiProviderFallbackOrder();
     if (!order.length) throw new Error('Sem chave de IA configurada');
     const errors = [];
     for (const provider of order) {
         try {
             if (provider === 'gemini') {
-                const data = await callGeminiOnce(prompt);
+                const data = await callGeminiOnce(prompt, maxTokens);
                 return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
             }
             if (provider === 'groq') {
-                const data = await callGroqOnce(prompt);
+                const data = await callGroqOnce(prompt, maxTokens);
                 return data?.choices?.[0]?.message?.content || '';
             }
             if (provider === 'grok') {
-                const data = await callGrokOnce(prompt);
+                const data = await callGrokOnce(prompt, maxTokens);
                 return data?.choices?.[0]?.message?.content || '';
             }
             if (provider === 'mistral') {
-                const data = await callMistralOnce(prompt);
+                const data = await callMistralOnce(prompt, maxTokens);
                 return data?.choices?.[0]?.message?.content || '';
             }
         } catch (e) {
@@ -8573,7 +8588,7 @@ ${CATEGORY_HINTS_BLOCK}
 Categorias disponíveis: ${JSON.stringify(catList)}
 Hoje: ${today}
 ${userProfilePromptBlock()}`;
-    const data = await callMistralOnce(prompt);
+    const data = await callMistralOnce(prompt, maxTokens);
     const text = data?.choices?.[0]?.message?.content || '';
     return extractJsonObject(text);
 }
@@ -15029,7 +15044,14 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 });
                 if (mFI) {
                     const effSt0 = getEffectiveFixedIncomeStatus(mFI, txMD0);
-                    suggestions.push({ tx, action: effSt0.status === 'recebido' ? 'already-validated' : 'mark-fixed-income-received', matchId: mFI.id, matchDesc: mFI.description, category: mFI.category, selected: effSt0.status !== 'recebido', mappedFrom: mapping.bankRaw });
+                    const received0 = effSt0.status === 'recebido';
+                    // Pre-select even when already received if the bank amount
+                    // differs materially — auto-approval records the CONFIGURED
+                    // amount (e.g. 2700€) while the statement carries the real
+                    // deposit (4408€); applying snaps amount+receivedDate.
+                    const recAmt0 = getEffectiveFixedIncomeAmount(mFI, txMD0);
+                    const amountDiffers0 = Math.abs((recAmt0 || 0) - txAmt) > 0.02;
+                    suggestions.push({ tx, action: received0 ? 'already-validated' : 'mark-fixed-income-received', matchId: mFI.id, matchDesc: mFI.description, category: mFI.category, selected: !received0 || amountDiffers0, mappedFrom: mapping.bankRaw });
                     return;
                 }
             }
@@ -15505,6 +15527,10 @@ function removeStagedFile(i) {
 function renderStagedFiles() {
     const el = document.getElementById('bank-import-staged');
     if (!el) return;
+    // Dropzone label mirrors the queue state so it's obvious that repeat
+    // taps ACCUMULATE (Ficheiros e Fotos em sessões separadas no iOS).
+    const lbl = document.getElementById('bank-dropzone-label');
+    if (lbl) lbl.textContent = _bankImportStagedFiles.length ? '+ Adicionar mais extratos' : 'Adicionar extratos';
     if (!_bankImportStagedFiles.length) { el.innerHTML = ''; return; }
     const icon = (f) => /pdf$/i.test(f.name) ? 'fa-file-pdf' : /\.(png|jpe?g|webp)$/i.test(f.name) ? 'fa-image' : 'fa-file-csv';
     el.innerHTML = `<div style="margin-top:8px">
@@ -15516,6 +15542,7 @@ function renderStagedFiles() {
         <button onclick="startBankImportAnalysis()" class="btn btn-primary" style="width:100%;margin-top:4px;padding:10px;font-size:0.85rem">
             <i class="fas fa-magnifying-glass-chart"></i> Analisar ${_bankImportStagedFiles.length} extrato${_bankImportStagedFiles.length === 1 ? '' : 's'}
         </button>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--text-muted);text-align:center">Podes continuar a adicionar (Ficheiros ou Fotos) antes de analisar — cruza melhor com todos juntos.</div>
     </div>`;
 }
 
@@ -15573,7 +15600,7 @@ async function analyzeBankStatementFiles(files) {
                     const text = await extractPdfText(file);
                     if (!text || text.length < 30) { fileNotes.push(`"${file.name}" sem texto extraível`); continue; }
                     setStatus(prefix + 'Texto extraído. A analisar com IA…');
-                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)), 8000);
                     transactions = extractJsonArray(raw);
                 } else {
                     // CSV or plain text
@@ -15585,7 +15612,7 @@ async function analyzeBankStatementFiles(files) {
                         r.readAsText(file, 'utf-8');
                     });
                     setStatus(prefix + 'A analisar com IA…');
-                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)));
+                    const raw = await callAIText(BANK_STATEMENT_AI_PROMPT(text.slice(0, 12000)), 8000);
                     transactions = extractJsonArray(raw);
                 }
             } catch (fileErr) {
