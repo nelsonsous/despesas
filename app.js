@@ -14971,7 +14971,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                     matchedExpIds.add(nearMappedExp.id);
                     suggestions.push({ tx, action: 'near-match', matchId: nearMappedExp.id,
                         matchDesc: nearMappedExp.description, matchAmount: nearMappedExp.amount,
-                        category: nearMappedExp.category, selected: true, correctAmount: false, mappedFrom: mapping.bankRaw });
+                        category: nearMappedExp.category, selected: true, correctAmount: true, mappedFrom: mapping.bankRaw });
                     return;
                 }
             }
@@ -15027,7 +15027,7 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 matchedExpIds.add(nearExp.id);
                 suggestions.push({ tx, action: 'near-match', matchId: nearExp.id,
                     matchDesc: nearExp.description, matchAmount: nearExp.amount,
-                    category: nearExp.category, selected: true, correctAmount: false });
+                    category: nearExp.category, selected: true, correctAmount: true });
                 return;
             }
         }
@@ -15614,11 +15614,15 @@ async function applyBankImportSelections() {
         const tx = s.tx;
         const rowCat = document.getElementById(`bank-row-cat-${bankImportSuggestions.indexOf(s)}`)?.value || s.category;
         if (s.action === 'validate') {
+            // Exact matches are within ±0.02 — still snap to the bank's amount
+            // so registered values agree with the statement to the cent.
+            const bankAmt = parseFloat(tx?.amount) || 0;
             const expIdx = expenses.findIndex(e => e.id === s.matchId);
             if (expIdx >= 0) {
                 expenses[expIdx] = { ...expenses[expIdx], bankValidated: true,
                     ...(accountId ? { accountId } : {}),
                     ...(tx?.date ? { date: tx.date } : {}),
+                    ...(bankAmt > 0 ? { amount: bankAmt } : {}),
                     ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
                 // Save mapping unless the user explicitly removed it
                 if (tx?.description && s.matchDesc && !s.skipMapping) recordBankMapping(tx.description, s.matchDesc, s.category);
@@ -15629,6 +15633,7 @@ async function applyBankImportSelections() {
                     incomes[incIdx] = { ...incomes[incIdx], bankValidated: true,
                         ...(accountId ? { accountId } : {}),
                         ...(tx?.date ? { date: tx.date } : {}),
+                        ...(bankAmt > 0 ? { amount: bankAmt } : {}),
                         ...(s.updateDesc && tx?.description ? { description: tx.description } : {}) };
                     if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
                     count++;
@@ -15680,6 +15685,21 @@ async function applyBankImportSelections() {
                         ...(accountId ? { accountId } : {}),
                         ...(tx?.date ? { date: tx.date } : {}) };
                     count++;
+                } else if (tx?.date) {
+                    // Fixed expense/income already marked paid/received: re-selecting
+                    // snaps the status to the bank's real amount and date.
+                    const month = tx.date.slice(0, 7);
+                    if (fixedExpenses.some(fe => fe.id === s.matchId)) {
+                        const fsIdx = fixedStatus.findIndex(fs => fs.fixedId === s.matchId && fs.month === month);
+                        const entry = { fixedId: s.matchId, month, status: 'pago', amount: tx.amount, paidDate: tx.date, paidAt: new Date().toISOString() };
+                        if (fsIdx >= 0) fixedStatus[fsIdx] = { ...fixedStatus[fsIdx], ...entry }; else fixedStatus.push(entry);
+                        count++;
+                    } else if (fixedIncomes.some(fi => fi.id === s.matchId)) {
+                        const fiIdx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
+                        const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedDate: tx.date, receivedAt: new Date().toISOString(), ...(accountId ? { accountId } : {}) };
+                        if (fiIdx >= 0) fixedIncomeStatus[fiIdx] = { ...fixedIncomeStatus[fiIdx], ...entry }; else fixedIncomeStatus.push(entry);
+                        count++;
+                    }
                 }
             }
         } else if (s.action === 'suggest-link') {
@@ -15714,7 +15734,9 @@ async function applyBankImportSelections() {
         } else if (s.action === 'mark-fixed-income-received') {
             const month = tx.date.slice(0, 7);
             const idx = fixedIncomeStatus.findIndex(fs => fs.fixedIncomeId === s.matchId && fs.month === month);
-            const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedAt: new Date().toISOString(), ...(accountId ? { accountId } : {}) };
+            // receivedDate = the bank transaction's real date — account balances
+            // and cycle windows read it via getFixedIncomeCashInDate.
+            const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedDate: tx.date, receivedAt: new Date().toISOString(), ...(accountId ? { accountId } : {}) };
             if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
             if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
