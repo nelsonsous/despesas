@@ -14645,7 +14645,7 @@ Devolve APENAS um array JSON (sem qualquer outro texto). O PRIMEIRO elemento dev
 ]
 O objeto _meta deve ter:
 - last4: últimos 4 dígitos do cartão/conta visíveis no extrato (null se não visível)
-- bank: nome do banco ou emissor (ex: "Santander", "CGD", "BIG", "Moey", "Inetum")
+- bank: nome do banco ou emissor. Usa o nome curto/acrónimo: "Caixa Geral de Depósitos"/"Caixadirecta" → "CGD"; "Crédito Agrícola"/"CCAM"/"Conta Moey" → "Moey"; "Banco de Investimento Global" → "BIG". Numa IMAGEM, identifica pelo logótipo ou pelas cores/estilo da app do banco se não houver texto (null só em último caso)
 - saldoFinal: o saldo atual/final da conta visível no extrato ("Saldo contabilístico", "SALDO FINAL", ou o saldo no topo da app) como número, null se não visível
 - saldoData: a data a que esse saldo se refere (data de emissão, do último movimento, ou de hoje se for o saldo atual da app), null se desconhecida
 Regras para as transações:
@@ -14666,12 +14666,30 @@ function autoDetectBankAccount(meta) {
     }
     // 2 — match by bank/issuer name substring
     if (meta.bank) {
-        const bankNorm = meta.bank.toLowerCase().trim();
+        const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+        const bankNorm = norm(meta.bank);
         const byName = accounts.find(a =>
-            a.name.toLowerCase().includes(bankNorm) ||
-            bankNorm.includes(a.name.toLowerCase().replace(/\s+/g, ''))
+            norm(a.name).includes(bankNorm) ||
+            bankNorm.includes(norm(a.name).replace(/\s+/g, ''))
         );
         if (byName) return byName.id;
+        // 3 — Portuguese bank aliases: statements print the FULL legal name
+        // ("Caixa Geral de Depósitos, S.A.") while the user's account is
+        // named by acronym ("CGD"). Most specific aliases first.
+        const ALIASES = [
+            ['caixa geral', 'cgd'], ['caixadirecta', 'cgd'],
+            ['moey', 'moey'], ['credito agricola', 'moey'], ['ccam', 'moey'],
+            ['banco de investimento global', 'big'], ['banco big', 'big'],
+            ['millennium', 'millennium'], ['novo banco', 'novobanco'], ['novobanco', 'novobanco'],
+            ['santander', 'santander'], ['activobank', 'activobank'], ['montepio', 'montepio'],
+            ['bankinter', 'bankinter'], ['revolut', 'revolut'], ['abanca', 'abanca'], ['bpi', 'bpi']
+        ];
+        for (const [alias, key] of ALIASES) {
+            if (bankNorm.includes(alias)) {
+                const acc = accounts.find(a => norm(a.name).includes(key));
+                if (acc) return acc.id;
+            }
+        }
     }
     return null;
 }
