@@ -15852,12 +15852,22 @@ function extractInterAccountTransfers(txs) {
         const dup = transfers.some(t => t.fromAccountId === d._acc && t.toAccountId === c._acc
             && Math.abs((t.amount || 0) - dAmt) < 0.02
             && t.date && Math.abs(ms(t.date) - ms(d.date)) <= 2 * dayMs);
+        // A goal contribution tagged to the source account IS this same money
+        // movement (goal txs debit the source and credit the savings account
+        // directly) — creating a transfer on top would double both sides.
+        const toIsSavings = accounts.find(a => a.id === c._acc)?.isSavings;
+        const dupGoal = !!toIsSavings && (savingsGoals || []).some(g => (g.transactions || []).some(t =>
+            t.type === 'add' && t.accountId === d._acc
+            && Math.abs((t.amount || 0) - dAmt) < 0.02
+            && t.date && Math.abs(ms(t.date) - ms(d.date)) <= 3 * dayMs));
         suggestions.push({
             tx: d, txCredit: c,
-            action: dup ? 'ignore' : 'create-transfer',
+            action: (dup || dupGoal) ? 'ignore' : 'create-transfer',
             transferFrom: d._acc, transferTo: c._acc,
-            suggestedDesc: `${isMbway ? 'MB WAY' : 'Transferência'} ${fromName} → ${toName}`,
-            selected: !dup,
+            suggestedDesc: dupGoal
+                ? `Já registado como aporte a objetivo (${fromName} → ${toName})`
+                : `${isMbway ? 'MB WAY' : 'Transferência'} ${fromName} → ${toName}`,
+            selected: !(dup || dupGoal),
             isInterAccount: true
         });
     });
