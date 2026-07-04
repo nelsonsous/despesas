@@ -16316,7 +16316,7 @@ async function applyBankImportSelections() {
             // receivedDate = the bank transaction's real date — account balances
             // and cycle windows read it via getFixedIncomeCashInDate.
             const entry = { fixedIncomeId: s.matchId, month, status: 'recebido', amount: tx.amount, receivedDate: tx.date, receivedAt: new Date().toISOString(), ...(accountId ? { accountId } : {}) };
-            if (idx >= 0) fixedIncomeStatus[idx] = entry; else fixedIncomeStatus.push(entry);
+            if (idx >= 0) fixedIncomeStatus[idx] = { ...fixedIncomeStatus[idx], ...entry }; else fixedIncomeStatus.push(entry);
             if (tx?.description && s.matchDesc) recordBankMapping(tx.description, s.matchDesc, s.category);
             count++;
         } else if (s.action === 'net-pair') {
@@ -16362,7 +16362,11 @@ async function applyBankImportSelections() {
             }
             count++;
         } else if (s.action === 'create-transfer') {
-            const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || accountId;
+            // Never fall back to the importing account for the UNKNOWN side —
+            // a one-sided credit self-transfer (IPS +200 with the other
+            // statement absent) would become Moey→Moey and net to zero,
+            // silently dropping the money. An unknown side stays null.
+            const fromId = document.getElementById(`bank-row-tfrom-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferFrom || null;
             const toId = document.getElementById(`bank-row-tto-${bankImportSuggestions.indexOf(s)}`)?.value || s.transferTo || null;
             transfers.push({ id: generateId(), date: tx.date, amount: tx.amount, description: s.suggestedDesc || 'Transferência', fromAccountId: fromId || null, toAccountId: toId || null, notes: '', bankValidated: true, createdAt: new Date().toISOString() });
             // Confirmed inter-account MBWay pair → remember the user's own
