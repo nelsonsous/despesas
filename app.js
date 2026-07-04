@@ -14872,10 +14872,18 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             const netAmt = Math.round((amtB - amtA) * 100) / 100;
             if (netAmt < 0.50) continue;
             const midDateMs = Math.min(dateAMs, dateBMs);
+            // Name evidence REQUIRED: statements where every line shares a
+            // generic label ("TRANSFERENCIA MB WAY") pass the same-source
+            // check trivially, and a ±45-day amount-only net match produced
+            // absurd combos (+42 −88,14 = 46,14 ≈ "Via Verde"). The expense
+            // must share words with the debit or be its learned mapping.
+            const netEvidence = (e) => bankDescWordOverlap(txB.description, e.description)
+                || (findBankMapping(txB.description)?.cleanName || '').toLowerCase().trim() === (e.description || '').toLowerCase().trim();
             const netExp = expenses.find(e =>
                 !matchedExpIds.has(e.id) &&
-                Math.abs((e.amount || 0) - netAmt) < Math.min(3, netAmt * 0.10) &&
-                Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 45 * 86400000
+                Math.abs((e.amount || 0) - netAmt) < Math.min(1, netAmt * 0.05) &&
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 7 * 86400000 &&
+                netEvidence(e)
             );
             if (netExp) {
                 pairedTxIndices.add(ia);
@@ -14914,10 +14922,15 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
         if (netAmt < 0.50) continue;
         const savedDateMs = new Date(savedMatch.date + 'T12:00:00').getTime();
         const midDateMs = Math.min(dateAMs, savedDateMs);
+        // Same name-evidence rule as the same-statement net-pair pass.
+        const debitDesc = isCredit ? savedMatch.description : txA.description;
+        const netEvidenceX = (e) => bankDescWordOverlap(debitDesc, e.description)
+            || (findBankMapping(debitDesc)?.cleanName || '').toLowerCase().trim() === (e.description || '').toLowerCase().trim();
         const netExp = expenses.find(e =>
             !matchedExpIds.has(e.id) &&
-            Math.abs((e.amount || 0) - netAmt) < Math.min(3, netAmt * 0.10) &&
-            Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 45 * 86400000
+            Math.abs((e.amount || 0) - netAmt) < Math.min(1, netAmt * 0.05) &&
+            Math.abs(new Date(e.date + 'T12:00:00').getTime() - midDateMs) <= 7 * 86400000 &&
+            netEvidenceX(e)
         );
         if (netExp) {
             pairedTxIndices.add(ia);
@@ -15337,9 +15350,11 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
                 const amtDiff = Math.abs((e.amount || 0) - txAmt);
                 const amtPct = txAmt > 0 ? amtDiff / txAmt : 1;
                 return { e, hasOverlap, amtDiff, amtPct };
-            }).filter(sc => sc.hasOverlap || sc.amtPct < 0.30 || sc.amtDiff < 15);
+            // Tight gates: the old amtDiff<15 catch-all proposed linking a
+            // 9€ MBWay to 3€/13€ purchases — noise the user has to read past.
+            }).filter(sc => sc.hasOverlap || sc.amtPct < 0.15 || sc.amtDiff < 2);
             scored.sort((a, b) => (b.hasOverlap - a.hasOverlap) || (a.amtDiff - b.amtDiff));
-            const slCandidates = scored.slice(0, 5);
+            const slCandidates = scored.slice(0, 3);
             if (slCandidates.length > 0) {
                 suggestions.push({ tx, action: 'suggest-link',
                     matchKind: isDebit ? 'expense' : 'income',
