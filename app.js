@@ -14963,11 +14963,20 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             if (cAmt <= 0 || cAmt >= dAmt) continue;
             if (Math.abs(new Date(cTx.date + 'T12:00:00').getTime() - dMs) > 7 * 86400000) continue;
             const expShare = Math.round((dAmt - cAmt) * 100) / 100;
+            // Same name-evidence rule as net-pairs: with generic statement
+            // labels, amount-only combinatorics (any credit < any debit
+            // within ±7d) fabricates reimbursement stories. The expense must
+            // share words with the debit OR the credit (e.g. "+Pneus carro"),
+            // or be the debit's learned mapping.
+            const reimbEvidence = (e) => bankDescWordOverlap(dTx.description, e.description)
+                || bankDescWordOverlap(cTx.description, e.description)
+                || (findBankMapping(dTx.description)?.cleanName || '').toLowerCase().trim() === (e.description || '').toLowerCase().trim();
             const reimExp = expenses.find(e =>
                 !matchedExpIds.has(e.id) &&
                 !e.isGrouped &&
                 Math.abs((e.amount || 0) - expShare) < 0.10 &&
-                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dMs) <= 7 * 86400000
+                Math.abs(new Date(e.date + 'T12:00:00').getTime() - dMs) <= 7 * 86400000 &&
+                reimbEvidence(e)
             );
             if (reimExp) {
                 if (!reimExp.bankValidated) matchedExpIds.add(reimExp.id);
