@@ -15259,6 +15259,24 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
+        // 1.9 — own MBWay/IPS/self-transfer, BEFORE the amount-only fixed
+        // passes: a −100€ own-number MBWay (CGD→Moey) must become a transfer,
+        // not "PPR pago"; a +200€ IPS self-credit must not mark the meal
+        // subsidy received (variable tolerance min(20€,15%) would swallow it).
+        // Strongly gated: transfer-ish description AND an own identifier
+        // (Definições → contactos próprios), so it cannot steal a legitimate
+        // fixed payment. Handles the one-sided case where only one account's
+        // statement was uploaded; two-sided pairs are consumed even earlier
+        // by extractInterAccountTransfers.
+        if (/mb\s?w(ay)?\b|transf|\btrf\b|ips\//i.test(tx.description || '') && descriptionMatchesOwnContact(tx.description)) {
+            const ownAcc = tx._acc || accountId || '';
+            suggestions.push({ tx, action: 'create-transfer',
+                transferFrom: isDebit ? ownAcc : '',
+                transferTo: isDebit ? '' : ownAcc,
+                suggestedDesc: 'MB WAY entre contas', selected: true, isOwnNumber: true });
+            return;
+        }
+
         // 2 — match fixed expense (same amount, same month, not yet paid)
         if (isDebit && txMonth) {
             const txMonthDateFE = new Date(txMonth + '-01T12:00:00');
@@ -15374,20 +15392,8 @@ function buildBankReconciliationSuggestions(transactions, accountId) {
             }
         }
 
-        // 3.95 — own MBWay/self-transfer: an MBWay/IPS/transfer line carrying
-        // one of the user's OWN identifiers (Definições → contactos próprios)
-        // is money moving between their accounts — suggest a transfer, never
-        // an expense/income. Handles the one-sided case where only one
-        // account's statement was uploaded. Real formats seen: "Trf MB WAY…",
-        // "TRF MBW 0193…", "IPS/R316…-NELSON SOUSA DI".
-        if (/mb\s?w(ay)?\b|transf|\btrf\b|ips\//i.test(tx.description || '') && descriptionMatchesOwnContact(tx.description)) {
-            const ownAcc = tx._acc || accountId || '';
-            suggestions.push({ tx, action: 'create-transfer',
-                transferFrom: isDebit ? ownAcc : '',
-                transferTo: isDebit ? '' : ownAcc,
-                suggestedDesc: 'MB WAY entre contas', selected: true, isOwnNumber: true });
-            return;
-        }
+        // (own-number/self-transfer check moved to step 1.9, before the
+        // amount-only fixed passes — see above.)
 
         // 4 — not found: suggest creating (only use mapping for category, never for name to avoid stale suggestions)
         const cat = mapping?.category || (isDebit ? guessCategoryFromDesc(tx.description) : 'rendimento');
