@@ -16013,6 +16013,56 @@ function bankSelectAll(select) {
     renderBankReconciliation();
 }
 
+// Live pre-apply projection: how each account's balance WOULD stand against
+// its statement's declared balance, given the current selection. Lets the user
+// see, before committing, whether ignoring/adding a line brings the balance
+// closer to or further from the bank — the whole point of "o saldo tem que
+// ficar parecido". Mirrors the balance effects of applyBankImportSelections.
+function projectImportBalances(globalAcc) {
+    const delta = {};
+    const add = (acc, v) => { if (acc) delta[acc] = (delta[acc] || 0) + v; };
+    // Existing record moved to targetAcc (and possibly amount-snapped): remove
+    // its old contribution, add the new one.
+    const reassign = (rec, targetAcc, isInc, action, bankAmt, correctAmount) => {
+        if (!rec || !targetAcc) return;
+        const oldAcc = rec.accountId || null;
+        const oldAmt = rec.amount || 0;
+        let newAmt = oldAmt;
+        if (action === 'validate' && bankAmt > 0) newAmt = bankAmt;
+        else if (action === 'near-match' && correctAmount) newAmt = bankAmt || oldAmt;
+        const sign = isInc ? 1 : -1;
+        if (oldAcc) add(oldAcc, -sign * oldAmt);
+        add(targetAcc, sign * newAmt);
+    };
+    bankImportSuggestions.forEach(s => {
+        if (!s.selected) return;
+        const tx = s.tx;
+        const amt = parseFloat(tx?.amount) || 0;
+        const acc = tx?._acc || globalAcc || null;
+        switch (s.action) {
+            case 'create-expense': add(acc, -amt); break;
+            case 'create-income': add(acc, amt); break;
+            case 'create-transfer': add(s.transferFrom || null, -amt); add(s.transferTo || null, amt); break;
+            case 'mark-fixed-paid': { const fe = fixedExpenses.find(f => f.id === s.matchId); add(fe?.accountId, -amt); break; }
+            case 'mark-fixed-income-received': { const fi = fixedIncomes.find(f => f.id === s.matchId); add((fi?.accountId) || acc, amt); break; }
+            case 'validate': case 'near-match': case 'validate-reimbursed': case 'net-pair': case 'validate-entry': case 'already-validated': {
+                const isInc = s.matchKind === 'income' || incomes.some(i => i.id === s.matchId);
+                const rec = (isInc ? incomes : expenses).find(r => r.id === s.matchId);
+                reassign(rec, acc, isInc, s.action, amt, s.correctAmount);
+                break;
+            }
+            case 'validate-split': (s.matchIds || []).forEach(id => { const rec = expenses.find(r => r.id === id); reassign(rec, acc, false, 'validate-split', rec?.amount, false); }); break;
+            case 'suggest-link': if (s.selectedCandidateId) { const isInc = s.matchKind === 'income'; const rec = (isInc ? incomes : expenses).find(r => r.id === s.selectedCandidateId); reassign(rec, acc, isInc, 'suggest-link', rec?.amount, false); } break;
+        }
+    });
+    return (_bankImportBalances || []).filter(b => b.accountId && isFinite(b.balance) && b.date).map(b => {
+        const projected = getAccountBalance(b.accountId, b.date) + (delta[b.accountId] || 0);
+        return { accountId: b.accountId, name: accounts.find(a => a.id === b.accountId)?.name || '?',
+            statement: b.balance, projected: Math.round(projected * 100) / 100,
+            diff: Math.round((b.balance - projected) * 100) / 100 };
+    });
+}
+
 function renderBankReconciliation() {
     const container = document.getElementById('bank-import-results');
     const summary = document.getElementById('bank-import-summary');
@@ -16030,11 +16080,21 @@ function renderBankReconciliation() {
     const selectedCount    = bankImportSuggestions.filter(s => s.selected).length;
     const selectableCount  = bankImportSuggestions.filter(s => s.action !== 'no-match').length;
 
-    if (summary) summary.innerHTML = `${_bankImportScopeNote ? `<div style="font-size:0.7rem;color:#F57C00;margin-bottom:3px"><i class="fas fa-filter"></i> ${_bankImportScopeNote}</div>` : ''}<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; ${suggestGroup.length > 0 ? `<span style="color:#F57C00;font-weight:600">${suggestGroup.length} a confirmar</span> &nbsp;·&nbsp; ` : ''}<span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
+    if (summary) {
+        // Live balance projection vs each statement's declared balance.
+        const proj = projectImportBalances(document.getElementById('bank-import-account-sel')?.value || null);
+        const projHtml = proj.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px">${proj.map(p => {
+            const ok = Math.abs(p.diff) < 0.02;
+            const col = ok ? '#2E7D32' : (Math.abs(p.diff) < 20 ? '#F57C00' : '#C62828');
+            const bg = ok ? '#E8F5E9' : (Math.abs(p.diff) < 20 ? '#FFF3E0' : '#FFEBEE');
+            return `<span style="font-size:0.66rem;padding:2px 7px;border-radius:8px;background:${bg};color:${col};font-weight:600" title="Com a tua seleção: ${formatCurrency(p.projected)} · banco: ${formatCurrency(p.statement)}">${p.name}: ${ok ? '✓ bate' : (p.diff > 0 ? 'faltam ' : 'a mais ') + formatCurrency(Math.abs(p.diff))}</span>`;
+        }).join('')}</div>` : '';
+        summary.innerHTML = `${_bankImportScopeNote ? `<div style="font-size:0.7rem;color:#F57C00;margin-bottom:3px"><i class="fas fa-filter"></i> ${_bankImportScopeNote}</div>` : ''}${projHtml}<span style="color:#2E7D32;font-weight:600">${validGroup.length} confirmados</span> &nbsp;·&nbsp; ${suggestGroup.length > 0 ? `<span style="color:#F57C00;font-weight:600">${suggestGroup.length} a confirmar</span> &nbsp;·&nbsp; ` : ''}<span style="color:#E65100;font-weight:600">${createGroup.length} novos</span> &nbsp;·&nbsp; <span style="color:#757575">${noMatchGroup.length} sem correspondência</span>
         <span style="margin-left:8px;white-space:nowrap">
             <button onclick="bankSelectAll(true)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer" title="Selecionar todos">☑ todos</button>
             <button onclick="bankSelectAll(false)" style="font-size:0.6rem;padding:1px 6px;border:1px solid #B0BEC5;border-radius:6px;background:#ECEFF1;color:#546E7A;cursor:pointer;margin-left:3px" title="Desselecionar todos">☐ nenhum</button>
         </span>`;
+    }
     if (applyLabel) applyLabel.textContent = `Aplicar ${selectedCount} selecionada${selectedCount !== 1 ? 's' : ''}`;
 
     const renderRow = (s, i) => {
